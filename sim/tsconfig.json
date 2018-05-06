@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "target": "es5",
+        "strict": true,
+        "declaration": true,
+        "out": "../built/sim.js",
+        "rootDir": "."
+    }
+}

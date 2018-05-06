@@ -1,0 +1,17 @@
+{
+    "defaultSeverity": "error",
+    "extends": [
+        "tslint:recommended"
+    ],
+    "rules": {
+        "member-access": [
+            true,
+            "no-public"
+        ],
+        "no-empty": false,
+        "no-namespace": false,
+        "comment-format": false,
+        "max-classes-per-file": false,
+        "max-line-length": [ true, 170 ]
+    }
+}

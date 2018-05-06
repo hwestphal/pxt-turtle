@@ -1,0 +1,34 @@
+{
+    "id": "turtle",
+    "name": "Turtle Editor",
+    "corepkg": "core",
+    "bundleddirs": [
+        "libs/core"
+    ],
+    "runtime": {
+        "loopsBlocks": true,
+        "logicBlocks": true,
+        "variablesBlocks": true,
+        "mathBlocks": true,
+        "functionBlocks": true,
+        "listsBlocks": true,
+        "textBlocks": false,
+        "onStartColor": "#f48942",
+        "onStartUnDeletable": true
+    },
+    "simulator": {
+        "autoRun": true,
+        "stopOnChange": true,
+        "hideFullscreen": true,
+        "aspectRatio": 1
+    },
+    "appTheme": {
+        "availableLocales": [
+            "en",
+            "de"
+        ],
+        "selectLanguage": true,
+        "docMenu": [],
+        "monacoToolbox": true
+    }
+}

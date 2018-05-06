@@ -1,0 +1,18 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "rm -rf built/ libs/core/built && pxt staticpkg",
+    "start": "rm -rf built/ libs/core/built projects/ && pxt serve",
+    "start:static": "http-server -s -c-1 built/packaged"
+  },
+  "devDependencies": {
+    "@types/bluebird": "^2.0.33",
+    "@types/easeljs": "^1.0.0",
+    "@types/soundjs": "^0.6.27",
+    "http-server": "^0.11.1",
+    "pxt": "^0.4.0",
+    "pxt-core": "^3.12.17",
+    "tslint": "^5.10.0",
+    "typescript": "2.6.2"
+  }
+}

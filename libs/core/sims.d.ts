@@ -1,0 +1,135 @@
+// Auto-generated from simulator. Do not edit.
+declare namespace turtle {
+    /**
+     * Move the turtle forward
+     * @param distance distance to move, eg: 10
+     */
+    //% weight=90
+    //% blockId=turtleForward block="forward %distance"
+    //% shim=turtle::forwardAsync promise
+    function forward(distance: number): void;
+
+    /**
+     * Move the turtle backward
+     * @param distance distance to move, eg: 10
+     */
+    //% weight=85
+    //% blockId=turtleBackward block="backward %distance"
+    //% shim=turtle::backwardAsync promise
+    function backward(distance: number): void;
+
+    /**
+     * Turn the turtle to the right
+     * @param angle degrees to turn, eg: 45
+     */
+    //% weight=80
+    //% blockId=turtleTurnRight block="turn right by %angle degrees"
+    //% angle.min=0 angle.max=360
+    //% shim=turtle::turnRightAsync promise
+    function turnRight(angle: number): void;
+
+    /**
+     * Turn the turtle to the left
+     * @param angle degrees to turn, eg: 45
+     */
+    //% weight=75
+    //% blockId=turtleTurnLeft block="turn left by %angle degrees"
+    //% angle.min=0 angle.max=360
+    //% shim=turtle::turnLeftAsync promise
+    function turnLeft(angle: number): void;
+
+    /**
+     * Pull the pen up
+     */
+    //% weight=70
+    //% blockId=turtlePenUp block="pull the pen up"
+    //% shim=turtle::penUp
+    function penUp(): void;
+
+    /**
+     * Pull the pen down
+     */
+    //% weight=65
+    //% blockId=turtlePenDown block="pull the pen down"
+    //% shim=turtle::penDown
+    function penDown(): void;
+
+    /**
+     * Move the turtle to the origin and set heading to 0.
+     */
+    //% weight=60
+    //% blockId=turtleHome block="back to home"
+    //% shim=turtle::homeAsync promise
+    function home(): void;
+
+    /**
+     * X position of the turtle
+     */
+    //% weight=55
+    //% blockId=turtleX block="x position"
+    //% shim=turtle::x
+    function x(): number;
+
+    /**
+     * Y position of the turtle
+     */
+    //% weight=54
+    //% blockId=turtleY block="y position"
+    //% shim=turtle::y
+    function y(): number;
+
+    /**
+     * Heading of the turtle
+     */
+    //% weight=53
+    //% blockId=turtleHeading block="heading"
+    //% shim=turtle::heading
+    function heading(): number;
+
+    /**
+     * Set the speed of the turtle
+     * @param speed turtle speed, eg: Speed.Fast
+     */
+    //% weight=40
+    //% blockId=turtleSpeed block="set speed to %speed"
+    //% shim=turtle::setSpeed
+    function setSpeed(speed: Speed): void;
+
+    /**
+     * Set the pen color
+     * @param color pen color, eg: #0080ff
+     */
+    //% weight=50
+    //% blockId="turtlePenColor" block="set pen color to %color=colorNumberPicker"
+    //% shim=turtle::setPenColor
+    function setPenColor(color: number): void;
+
+    /**
+     * Set the pen size
+     * @param size pen size, eg: 3
+     */
+    //% weight=45
+    //% blockId="turtlePenSize" block="set pen size to %size"
+    //% size.min=1 size.max=10
+    //% shim=turtle::setPenSize
+    function setPenSize(size: number): void;
+
+    /**
+     * Show turtle
+     */
+    //% weight=35
+    //% blockId=turtleShow block="show turtle"
+    //% shim=turtle::show
+    function show(): void;
+
+    /**
+     * Hide turtle
+     */
+    //% weight=30
+    //% blockId=turtleHide block="hide turtle"
+    //% shim=turtle::hide
+    function hide(): void;
+
+}
+
+// Auto-generated. Do not edit. Really.
