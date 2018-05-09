@@ -17,7 +17,7 @@
     "@types/createjs-lib" "*"
     "@types/tweenjs" "*"
 
-"@types/preloadjs@*":
+"@types/preloadjs@*", "@types/preloadjs@^0.6.32":
   version "0.6.32"
   resolved "https://registry.yarnpkg.com/@types/preloadjs/-/preloadjs-0.6.32.tgz#12cff7c7f92e3838a780d438ce49c8cec981830d"
   dependencies:
@@ -30,7 +30,7 @@
     "@types/createjs-lib" "*"
     "@types/preloadjs" "*"
 
-"@types/tweenjs@*":
+"@types/tweenjs@*", "@types/tweenjs@^0.6.27":
   version "0.6.27"
   resolved "https://registry.yarnpkg.com/@types/tweenjs/-/tweenjs-0.6.27.tgz#8dd8acc7f4abee8f92b7692bae76d9ce8f1dd607"
   dependencies:

@@ -6,36 +6,35 @@ namespace pxsim {
         runtime.board = new TurtleBoard();
     };
 
-    export function board(): TurtleBoard {
+    export function board() {
         return runtime.board as TurtleBoard;
     }
 
-    const delays = {
-        [Speed.Normal]: 250,
-        [Speed.Slow]: 500,
-        [Speed.Fast]: 100,
-        [Speed.Fastest]: 0,
-    };
-
     export class TurtleBoard extends BaseBoard {
+        private static readonly delays = {
+            [Speed.Normal]: 15,
+            [Speed.Slow]: 30,
+            [Speed.Fast]: 1,
+            [Speed.Fastest]: 0,
+        };
+
         x = 0;
         y = 0;
         heading = 0;
         pen = true;
-        penSize = 1;
+        penSize = 2;
         turtle = true;
 
         private readonly stage: createjs.Stage;
         private readonly xOffset: number;
         private readonly yOffset: number;
-        private delay = delays[Speed.Normal];
-        private color = "#000000";
+        private delay = TurtleBoard.delays[Speed.Normal];
+        private color = "#ff0000";
 
         constructor() {
             super();
             this.stage = new createjs.Stage("area");
-            // clean canvas
-            this.stage.update();
+            createjs.Ticker.addEventListener("tick", this.stage);
             const canvas = this.stage.canvas as HTMLCanvasElement;
             this.xOffset = canvas.width / 2;
             this.yOffset = canvas.height / 2;
@@ -44,21 +43,32 @@ namespace pxsim {
         async initAsync(msg: SimulatorRunMessage) {
         }
 
-        async move(distance: number) {
-            const newX = this.x + distance * Math.sin(this.heading * Math.PI / 180);
-            const newY = this.y + distance * Math.cos(this.heading * Math.PI / 180);
+        kill() {
+            createjs.Ticker.removeEventListener("tick", this.stage as any);
+        }
+
+        move(distance: number) {
+            const x = this.x;
+            const y = this.y;
+            this.x += distance * Math.sin(this.heading * Math.PI / 180);
+            this.y += distance * Math.cos(this.heading * Math.PI / 180);
             if (this.pen) {
-                const line = new createjs.Shape();
-                this.stage.addChild(line);
-                const g = line.graphics;
-                g.setStrokeStyle(this.penSize).beginStroke(this.color);
-                g.moveTo(this.xOffset + this.x, this.yOffset - this.y);
-                g.lineTo(this.xOffset + newX, this.yOffset - newY);
-                g.endStroke();
-                this.stage.update();
+                const g = this.stage.addChild(new createjs.Shape())
+                    .graphics
+                    .setStrokeStyle(this.penSize)
+                    .beginStroke(this.color)
+                    .moveTo(this.xOffset + x, this.yOffset - y);
+                if (this.delay > 0) {
+                    const cmd = g.lineTo(this.xOffset + x, this.yOffset - y).command;
+                    return new Promise<void>((resolve, reject) => {
+                        createjs.Tween.get(cmd)
+                            .to({ x: this.xOffset + this.x, y: this.yOffset - this.y }, this.delay * Math.abs(distance))
+                            .call(resolve);
+                    });
+                }
+                g.lineTo(this.xOffset + this.x, this.yOffset - this.y).endStroke();
             }
-            this.x = newX;
-            this.y = newY;
+            return Promise.resolve();
         }
 
         async turn(angle: number) {
@@ -71,7 +81,7 @@ namespace pxsim {
         }
 
         set speed(s: Speed) {
-            this.delay = delays[s];
+            this.delay = TurtleBoard.delays[s];
         }
 
         set penColor(color: number) {
