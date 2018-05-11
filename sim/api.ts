@@ -6,7 +6,7 @@ namespace pxsim.turtle {
      * @param distance distance to move, eg: 50
      */
     //% weight=90
-    //% blockId=turtleForward block="forward %distance"
+    //% blockId=turtleForward block="forward %distance steps"
     export async function forwardAsync(distance: number) {
         await board().move(distance);
     }
@@ -16,7 +16,7 @@ namespace pxsim.turtle {
      * @param distance distance to move, eg: 50
      */
     //% weight=85
-    //% blockId=turtleBackward block="backward %distance"
+    //% blockId=turtleBackward block="backward %distance steps"
     export async function backwardAsync(distance: number) {
         await board().move(-distance);
     }

@@ -5,7 +5,7 @@ declare namespace turtle {
      * @param distance distance to move, eg: 50
      */
     //% weight=90
-    //% blockId=turtleForward block="forward %distance"
+    //% blockId=turtleForward block="forward %distance steps"
     //% shim=turtle::forwardAsync promise
     function forward(distance: number): void;
 
@@ -14,7 +14,7 @@ declare namespace turtle {
      * @param distance distance to move, eg: 50
      */
     //% weight=85
-    //% blockId=turtleBackward block="backward %distance"
+    //% blockId=turtleBackward block="backward %distance steps"
     //% shim=turtle::backwardAsync promise
     function backward(distance: number): void;
 

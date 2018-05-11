@@ -5,7 +5,8 @@
         "pxt-helpers.ts",
         "enums.d.ts",
         "sims.d.ts",
-        "ns.ts"
+        "ns.ts",
+        "_locales/de/core-strings.json"
     ],
     "testFiles": [],
     "dependencies": {}

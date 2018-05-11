@@ -1,0 +1,21 @@
+{
+    "Speed.Fastest|block": "am schnellsten",
+    "Speed.Fast|block": "schnell",
+    "Speed.Normal|block": "normal",
+    "Speed.Slow|block": "langsam",
+    "turtle.backward|block": "rückwärts %distance Schritte",
+    "turtle.forward|block": "vorwärts %distance Schritte",
+    "turtle.heading|block": "Richtung",
+    "turtle.hide|block": "verstecke Turtle",
+    "turtle.home|block": "zurück nach Hause",
+    "turtle.penDown|block": "Stift nach oben",
+    "turtle.penUp|block": "Stift nach unten",
+    "turtle.setPenColor|block": "Stiftfarbe auf %color=colorNumberPicker setzen",
+    "turtle.setPenSize|block": "Stiftgröße auf %size setzen",
+    "turtle.setSpeed|block": "Geschwindigkeit auf %speed setzen",
+    "turtle.show|block": "zeige Turtle",
+    "turtle.turnLeft|block": "nach links drehen um %angle Grad",
+    "turtle.turnRight|block": "nach rechts drehen um %angle Grad",
+    "turtle.x|block": "X-Position",
+    "turtle.y|block": "Y-Position"
+}
