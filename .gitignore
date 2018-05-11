@@ -4,3 +4,4 @@ built/
 !/libs/core/_locales/de/
 /projects/
 *.log
+/gh-pages/
