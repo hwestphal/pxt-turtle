@@ -11,13 +11,6 @@ namespace pxsim {
     }
 
     export class TurtleBoard extends BaseBoard {
-        private static readonly delays = {
-            [Speed.Normal]: 15,
-            [Speed.Slow]: 30,
-            [Speed.Fast]: 1,
-            [Speed.Fastest]: 0,
-        };
-
         x = 0;
         y = 0;
         heading = 0;
@@ -27,7 +20,7 @@ namespace pxsim {
         private readonly stage: createjs.Stage;
         private readonly xOffset: number;
         private readonly yOffset: number;
-        private delay = TurtleBoard.delays[Speed.Normal];
+        private delay = delays[Speed.Normal];
         private color = "#ff0000";
         private turtleSprite?: createjs.Sprite;
 
@@ -45,11 +38,9 @@ namespace pxsim {
             sprite.x = this.xOffset;
             sprite.y = this.yOffset;
             sprite.paused = true;
-            sprite.visible = false;
             this.turtleSprite = this.stage.addChild(sprite);
             // avoid flickering on start
             await Promise.delay(1000);
-            sprite.visible = true;
         }
 
         kill() {
@@ -92,13 +83,34 @@ namespace pxsim {
             return Promise.resolve();
         }
 
-        async turn(angle: number) {
+        turn(angle: number) {
             const h = (this.heading + angle) % 360;
-            this.heading = h > 180 ? h - 360 : h <= -180 ? h + 360 : h;
+            const heading = this.heading;
+            this.heading = h < 0 ? h + 360 : h;
+            if (this.turtleSprite!.visible && this.delay > 0) {
+                this.turtleSprite!.play();
+                return new Promise<void>((resolve, reject) => {
+                    createjs.Tween.get(this.turtleSprite!)
+                        .to({ rotation: heading + angle }, this.delay * 0.5 * Math.abs(angle))
+                        .call(() => {
+                            this.turtleSprite!.gotoAndStop(0);
+                            this.turtleSprite!.rotation = this.heading;
+                            resolve();
+                        });
+                });
+            }
             this.turtleSprite!.rotation = this.heading;
+            return Promise.resolve();
         }
 
         async home() {
+            const pen = this.pen;
+            this.pen = false;
+            const angle = Math.atan2(this.x, this.y) * 180 / Math.PI;
+            await this.turn(normalize(angle - this.heading - 180));
+            await this.move(Math.sqrt(this.x * this.x + this.y * this.y));
+            await this.turn(normalize(-this.heading));
+            this.pen = pen;
             this.x = this.y = this.heading = 0;
             this.turtleSprite!.x = this.xOffset;
             this.turtleSprite!.y = this.yOffset;
@@ -106,7 +118,7 @@ namespace pxsim {
         }
 
         set speed(s: Speed) {
-            this.delay = TurtleBoard.delays[s];
+            this.delay = delays[s];
         }
 
         set penColor(color: number) {
@@ -117,5 +129,17 @@ namespace pxsim {
             this.turtleSprite!.visible = visible;
         }
     }
+
+    function normalize(a: number) {
+        a %= 360;
+        return a > 180 ? a - 360 : a <= -180 ? a + 360 : a;
+    }
+
+    const delays = {
+        [Speed.Normal]: 15,
+        [Speed.Slow]: 30,
+        [Speed.Fast]: 1,
+        [Speed.Fastest]: 0,
+    };
 
 }

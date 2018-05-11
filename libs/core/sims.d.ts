@@ -2,7 +2,7 @@
 declare namespace turtle {
     /**
      * Move the turtle forward
-     * @param distance distance to move, eg: 10
+     * @param distance distance to move, eg: 50
      */
     //% weight=90
     //% blockId=turtleForward block="forward %distance"
@@ -11,7 +11,7 @@ declare namespace turtle {
 
     /**
      * Move the turtle backward
-     * @param distance distance to move, eg: 10
+     * @param distance distance to move, eg: 50
      */
     //% weight=85
     //% blockId=turtleBackward block="backward %distance"
@@ -20,7 +20,7 @@ declare namespace turtle {
 
     /**
      * Turn the turtle to the right
-     * @param angle degrees to turn, eg: 45
+     * @param angle degrees to turn, eg: 90
      */
     //% weight=80
     //% blockId=turtleTurnRight block="turn right by %angle degrees"
@@ -30,7 +30,7 @@ declare namespace turtle {
 
     /**
      * Turn the turtle to the left
-     * @param angle degrees to turn, eg: 45
+     * @param angle degrees to turn, eg: 90
      */
     //% weight=75
     //% blockId=turtleTurnLeft block="turn left by %angle degrees"
@@ -117,7 +117,7 @@ declare namespace turtle {
     /**
      * Show turtle
      */
-    //% weight=35
+    //% weight=30
     //% blockId=turtleShow block="show turtle"
     //% shim=turtle::show
     function show(): void;
@@ -125,7 +125,7 @@ declare namespace turtle {
     /**
      * Hide turtle
      */
-    //% weight=30
+    //% weight=35
     //% blockId=turtleHide block="hide turtle"
     //% shim=turtle::hide
     function hide(): void;

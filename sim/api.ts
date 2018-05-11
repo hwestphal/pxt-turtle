@@ -3,7 +3,7 @@
 namespace pxsim.turtle {
     /**
      * Move the turtle forward
-     * @param distance distance to move, eg: 10
+     * @param distance distance to move, eg: 50
      */
     //% weight=90
     //% blockId=turtleForward block="forward %distance"
@@ -13,7 +13,7 @@ namespace pxsim.turtle {
 
     /**
      * Move the turtle backward
-     * @param distance distance to move, eg: 10
+     * @param distance distance to move, eg: 50
      */
     //% weight=85
     //% blockId=turtleBackward block="backward %distance"
@@ -23,7 +23,7 @@ namespace pxsim.turtle {
 
     /**
      * Turn the turtle to the right
-     * @param angle degrees to turn, eg: 45
+     * @param angle degrees to turn, eg: 90
      */
     //% weight=80
     //% blockId=turtleTurnRight block="turn right by %angle degrees"
@@ -34,12 +34,12 @@ namespace pxsim.turtle {
 
     /**
      * Turn the turtle to the left
-     * @param angle degrees to turn, eg: 45
+     * @param angle degrees to turn, eg: 90
      */
     //% weight=75
     //% blockId=turtleTurnLeft block="turn left by %angle degrees"
     //% angle.min=0 angle.max=360
-    export async function turnLeftAsync(angle: number) {
+    export async function turnLeftAsync(angle: number = 90) {
         await board().turn(-angle);
     }
 
@@ -131,7 +131,7 @@ namespace pxsim.turtle {
     /**
      * Show turtle
      */
-    //% weight=35
+    //% weight=30
     //% blockId=turtleShow block="show turtle"
     export function show() {
         board().turtle = true;
@@ -140,7 +140,7 @@ namespace pxsim.turtle {
     /**
      * Hide turtle
      */
-    //% weight=30
+    //% weight=35
     //% blockId=turtleHide block="hide turtle"
     export function hide() {
         board().turtle = false;
