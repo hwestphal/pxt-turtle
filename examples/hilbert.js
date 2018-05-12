@@ -8,10 +8,9 @@ function goto() {
     turtle.penUp()
     turtle.turnRight(90)
     turtle.forward(x)
-    turtle.turnRight(90)
+    turtle.turnLeft(90)
     turtle.forward(y)
     turtle.penDown()
-    turtle.turnRight(180)
 }
 function ha() {
     if (d > 0) {
@@ -62,7 +61,7 @@ function hb() {
 turtle.hide()
 turtle.setSpeed(Speed.Fastest)
 x = 75
-y = 75
+y = -75
 goto()
 s = 5
 a = 90
