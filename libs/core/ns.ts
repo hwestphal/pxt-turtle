@@ -14,3 +14,11 @@ namespace turtle {
     }
 
 }
+
+declare namespace console {
+    /**
+     * Print out message in browser console
+     */
+    //% shim=log
+    function log(msg: string): void;
+}

@@ -144,4 +144,9 @@ namespace pxsim {
         [Speed.Fastest]: 0,
     };
 
+    export function log(msg: string) {
+        // tslint:disable-next-line:no-console
+        console.log(`%c${new Date().toISOString()}`, "color:blue; font-style: italic", msg);
+    }
+
 }
