@@ -60,10 +60,10 @@ function hb() {
 }
 turtle.hide()
 turtle.setSpeed(Speed.Fastest)
-x = 75
-y = -75
+x = 108
+y = -108
 goto()
-s = 5
+s = 7
 a = 90
 d = 5
 ha()
