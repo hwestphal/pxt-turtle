@@ -62,7 +62,7 @@ namespace pxsim.turtle {
     }
 
     /**
-     * Move the turtle to the origin and set heading to 0.
+     * Move the turtle to the origin and set heading to 0
      */
     //% weight=60
     //% blockId=turtleHome block="back to home"
@@ -144,6 +144,26 @@ namespace pxsim.turtle {
     //% blockId=turtleHide block="hide turtle"
     export function hide() {
         board().turtle = false;
+    }
+
+    /**
+     * Print a text and move forward
+     * @param text text to print, eg: "Hello World"
+     */
+    //% weight=20
+    //% blockId=turtlePrintAndMove block="print %text and move forward"
+    export async function printAndMoveAsync(text: string) {
+        await board().print(text, true);
+    }
+
+    /**
+     * Print a text and stand still
+     * @param text text to print, eg: "Hello World"
+     */
+    //% weight=25
+    //% blockId=turtlePrint block="print %text"
+    export async function printAsync(text: string) {
+        await board().print(text, false);
     }
 
 }

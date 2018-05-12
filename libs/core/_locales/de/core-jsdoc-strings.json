@@ -1,0 +1,19 @@
+{
+    "turtle.backward": "Bewege die Turtle rückwärts",
+    "turtle.forward": "Bewege die Turtle vorwärts",
+    "turtle.heading": "Richtung der Turtle",
+    "turtle.hide": "Verstecke die Turtle",
+    "turtle.home": "Bewege die Turtle zum Ursprung und setze die Richtung auf 0",
+    "turtle.penDown": "Nehme den Stift nach unten",
+    "turtle.penUp": "Nehme den Stift nach oben",
+    "turtle.print": "Drucke einen Text und bleibe auf der Stelle stehen",
+    "turtle.printAndMove": "Drucke einen Text und bewege die Turtle vorwärts",
+    "turtle.setPenColor": "Setze die Stiftfarbe",
+    "turtle.setPenSize": "Setze die Stiftgröße",
+    "turtle.setSpeed": "Setze die Geschwindigkeit der Turtle",
+    "turtle.show": "Zeige die Turtle",
+    "turtle.turnLeft": "Drehe die Turtle nach links",
+    "turtle.turnRight": "Drehe die Turtle nach rechts",
+    "turtle.x": "X-Position der Turtle",
+    "turtle.y": "Y-Position der Turtle"
+}

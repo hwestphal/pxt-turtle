@@ -12,7 +12,7 @@
         "mathBlocks": true,
         "functionBlocks": true,
         "listsBlocks": true,
-        "textBlocks": false,
+        "textBlocks": true,
         "onStartColor": "#f48942",
         "onStartUnDeletable": true
     },

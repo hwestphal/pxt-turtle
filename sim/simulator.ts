@@ -47,6 +47,18 @@ namespace pxsim {
             createjs.Ticker.removeEventListener("tick", this.stage as any);
         }
 
+        set speed(s: Speed) {
+            this.delay = delays[s];
+        }
+
+        set penColor(color: number) {
+            this.color = `#${("00000" + color.toString(16)).substr(-6)}`;
+        }
+
+        set turtle(visible: boolean) {
+            this.turtleSprite!.visible = visible;
+        }
+
         move(distance: number) {
             const x = this.x;
             const y = this.y;
@@ -61,7 +73,7 @@ namespace pxsim {
                     .setStrokeStyle(this.penSize)
                     .beginStroke(this.color)
                     .moveTo(this.xOffset + x, this.yOffset - y);
-                this.stage.setChildIndex(this.turtleSprite!, this.stage.numChildren - 1);
+                this.turtleToFront();
                 if (this.delay > 0) {
                     const cmd = g.lineTo(this.xOffset + x, this.yOffset - y).command;
                     const duration = this.delay * Math.abs(distance);
@@ -119,17 +131,25 @@ namespace pxsim {
             this.turtleSprite!.rotation = 0;
         }
 
-        set speed(s: Speed) {
-            this.delay = delays[s];
+        async print(text: string, move: boolean) {
+            const t = this.stage.addChild(new createjs.Text(text, `${8 + this.penSize * 2}px monospace`, this.color));
+            t.x = this.xOffset + this.x;
+            t.y = this.yOffset - this.y;
+            t.rotation = this.heading - 90;
+            t.textBaseline = "middle";
+            this.turtleToFront();
+            if (move) {
+                const pen = this.pen;
+                this.pen = false;
+                await this.move(t.getBounds().width);
+                this.pen = pen;
+            }
         }
 
-        set penColor(color: number) {
-            this.color = `#${("00000" + color.toString(16)).substr(-6)}`;
+        private turtleToFront() {
+            this.stage.setChildIndex(this.turtleSprite!, this.stage.numChildren - 1);
         }
 
-        set turtle(visible: boolean) {
-            this.turtleSprite!.visible = visible;
-        }
     }
 
     function normalize(a: number) {
