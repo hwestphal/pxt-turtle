@@ -115,20 +115,22 @@ namespace pxsim {
             return Promise.resolve();
         }
 
-        async home() {
-            if (this.x !== 0 && this.y !== 0) {
+        async moveTo(nx: number, ny: number, nh: number) {
+            if (this.x !== nx || this.y !== ny) {
                 const pen = this.pen;
                 this.pen = false;
-                const angle = Math.atan2(this.x, this.y) * 180 / Math.PI;
+                const angle = Math.atan2(this.x - nx, this.y - ny) * 180 / Math.PI;
                 await this.turn(normalize(angle - this.heading - 180));
-                await this.move(Math.sqrt(this.x * this.x + this.y * this.y));
+                await this.move(Math.sqrt((this.x - nx) ** 2 + (this.y - ny) ** 2));
                 this.pen = pen;
             }
-            await this.turn(normalize(-this.heading));
-            this.x = this.y = this.heading = 0;
-            this.turtleSprite!.x = this.xOffset;
-            this.turtleSprite!.y = this.yOffset;
-            this.turtleSprite!.rotation = 0;
+            await this.turn(normalize(nh - this.heading));
+            this.x = nx;
+            this.y = ny;
+            this.heading = nh;
+            this.turtleSprite!.x = this.xOffset + nx;
+            this.turtleSprite!.y = this.yOffset - ny;
+            this.turtleSprite!.rotation = nh;
         }
 
         async print(text: string, move: boolean) {

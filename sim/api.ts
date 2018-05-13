@@ -67,7 +67,7 @@ namespace pxsim.turtle {
     //% weight=60
     //% blockId=turtleHome block="back to home"
     export async function homeAsync() {
-        await board().home();
+        await board().moveTo(0, 0, 0);
     }
 
     /**
@@ -129,7 +129,7 @@ namespace pxsim.turtle {
     }
 
     /**
-     * Show turtle
+     * Show the turtle
      */
     //% weight=30
     //% blockId=turtleShow block="show turtle"
@@ -138,12 +138,23 @@ namespace pxsim.turtle {
     }
 
     /**
-     * Hide turtle
+     * Hide the turtle
      */
     //% weight=35
     //% blockId=turtleHide block="hide turtle"
     export function hide() {
         board().turtle = false;
+    }
+
+    /**
+     * Move the turtle to the given position
+     * @param xpos x position
+     * @param ypos y position
+     */
+    //% weight=29
+    //% blockId=turtleGoto block="goto x=%xpos and y=%ypos"
+    export async function gotoAsync(xpos: number, ypos: number) {
+        await board().moveTo(xpos, ypos, board().heading);
     }
 
     /**

@@ -1,6 +1,7 @@
 {
     "turtle.backward": "Bewege die Turtle rückwärts",
     "turtle.forward": "Bewege die Turtle vorwärts",
+    "turtle.goto": "Bewege die Turtle zu der angegebenen Position",
     "turtle.heading": "Richtung der Turtle",
     "turtle.hide": "Verstecke die Turtle",
     "turtle.home": "Bewege die Turtle zum Ursprung und setze die Richtung auf 0",

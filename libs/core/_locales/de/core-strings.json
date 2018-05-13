@@ -5,6 +5,7 @@
     "Speed.Slow|block": "langsam",
     "turtle.backward|block": "rückwärts %distance Schritte",
     "turtle.forward|block": "vorwärts %distance Schritte",
+    "turtle.goto|block": "gehe zu x=%xpos und y=%ypos",
     "turtle.heading|block": "Richtung",
     "turtle.hide|block": "verstecke Turtle",
     "turtle.home|block": "zurück nach Hause",

@@ -115,7 +115,7 @@ declare namespace turtle {
     function setPenSize(size: number): void;
 
     /**
-     * Show turtle
+     * Show the turtle
      */
     //% weight=30
     //% blockId=turtleShow block="show turtle"
@@ -123,12 +123,22 @@ declare namespace turtle {
     function show(): void;
 
     /**
-     * Hide turtle
+     * Hide the turtle
      */
     //% weight=35
     //% blockId=turtleHide block="hide turtle"
     //% shim=turtle::hide
     function hide(): void;
+
+    /**
+     * Move the turtle to the given position
+     * @param xpos x position
+     * @param ypos y position
+     */
+    //% weight=29
+    //% blockId=turtleGoto block="goto x=%xpos and y=%ypos"
+    //% shim=turtle::gotoAsync promise
+    function goto(xpos: number, ypos: number): void;
 
     /**
      * Print a text and move forward
