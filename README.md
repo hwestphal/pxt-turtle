@@ -20,6 +20,37 @@
 ### [Hilbert Curve](examples/hilbert.js) ###
 ![Hilbert Curve](examples/hilbert.png)
 
+## API ##
+
+    declare namespace turtle {
+        function forward(distance: number): void;
+        function backward(distance: number): void;
+        function turnRight(angle: number): void;
+        function turnLeft(angle: number): void;
+        function penUp(): void;
+        function penDown(): void;
+        function home(): void;
+        function x(): number;
+        function y(): number;
+        function heading(): number;
+        function setSpeed(speed: Speed): void;
+        function setPenColor(color: number): void;
+        function setPenSize(size: number): void;
+        function show(): void;
+        function hide(): void;
+        function goto(xpos: number, ypos: number): void;
+        function printAndMove(text: string): void;
+        function print(text: string): void;
+    }
+
+    declare const enum Speed {
+        Slow, Normal, Fast, Fastest
+    }
+
+    declare namespace console {
+        function log(msg: string): void;
+    }
+
 ## How to build ##
 *pxt-turtle* uses [Yarn](https://yarnpkg.com/) for dependency management. To install the needed packages, simply execute `yarn` in the project root folder.
 

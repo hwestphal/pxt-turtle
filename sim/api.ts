@@ -39,7 +39,7 @@ namespace pxsim.turtle {
     //% weight=75
     //% blockId=turtleTurnLeft block="turn left by %angle degrees"
     //% angle.min=0 angle.max=360
-    export async function turnLeftAsync(angle: number = 90) {
+    export async function turnLeftAsync(angle: number) {
         await board().turn(-angle);
     }
 
