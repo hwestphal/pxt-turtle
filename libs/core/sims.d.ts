@@ -97,7 +97,7 @@ declare namespace turtle {
 
     /**
      * Set the pen color
-     * @param color pen color, eg: #0080ff
+     * @param color pen color, eg: 0x0080ff
      */
     //% weight=50
     //% blockId="turtlePenColor" block="set pen color to %color=colorNumberPicker"
