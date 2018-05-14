@@ -17,8 +17,8 @@
 ### [Tree](examples/tree.js) ###
 ![Tree](examples/tree.png)
 
-### [Hilbert Curve](examples/hilbert.js) ###
-![Hilbert Curve](examples/hilbert.png)
+### [Hilbert](examples/hilbert.js) and [Koch](examples/koch.js) curves ###
+![Hilbert Curve](examples/hilbert.png) ![Koch Curve](examples/koch.png)
 
 ## API ##
 
