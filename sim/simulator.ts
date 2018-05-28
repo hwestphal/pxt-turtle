@@ -31,6 +31,8 @@ namespace pxsim {
             const canvas = this.stage.canvas as HTMLCanvasElement;
             this.xOffset = canvas.width / 2;
             this.yOffset = canvas.height / 2;
+            const rect = this.stage.addChild(new createjs.Shape());
+            rect.graphics.beginFill("white").rect(0, 0, canvas.width, canvas.height);
         }
 
         async initAsync(msg: SimulatorRunMessage) {
