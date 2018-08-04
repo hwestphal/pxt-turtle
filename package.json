@@ -1,5 +1,6 @@
 {
   "private": true,
+  "version": "1.0.0",
   "scripts": {
     "build": "rm -rf built/ libs/core/built && pxt staticpkg",
     "start": "rm -rf built/ libs/core/built projects/ && pxt serve",
