@@ -100,7 +100,7 @@ declare namespace turtle {
      * @param color pen color, eg: 0x0080ff
      */
     //% weight=50
-    //% blockId="turtlePenColor" block="set pen color to %color=colorNumberPicker"
+    //% blockId="turtlePenColor" block="set pen color to %color=colorPicker"
     //% shim=turtle::setPenColor
     function setPenColor(color: number): void;
 
