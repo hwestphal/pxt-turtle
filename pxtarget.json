@@ -1,6 +1,6 @@
 {
-    "id": "io.github.hwestphal.turtle",
-    "name": "Turtle Editor",
+    "id": "turtle",
+    "name": "Turtle",
     "corepkg": "core",
     "bundleddirs": [
         "libs/core"
