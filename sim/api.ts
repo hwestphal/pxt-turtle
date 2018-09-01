@@ -109,10 +109,10 @@ namespace pxsim.turtle {
 
     /**
      * Set the pen color
-     * @param color pen color, eg: 0x0080ff
+     * @param color pen color, eg: 0x007fff
      */
     //% weight=50
-    //% blockId="turtlePenColor" block="set pen color to %color=colorPicker"
+    //% blockId="turtlePenColor" block="set pen color to %color=colorNumberPicker"
     export function setPenColor(color: number) {
         board().penColor = color;
     }
