@@ -3,7 +3,16 @@
     "Speed.Fast|block": "schnell",
     "Speed.Normal|block": "normal",
     "Speed.Slow|block": "langsam",
+    "time.day|block": "Tag von %ts",
+    "time.hours|block": "Stunden von %ts",
+    "time.minutes|block": "Minuten von %ts",
+    "time.month|block": "Monat von %ts",
+    "time.now|block": "aktuelles Datum und Uhrzeit",
+    "time.seconds|block": "Sekunden von %ts",
+    "time.wait|block": "warte für %delay Sekunden",
+    "time.year|block": "Jahr von %ts",
     "turtle.backward|block": "rückwärts %distance Schritte",
+    "turtle.clear|block": "lösche die Zeichenfläche",
     "turtle.forward|block": "vorwärts %distance Schritte",
     "turtle.goto|block": "gehe zu x=%xpos und y=%ypos",
     "turtle.heading|block": "Richtung",
@@ -20,5 +29,6 @@
     "turtle.turnLeft|block": "nach links drehen um %angle Grad",
     "turtle.turnRight|block": "nach rechts drehen um %angle Grad",
     "turtle.x|block": "X-Position",
-    "turtle.y|block": "Y-Position"
+    "turtle.y|block": "Y-Position",
+    "{id:category}Time": "Zeit"
 }

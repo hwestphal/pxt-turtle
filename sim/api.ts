@@ -177,4 +177,101 @@ namespace pxsim.turtle {
         await board().print(text, false);
     }
 
+    /**
+     * Clear the canvas
+     */
+    //% weight=15
+    //% blockId=turtleClear block="clear the canvas"
+    export function clear() {
+        board().clear();
+    }
+
+}
+
+namespace pxsim.time {
+    /**
+     * Wait for some time
+     * @param delay time to wait in seconds, eg: 5
+     */
+    //% weight=90
+    //% blockId=timeWait block="wait for %delay seconds"
+    export async function waitAsync(delay: number) {
+        await Promise.delay(delay * 1000);
+    }
+
+    /**
+     * Return the current date and time as seconds since epoch
+     */
+    //% weight=80
+    //% blockId=timeNow block="current date and time"
+    export function now() {
+        return Math.floor(Date.now() / 1000);
+    }
+
+    /**
+     * Return the year of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=78
+    //% blockId=timeYear block="year of %ts"
+    export function year(ts: number) {
+        return asDate(ts).getFullYear();
+    }
+
+    /**
+     * Return the month of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=77
+    //% blockId=timeMonth block="month of %ts"
+    export function month(ts: number) {
+        return asDate(ts).getMonth() + 1;
+    }
+
+    /**
+     * Return the day of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=76
+    //% blockId=timeDay block="day of %ts"
+    export function day(ts: number) {
+        return asDate(ts).getDate();
+    }
+
+    /**
+     * Return the hours of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=75
+    //% blockId=timeHours block="hours of %ts"
+    export function hours(ts: number) {
+        return asDate(ts).getHours();
+    }
+
+    /**
+     * Return the minutes of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=74
+    //% blockId=timeMinutes block="minutes of %ts"
+    export function minutes(ts: number) {
+        return asDate(ts).getMinutes();
+    }
+
+    /**
+     * Return the seconds of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=73
+    //% blockId=timeSeconds block="seconds of %ts"
+    export function seconds(ts: number) {
+        return asDate(ts).getSeconds();
+    }
+
+    function asDate(ts: number) {
+        const d = new Date();
+        d.setTime(ts * 1000);
+        return d;
+    }
+
 }

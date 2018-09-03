@@ -41,10 +41,22 @@
         function goto(xpos: number, ypos: number): void;
         function printAndMove(text: string): void;
         function print(text: string): void;
+        function clear(): void;
     }
 
     declare const enum Speed {
         Slow, Normal, Fast, Fastest
+    }
+
+    declare namespace time {
+        function wait(delay: number): void;
+        function now(): number;
+        function year(ts: number): number;
+        function month(ts: number): number;
+        function day(ts: number): number;
+        function hours(ts: number): number;
+        function minutes(ts: number): number;
+        function seconds(ts: number): number;
     }
 
     declare namespace console {

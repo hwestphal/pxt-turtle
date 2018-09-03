@@ -81,7 +81,7 @@ namespace pxsim {
                     const duration = this.delay * Math.abs(distance);
                     this.turtleSprite!.play();
                     createjs.Tween.get(this.turtleSprite!).to({ x: tx, y: ty }, duration);
-                    return new Promise<void>((resolve, reject) => {
+                    return new Promise<void>((resolve) => {
                         createjs.Tween.get(cmd)
                             .to({ x: tx, y: ty }, duration)
                             .call(() => {
@@ -103,7 +103,7 @@ namespace pxsim {
             this.heading = h < 0 ? h + 360 : h;
             if (this.turtleSprite!.visible && this.delay > 0) {
                 this.turtleSprite!.play();
-                return new Promise<void>((resolve, reject) => {
+                return new Promise<void>((resolve) => {
                     createjs.Tween.get(this.turtleSprite!)
                         .to({ rotation: heading + angle }, this.delay * 0.5 * Math.abs(angle))
                         .call(() => {
@@ -147,6 +147,12 @@ namespace pxsim {
                 this.pen = false;
                 await this.move(t.getBounds().width);
                 this.pen = pen;
+            }
+        }
+
+        clear() {
+            while (this.stage.numChildren > 2) {
+                this.stage.removeChildAt(1);
             }
         }
 

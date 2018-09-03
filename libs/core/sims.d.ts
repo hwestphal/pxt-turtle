@@ -158,6 +158,87 @@ declare namespace turtle {
     //% shim=turtle::printAsync promise
     function print(text: string): void;
 
+    /**
+     * Clear the canvas
+     */
+    //% weight=15
+    //% blockId=turtleClear block="clear the canvas"
+    //% shim=turtle::clear
+    function clear(): void;
+
+}
+declare namespace time {
+    /**
+     * Wait for some time
+     * @param delay time to wait in seconds, eg: 5
+     */
+    //% weight=90
+    //% blockId=timeWait block="wait for %delay seconds"
+    //% shim=time::waitAsync promise
+    function wait(delay: number): void;
+
+    /**
+     * Return the current date and time as seconds since epoch
+     */
+    //% weight=80
+    //% blockId=timeNow block="current date and time"
+    //% shim=time::now
+    function now(): number;
+
+    /**
+     * Return the year of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=78
+    //% blockId=timeYear block="year of %ts"
+    //% shim=time::year
+    function year(ts: number): number;
+
+    /**
+     * Return the month of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=77
+    //% blockId=timeMonth block="month of %ts"
+    //% shim=time::month
+    function month(ts: number): number;
+
+    /**
+     * Return the day of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=76
+    //% blockId=timeDay block="day of %ts"
+    //% shim=time::day
+    function day(ts: number): number;
+
+    /**
+     * Return the hours of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=75
+    //% blockId=timeHours block="hours of %ts"
+    //% shim=time::hours
+    function hours(ts: number): number;
+
+    /**
+     * Return the minutes of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=74
+    //% blockId=timeMinutes block="minutes of %ts"
+    //% shim=time::minutes
+    function minutes(ts: number): number;
+
+    /**
+     * Return the seconds of the given timestamp
+     * @param ts timestamp
+     */
+    //% weight=73
+    //% blockId=timeSeconds block="seconds of %ts"
+    //% shim=time::seconds
+    function seconds(ts: number): number;
+
 }
 
 // Auto-generated. Do not edit. Really.

@@ -2,6 +2,10 @@
 namespace turtle {
 }
 
+//% color=#ff8000 weight=50 icon="\uf017" advanced=true
+namespace time {
+}
+
 declare namespace console {
     /**
      * Print out message in browser console
