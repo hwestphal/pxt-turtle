@@ -412,8 +412,8 @@ caniuse-api@^1.5.2:
     lodash.uniq "^4.5.0"
 
 caniuse-db@^1.0.30000529, caniuse-db@^1.0.30000634, caniuse-db@^1.0.30000639:
-  version "1.0.30000885"
-  resolved "https://registry.yarnpkg.com/caniuse-db/-/caniuse-db-1.0.30000885.tgz#cdc98dd168ed59678650071f7f6a70910e275bc8"
+  version "1.0.30000886"
+  resolved "https://registry.yarnpkg.com/caniuse-db/-/caniuse-db-1.0.30000886.tgz#a0b962dbaccb6d2fc795541bb9ec524582bf433b"
 
 caseless@~0.12.0:
   version "0.12.0"
@@ -470,9 +470,13 @@ color-convert@^1.3.0, color-convert@^1.9.0:
   dependencies:
     color-name "1.1.3"
 
-color-name@1.1.3, color-name@^1.0.0:
+color-name@1.1.3:
   version "1.1.3"
   resolved "https://registry.yarnpkg.com/color-name/-/color-name-1.1.3.tgz#a7d0558bd89c42f795dd42328f740831ca53bc25"
+
+color-name@^1.0.0:
+  version "1.1.4"
+  resolved "https://registry.yarnpkg.com/color-name/-/color-name-1.1.4.tgz#c2a09a87acbde69543de6f63fa3995c826c536a2"
 
 color-string@^0.3.0:
   version "0.3.0"
@@ -517,9 +521,15 @@ combine-source-map@^0.8.0, combine-source-map@~0.8.0:
     lodash.memoize "~3.0.3"
     source-map "~0.5.3"
 
-combined-stream@1.0.6, combined-stream@^1.0.5, combined-stream@~1.0.5:
+combined-stream@1.0.6:
   version "1.0.6"
-  resolved "https://registry.yarnpkg.com/combined-stream/-/combined-stream-1.0.6.tgz#723e7df6e801ac5613113a7e445a9b69cb632818"
+  resolved "http://registry.npmjs.org/combined-stream/-/combined-stream-1.0.6.tgz#723e7df6e801ac5613113a7e445a9b69cb632818"
+  dependencies:
+    delayed-stream "~1.0.0"
+
+combined-stream@^1.0.5, combined-stream@~1.0.5:
+  version "1.0.7"
+  resolved "https://registry.yarnpkg.com/combined-stream/-/combined-stream-1.0.7.tgz#2d1d24317afb8abe95d6d2c0b07b57813539d828"
   dependencies:
     delayed-stream "~1.0.0"
 
@@ -771,8 +781,8 @@ ecstatic@^3.0.0:
     url-join "^2.0.2"
 
 electron-to-chromium@^1.2.7:
-  version "1.3.67"
-  resolved "https://registry.yarnpkg.com/electron-to-chromium/-/electron-to-chromium-1.3.67.tgz#5e8f3ffac89b4b0402c7e1a565be06f3a109abbc"
+  version "1.3.70"
+  resolved "https://registry.yarnpkg.com/electron-to-chromium/-/electron-to-chromium-1.3.70.tgz#ded377256d92d81b4257d36c65aa890274afcfd2"
 
 elliptic@^6.0.0:
   version "6.4.1"
@@ -1738,8 +1748,8 @@ punycode@^1.3.2, punycode@^1.4.1:
   resolved "https://registry.yarnpkg.com/punycode/-/punycode-1.4.1.tgz#c0d5a63b2718800ad8e1eb0fa5269c84dd41845e"
 
 pxt-core@^3.12.17:
-  version "3.22.20"
-  resolved "https://registry.yarnpkg.com/pxt-core/-/pxt-core-3.22.20.tgz#210a992250181d28b3c6c7adf87c134a273afd86"
+  version "3.22.22"
+  resolved "https://registry.yarnpkg.com/pxt-core/-/pxt-core-3.22.22.tgz#d4a68575135722de1c92cb1eb97b9d1ce8e4066b"
   dependencies:
     bluebird "3.5.1"
     browserify "16.2.0"
@@ -1824,7 +1834,7 @@ readable-stream@^2.0.2, readable-stream@^2.1.5, readable-stream@^2.2.2, readable
 
 reduce-css-calc@^1.2.6:
   version "1.3.0"
-  resolved "https://registry.yarnpkg.com/reduce-css-calc/-/reduce-css-calc-1.3.0.tgz#747c914e049614a4c9cfbba629871ad1d2927716"
+  resolved "http://registry.npmjs.org/reduce-css-calc/-/reduce-css-calc-1.3.0.tgz#747c914e049614a4c9cfbba629871ad1d2927716"
   dependencies:
     balanced-match "^0.4.2"
     math-expression-evaluator "^1.2.14"
