@@ -3,6 +3,5 @@
     "telemetry.enableCrashReporter": false,
     "telemetry.enableTelemetry": false,
     "typescript.format.insertSpaceAfterFunctionKeywordForAnonymousFunctions": false,
-    "vetur.format.defaultFormatter.html": "js-beautify-html",
     "typescript.tsdk": "node_modules/typescript/lib"
 }
