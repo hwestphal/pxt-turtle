@@ -1,0 +1,12 @@
+body {
+    margin-top: 3px;
+    margin-right: 4px;
+    margin-bottom: 3px;
+    margin-left: 3px;
+    overflow: hidden;
+}
+
+#area {
+    width: 100%;
+    border: 2px solid black;
+}
