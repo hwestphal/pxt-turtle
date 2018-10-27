@@ -14,8 +14,8 @@
     "@types/tweenjs": "^1.0.0",
     "http-server": "^0.11.1",
     "pxt": "^0.5.1",
-    "pxt-core": "^3.12.17",
+    "pxt-core": "^4.2.7",
     "tslint": "^5.10.0",
-    "typescript": "2.6.2"
+    "typescript": "2.6"
   }
 }
