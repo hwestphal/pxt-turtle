@@ -13,6 +13,7 @@
     "time.year|block": "Jahr von %ts",
     "turtle.backward|block": "rückwärts %distance Schritte",
     "turtle.clear|block": "lösche die Zeichenfläche",
+    "turtle.drawImage|block": "zeichne %img=image_picker",
     "turtle.forward|block": "vorwärts %distance Schritte",
     "turtle.goto|block": "gehe zu x=%xpos und y=%ypos",
     "turtle.heading|block": "Richtung",

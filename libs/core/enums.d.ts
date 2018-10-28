@@ -8,3 +8,8 @@ declare const enum Speed {
     //% block=fastest
     Fastest,
 }
+
+declare interface Image {
+    readonly width: number;
+    readonly height: number;
+}

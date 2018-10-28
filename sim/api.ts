@@ -186,6 +186,16 @@ namespace pxsim.turtle {
         board().clear();
     }
 
+    /**
+     * Draw image
+     * @param img image to draw, eg: img``
+     */
+    //% weight=5
+    //% blockId=turtleDrawImage block="draw %img=image_picker"
+    export function drawImage(img: Image) {
+        board().drawImage(img);
+    }
+
 }
 
 namespace pxsim.time {

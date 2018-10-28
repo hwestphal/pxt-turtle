@@ -14,7 +14,25 @@
         "listsBlocks": true,
         "textBlocks": true,
         "onStartColor": "#f48942",
-        "onStartUnDeletable": true
+        "onStartUnDeletable": true,
+        "palette": [
+            "#ffffff",
+            "#000000",
+            "#ff0000",
+            "#ff8000",
+            "#ffff00",
+            "#ff9da5",
+            "#00ff00",
+            "#b09eff",
+            "#00ffff",
+            "#007fff",
+            "#65471f",
+            "#0000ff",
+            "#7f00ff",
+            "#ff0080",
+            "#ff00ff",
+            "#999999"
+        ]
     },
     "simulator": {
         "autoRun": true,

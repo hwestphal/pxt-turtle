@@ -166,6 +166,15 @@ declare namespace turtle {
     //% shim=turtle::clear
     function clear(): void;
 
+    /**
+     * Draw image
+     * @param img image to draw, eg: img``
+     */
+    //% weight=5
+    //% blockId=turtleDrawImage block="draw %img=image_picker"
+    //% shim=turtle::drawImage
+    function drawImage(img: Image): void;
+
 }
 declare namespace time {
     /**

@@ -156,6 +156,18 @@ namespace pxsim {
             }
         }
 
+        drawImage(img: Image) {
+            const bitmap = new createjs.Bitmap(img);
+            bitmap.regX = img.width / 2;
+            bitmap.regY = img.height / 2;
+            bitmap.x = this.xOffset + this.x;
+            bitmap.y = this.yOffset - this.y;
+            bitmap.rotation = this.heading;
+            bitmap.scaleX = bitmap.scaleY = this.penSize;
+            this.stage.addChild(bitmap);
+            this.turtleToFront();
+        }
+
         private turtleToFront() {
             this.stage.setChildIndex(this.turtleSprite!, this.stage.numChildren - 1);
         }
@@ -177,6 +189,53 @@ namespace pxsim {
     export function log(msg: string) {
         // tslint:disable-next-line:no-console
         console.log(`%c${new Date().toISOString()}`, "color:blue; font-style: italic", msg);
+    }
+
+    export function toImage(buffer: RefBuffer) {
+        const width = buffer.data[1];
+        const height = buffer.data[2];
+        const data = buffer.data.slice(4);
+        const array = new Uint8ClampedArray(width * height * 4);
+        for (let i = 0; i < data.length; i++) {
+            const x = Math.floor(2 * i / height);
+            const y = (2 * i) % width;
+            setColor(data[i] & 0x0f, array, width, x, y);
+            setColor(data[i] >> 4, array, width, x, y + 1);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d")!.putImageData(new ImageData(array, width, height), 0, 0);
+        return canvas;
+    }
+
+    const palette = [
+        [0x00, 0x00, 0x00],
+        [0xff, 0x00, 0x00],
+        [0xff, 0x80, 0x00],
+        [0xff, 0xff, 0x00],
+        [0xff, 0x9d, 0xa5],
+        [0x00, 0xff, 0x00],
+        [0xb0, 0x9e, 0xff],
+        [0x00, 0xff, 0xff],
+        [0x00, 0x7f, 0xff],
+        [0x65, 0x47, 0x1f],
+        [0x00, 0x00, 0xff],
+        [0x7f, 0x00, 0xff],
+        [0xff, 0x00, 0x80],
+        [0xff, 0x00, 0xff],
+        [0x99, 0x99, 0x99],
+    ];
+
+    function setColor(color: number, data: Uint8Array, width: number, x: number, y: number) {
+        if (color > 0) {
+            color -= 1;
+            const i = 4 * (x + y * width);
+            data[i] = palette[color][0];
+            data[i + 1] = palette[color][1];
+            data[i + 2] = palette[color][2];
+            data[i + 3] = 0xff;
+        }
     }
 
 }

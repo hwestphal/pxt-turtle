@@ -42,10 +42,16 @@
         function printAndMove(text: string): void;
         function print(text: string): void;
         function clear(): void;
+        function drawImage(img: Image): void;
     }
 
     declare const enum Speed {
         Slow, Normal, Fast, Fastest
+    }
+
+    declare interface Image {
+        readonly width: number;
+        readonly height: number;
     }
 
     declare namespace time {

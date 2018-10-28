@@ -4,14 +4,18 @@
         "tslint:recommended"
     ],
     "rules": {
+        "comment-format": false,
+        "max-classes-per-file": false,
+        "max-line-length": [
+            true,
+            170
+        ],
         "member-access": [
             true,
             "no-public"
         ],
+        "no-bitwise": false,
         "no-empty": false,
-        "no-namespace": false,
-        "comment-format": false,
-        "max-classes-per-file": false,
-        "max-line-length": [ true, 170 ]
+        "no-namespace": false
     }
 }
