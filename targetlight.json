@@ -1,0 +1,89 @@
+{
+  "id": "turtle",
+  "name": "Turtle",
+  "corepkg": "core",
+  "runtime": {
+    "loopsBlocks": true,
+    "logicBlocks": true,
+    "variablesBlocks": true,
+    "mathBlocks": true,
+    "functionBlocks": true,
+    "listsBlocks": false,
+    "textBlocks": false,
+    "onStartColor": "#f48942",
+    "onStartUnDeletable": true,
+    "palette": [
+      "#ffffff",
+      "#000000",
+      "#ff0000",
+      "#ff8000",
+      "#ffff00",
+      "#ff9da5",
+      "#00ff00",
+      "#b09eff",
+      "#00ffff",
+      "#007fff",
+      "#65471f",
+      "#0000ff",
+      "#7f00ff",
+      "#ff0080",
+      "#ff00ff",
+      "#999999"
+    ]
+  },
+  "simulator": {
+    "autoRun": true,
+    "stopOnChange": true,
+    "hideFullscreen": true,
+    "aspectRatio": 1
+  },
+  "versions": {
+    "target": "1.0.0",
+    "pxt": "4.2.7"
+  },
+  "blocksprj": {
+    "id": "blocksprj",
+    "config": {
+      "name": "{0}",
+      "dependencies": {
+        "core": "*"
+      },
+      "files": [
+        "main.blocks",
+        "main.ts",
+        "README.md"
+      ],
+      "additionalFilePaths": []
+    },
+    "files": {
+      "main.blocks": "<xml xmlns=\"http://www.w3.org/1999/xhtml\">\n  <variables></variables>\n  <block type=\"pxt-on-start\" deletable=\"false\" x=\"0\" y=\"0\"></block>\n</xml>\n",
+      "main.ts": "//\n",
+      "README.md": " "
+    }
+  },
+  "tsprj": {
+    "id": "tsprj",
+    "config": {
+      "name": "{0}",
+      "dependencies": {
+        "core": "*"
+      },
+      "files": [
+        "main.ts",
+        "README.md"
+      ],
+      "additionalFilePaths": []
+    },
+    "files": {
+      "main.ts": "//\n",
+      "README.md": " "
+    }
+  },
+  "compile": {
+    "isNative": false,
+    "hasHex": false,
+    "jsRefCounting": false,
+    "vtableShift": 2,
+    "noSourceInFlash": true
+  }
+}

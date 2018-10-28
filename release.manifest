@@ -1,0 +1,66 @@
+CACHE MANIFEST
+
+CACHE:
+/pxt-turtle/semantic.js
+/pxt-turtle/main.js
+/pxt-turtle/pxtapp.js
+/pxt-turtle/typescript.js
+/pxt-turtle/marked/marked.min.js
+/pxt-turtle/highlight.js/highlight.pack.js
+/pxt-turtle/jquery.js
+/pxt-turtle/pxtlib.js
+/pxt-turtle/pxtcompiler.js
+/pxt-turtle/pxtblockly.js
+/pxt-turtle/pxtwinrt.js
+/pxt-turtle/pxteditor.js
+/pxt-turtle/pxtsim.js
+/pxt-turtle/pxtembed.js
+/pxt-turtle/pxtworker.js
+/pxt-turtle/pxtweb.js
+/pxt-turtle/blockly.css
+/pxt-turtle/semantic.css
+/pxt-turtle/rtlsemantic.css
+
+
+
+
+
+# blockly
+/pxt-turtle/blockly/media/sprites.png
+/pxt-turtle/blockly/media/click.mp3
+/pxt-turtle/blockly/media/disconnect.wav
+/pxt-turtle/blockly/media/delete.mp3
+
+# monaco; keep in sync with webapp/public/index.html
+/pxt-turtle/vs/loader.js
+/pxt-turtle/vs/base/worker/workerMain.js
+/pxt-turtle/vs/basic-languages/src/bat.js
+/pxt-turtle/vs/basic-languages/src/cpp.js
+/pxt-turtle/vs/editor/editor.main.css
+/pxt-turtle/vs/editor/editor.main.js
+/pxt-turtle/vs/editor/editor.main.nls.js
+/pxt-turtle/vs/language/json/jsonMode.js
+/pxt-turtle/vs/language/json/jsonWorker.js
+/pxt-turtle/vs/language/typescript/lib/typescriptServices.js
+/pxt-turtle/vs/language/typescript/src/mode.js
+/pxt-turtle/vs/language/typescript/src/worker.js
+
+# charts
+/pxt-turtle/smoothie/smoothie_compressed.js
+/pxt-turtle/images/Bars_black.gif
+
+# ai
+/pxt-turtle/ai.0.js
+
+/pxt-turtle/worker.js
+/pxt-turtle/monacoworker.js
+
+# ver Sun Oct 28 2018 21:46:58 GMT+0100 (Mitteleuropäische Zeit)
+
+# target
+
+
+/pxt-turtle/target.js
+  
+NETWORK:
+*
