@@ -42,14 +42,14 @@
         function printAndMove(text: string): void;
         function print(text: string): void;
         function clear(): void;
-        function drawImage(img: Image): void;
+        function drawSprite(sprite: Sprite): void;
     }
 
     declare const enum Speed {
         Slow, Normal, Fast, Fastest
     }
 
-    declare interface Image {
+    declare interface Sprite {
         readonly width: number;
         readonly height: number;
     }

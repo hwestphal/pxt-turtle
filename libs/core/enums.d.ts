@@ -9,7 +9,7 @@ declare const enum Speed {
     Fastest,
 }
 
-declare interface Image {
+declare interface Sprite {
     readonly width: number;
     readonly height: number;
 }

@@ -167,13 +167,13 @@ declare namespace turtle {
     function clear(): void;
 
     /**
-     * Draw image
-     * @param img image to draw, eg: img``
+     * Draw sprite
+     * @param sprite sprite to draw, eg: img``
      */
     //% weight=5
-    //% blockId=turtleDrawImage block="draw %img=image_picker"
-    //% shim=turtle::drawImage
-    function drawImage(img: Image): void;
+    //% blockId=turtleDrawSprite block="draw %sprite=spriteEditor"
+    //% shim=turtle::drawSprite
+    function drawSprite(sprite: Sprite): void;
 
 }
 declare namespace time {

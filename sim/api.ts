@@ -187,13 +187,13 @@ namespace pxsim.turtle {
     }
 
     /**
-     * Draw image
-     * @param img image to draw, eg: img``
+     * Draw sprite
+     * @param sprite sprite to draw, eg: img``
      */
     //% weight=5
-    //% blockId=turtleDrawImage block="draw %img=image_picker"
-    export function drawImage(img: Image) {
-        board().drawImage(img);
+    //% blockId=turtleDrawSprite block="draw %sprite=spriteEditor"
+    export function drawSprite(sprite: Sprite) {
+        board().drawSprite(sprite);
     }
 
 }

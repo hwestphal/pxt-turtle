@@ -9,7 +9,7 @@
     "time.year": "Liefere das Jahr des Zeitstempels zurück",
     "turtle.backward": "Bewege die Turtle rückwärts",
     "turtle.clear": "Lösche die Zeichenfläche",
-    "turtle.drawImage": "Zeichne Bild",
+    "turtle.drawSprite": "Zeichne Sprite",
     "turtle.forward": "Bewege die Turtle vorwärts",
     "turtle.goto": "Bewege die Turtle zu der angegebenen Position",
     "turtle.heading": "Richtung der Turtle",

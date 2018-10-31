@@ -156,10 +156,10 @@ namespace pxsim {
             }
         }
 
-        drawImage(img: Image) {
-            const bitmap = new createjs.Bitmap(img);
-            bitmap.regX = img.width / 2;
-            bitmap.regY = img.height / 2;
+        drawSprite(sprite: Sprite) {
+            const bitmap = new createjs.Bitmap(sprite);
+            bitmap.regX = sprite.width / 2;
+            bitmap.regY = sprite.height / 2;
             bitmap.x = this.xOffset + this.x;
             bitmap.y = this.yOffset - this.y;
             bitmap.rotation = this.heading;
@@ -191,7 +191,7 @@ namespace pxsim {
         console.log(`%c${new Date().toISOString()}`, "color:blue; font-style: italic", msg);
     }
 
-    export function toImage(buffer: RefBuffer) {
+    export function toSprite(buffer: RefBuffer): Sprite {
         const width = buffer.data[1];
         const height = buffer.data[2];
         const data = buffer.data.slice(4);
