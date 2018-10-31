@@ -194,13 +194,19 @@ namespace pxsim {
     export function toSprite(buffer: RefBuffer): Sprite {
         const width = buffer.data[1];
         const height = buffer.data[2];
+        const dataHeight = Math.ceil(height / 8) * 8;
         const data = buffer.data.slice(4);
         const array = new Uint8ClampedArray(width * height * 4);
         for (let i = 0; i < data.length; i++) {
-            const x = Math.floor(2 * i / height);
-            const y = (2 * i) % width;
-            setColor(data[i] & 0x0f, array, width, x, y);
-            setColor(data[i] >> 4, array, width, x, y + 1);
+            let y = (2 * i) % dataHeight;
+            if (y < height) {
+                const x = Math.floor(2 * i / dataHeight);
+                setColor(data[i] & 0x0f, array, width, x, y);
+                y += 1;
+                if (y < height) {
+                    setColor(data[i] >> 4, array, width, x, y);
+                }
+            }
         }
         const canvas = document.createElement("canvas");
         canvas.width = width;
