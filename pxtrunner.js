@@ -273,23 +273,21 @@ var pxt;
         }
         var renderQueue = [];
         function consumeRenderQueueAsync() {
-            return new Promise(function (resolve, reject) {
-                var job = renderQueue.shift();
-                if (!job)
-                    return Promise.resolve(); // done
-                var el = job.el, options = job.options, render = job.render, cls = job.cls;
-                return pxt.runner.decompileToBlocksAsync(el.text(), options)
-                    .then(function (r) {
-                    try {
-                        render(el, r);
-                    }
-                    catch (e) {
-                        console.error('error while rendering ' + el.html());
-                        el.append($('<div/>').addClass("ui segment warning").text(e.message));
-                    }
-                    el.removeClass("lang-shadow");
-                    return consumeRenderQueueAsync();
-                });
+            var job = renderQueue.shift();
+            if (!job)
+                return Promise.resolve(); // done
+            var el = job.el, options = job.options, render = job.render, cls = job.cls;
+            return pxt.runner.decompileToBlocksAsync(el.text(), options)
+                .then(function (r) {
+                try {
+                    render(el, r);
+                }
+                catch (e) {
+                    console.error('error while rendering ' + el.html());
+                    el.append($('<div/>').addClass("ui segment warning").text(e.message));
+                }
+                el.removeClass("lang-shadow");
+                return consumeRenderQueueAsync();
             });
         }
         function renderNextSnippetAsync(cls, render, options) {
@@ -787,6 +785,24 @@ var pxt;
                 $(e).addClass('lang-typescript');
                 render(e, true);
                 $(e).removeClass('lang-typescript');
+            });
+            $('code.lang-typescript-invalid').each(function (i, e) {
+                $(e).removeClass('lang-typescript-invalid');
+                $(e).addClass('lang-typescript');
+                render(e, true);
+                $(e).removeClass('lang-typescript');
+                $(e).parent('div').addClass('invalid');
+                $(e).parent('div').prepend($("<i>", { "class": "icon ban" }));
+                $(e).addClass('invalid');
+            });
+            $('code.lang-typescript-valid').each(function (i, e) {
+                $(e).removeClass('lang-typescript-valid');
+                $(e).addClass('lang-typescript');
+                render(e, true);
+                $(e).removeClass('lang-typescript');
+                $(e).parent('div').addClass('valid');
+                $(e).parent('div').prepend($("<i>", { "class": "icon check" }));
+                $(e).addClass('valid');
             });
         }
         function renderAsync(options) {

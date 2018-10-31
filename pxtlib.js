@@ -50,6 +50,19 @@ var pxt;
 (function (pxt) {
     var analytics;
     (function (analytics) {
+        var defaultProps = {};
+        var defaultMeasures = {};
+        function addDefaultProperties(props) {
+            Object.keys(props).forEach(function (k) {
+                if (typeof props[k] == "string") {
+                    defaultProps[k] = props[k];
+                }
+                else {
+                    defaultMeasures[k] = props[k];
+                }
+            });
+        }
+        analytics.addDefaultProperties = addDefaultProperties;
         function enable() {
             if (!pxt.aiTrackException || !pxt.aiTrackEvent)
                 return;
@@ -64,14 +77,15 @@ var pxt;
                 if (!data)
                     pxt.aiTrackEvent(id);
                 else {
-                    var props = {};
-                    var measures = {};
-                    for (var k in data)
+                    var props_1 = defaultProps || {};
+                    var measures_1 = defaultMeasures || {};
+                    Object.keys(data).forEach(function (k) {
                         if (typeof data[k] == "string")
-                            props[k] = data[k];
+                            props_1[k] = data[k];
                         else
-                            measures[k] = data[k];
-                    pxt.aiTrackEvent(id, props, measures);
+                            measures_1[k] = data[k];
+                    });
+                    pxt.aiTrackEvent(id, props_1, measures_1);
                 }
             };
             var rexp = pxt.reportException;
@@ -513,6 +527,8 @@ var pxtc = ts.pxtc;
             Util.dumpLocStats = dumpLocStats;
             var sForPlural = true;
             function lf_va(format, args) {
+                if (!format)
+                    return format;
                 locStats[format] = (locStats[format] || 0) + 1;
                 var lfmt = Util._localize(format);
                 if (!sForPlural && lfmt != format && /\d:s\}/.test(lfmt)) {
@@ -11000,12 +11016,21 @@ var pxt;
                 && !!pxt.appTarget.appTheme.bluetoothPartialFlashing;
         }
         webBluetooth.hasPartialFlash = hasPartialFlash;
+        function isValidUUID(id) {
+            // https://webbluetoothcg.github.io/web-bluetooth/#uuids
+            return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id);
+        }
+        webBluetooth.isValidUUID = isValidUUID;
         var BLERemote = /** @class */ (function () {
-            function BLERemote(aliveToken) {
-                this.connectPromise = undefined;
+            function BLERemote(id, aliveToken) {
                 this.connectionTimeout = 20000; // 20 second default timeout
+                this.connectPromise = undefined;
+                this.id = id;
                 this.aliveToken = aliveToken;
             }
+            BLERemote.prototype.debug = function (msg) {
+                pxt.debug(this.id + ": " + msg);
+            };
             BLERemote.prototype.alivePromise = function (p) {
                 var _this = this;
                 return new Promise(function (resolve, reject) {
@@ -11045,29 +11070,29 @@ var pxt;
         webBluetooth.BLERemote = BLERemote;
         var BLEService = /** @class */ (function (_super) {
             __extends(BLEService, _super);
-            function BLEService(device, autoReconnect) {
-                var _this = _super.call(this, device.aliveToken) || this;
+            function BLEService(id, device, autoReconnect) {
+                var _this = _super.call(this, id, device.aliveToken) || this;
                 _this.device = device;
                 _this.autoReconnect = autoReconnect;
                 _this.autoReconnectDelay = 1000;
+                _this.disconnectOnAutoReconnect = false;
                 _this.reconnectPromise = undefined;
+                _this.failedConnectionServicesVersion = -1;
                 _this.handleDisconnected = _this.handleDisconnected.bind(_this);
                 _this.device.device.addEventListener('gattserverdisconnected', _this.handleDisconnected);
                 return _this;
             }
             BLEService.prototype.handleDisconnected = function (event) {
                 var _this = this;
-                this.cancelConnect();
                 if (this.aliveToken.isCancelled())
                     return;
+                this.disconnect();
                 // give a 1sec for device to reboot
                 if (this.autoReconnect && !this.reconnectPromise)
                     this.reconnectPromise =
                         Promise.delay(this.autoReconnectDelay)
-                            .then(function () { return _this.exponentialBackoffConnectAsync(10, 500); })
-                            .catch(function () {
-                            _this.reconnectPromise = undefined;
-                        });
+                            .then(function () { return _this.exponentialBackoffConnectAsync(8, 500); })
+                            .finally(function () { return _this.reconnectPromise = undefined; });
             };
             /* Utils */
             // This function keeps calling "toTry" until promise resolves or has
@@ -11075,32 +11100,44 @@ var pxt;
             // "success" is called upon success.
             BLEService.prototype.exponentialBackoffConnectAsync = function (max, delay) {
                 var _this = this;
-                pxt.debug("uart: retry connect");
+                this.debug("retry connect");
                 this.aliveToken.throwIfCancelled();
                 return this.connectAsync()
                     .then(function () {
                     _this.aliveToken.throwIfCancelled();
-                    pxt.debug("uart: reconnect success");
+                    _this.debug("reconnect success");
                     _this.reconnectPromise = undefined;
                 })
-                    .catch(function (_) {
+                    .catch(function (e) {
+                    _this.debug("reconnect error " + e.message);
                     _this.aliveToken.throwIfCancelled();
                     if (!_this.device.isPaired) {
-                        pxt.debug("uart: give up, device unpaired");
+                        _this.debug("give up, device unpaired");
                         _this.reconnectPromise = undefined;
                         return undefined;
                     }
                     if (!_this.autoReconnect) {
-                        pxt.debug("ble: autoreconnect disabled");
+                        _this.debug("autoreconnect disabled");
                         _this.reconnectPromise = undefined;
                         return undefined;
                     }
                     if (max == 0) {
-                        pxt.debug("uart: give up, max tries");
+                        _this.debug("give up, max tries");
                         _this.reconnectPromise = undefined;
                         return undefined; // give up
                     }
-                    pxt.debug("uart: retry connect " + delay + "ms... (" + max + " tries left)");
+                    // did we already try to reconnect with the current state of services?
+                    if (_this.failedConnectionServicesVersion == _this.device.servicesVersion) {
+                        _this.debug("services haven't changed, giving up");
+                        _this.reconnectPromise = undefined;
+                        return undefined;
+                    }
+                    _this.debug("retry connect " + delay + "ms... (" + max + " tries left)");
+                    // record service version if connected
+                    if (_this.device.connected)
+                        _this.failedConnectionServicesVersion = _this.device.servicesVersion;
+                    if (_this.disconnectOnAutoReconnect)
+                        _this.device.disconnect();
                     return Promise.delay(delay)
                         .then(function () { return _this.exponentialBackoffConnectAsync(--max, delay * 1.8); });
                 });
@@ -11108,64 +11145,113 @@ var pxt;
             return BLEService;
         }(BLERemote));
         webBluetooth.BLEService = BLEService;
+        var BLETXService = /** @class */ (function (_super) {
+            __extends(BLETXService, _super);
+            function BLETXService(id, device, serviceUUID, txCharacteristicUUID) {
+                var _this = _super.call(this, id, device, true) || this;
+                _this.device = device;
+                _this.serviceUUID = serviceUUID;
+                _this.txCharacteristicUUID = txCharacteristicUUID;
+                _this.handleValueChanged = _this.handleValueChanged.bind(_this);
+                return _this;
+            }
+            BLETXService.prototype.createConnectPromise = function () {
+                var _this = this;
+                this.debug("connecting");
+                return this.device.connectAsync()
+                    .then(function () { return _this.alivePromise(_this.device.gatt.getPrimaryService(_this.serviceUUID)); })
+                    .then(function (service) {
+                    _this.debug("service connected");
+                    _this.service = service;
+                    return _this.alivePromise(_this.service.getCharacteristic(_this.txCharacteristicUUID));
+                }).then(function (txCharacteristic) {
+                    _this.debug("tx characteristic connected");
+                    _this.txCharacteristic = txCharacteristic;
+                    _this.txCharacteristic.addEventListener('characteristicvaluechanged', _this.handleValueChanged);
+                    return _this.txCharacteristic.startNotifications();
+                }).then(function () {
+                    pxt.tickEvent("webble." + _this.id + ".connected");
+                });
+            };
+            BLETXService.prototype.handlePacket = function (data) {
+            };
+            BLETXService.prototype.handleValueChanged = function (event) {
+                var dataView = event.target.value;
+                this.handlePacket(dataView);
+            };
+            BLETXService.prototype.disconnect = function () {
+                _super.prototype.disconnect.call(this);
+                if (this.txCharacteristic && this.device && this.device.connected) {
+                    try {
+                        this.txCharacteristic.stopNotifications();
+                        this.txCharacteristic.removeEventListener('characteristicvaluechanged', this.handleValueChanged);
+                    }
+                    catch (e) {
+                        pxt.log(this.id + ": error " + e.message);
+                    }
+                }
+                this.service = undefined;
+                this.txCharacteristic = undefined;
+            };
+            return BLETXService;
+        }(BLEService));
+        webBluetooth.BLETXService = BLETXService;
+        var HF2Service = /** @class */ (function (_super) {
+            __extends(HF2Service, _super);
+            function HF2Service(device) {
+                var _this = _super.call(this, "hf2", device, HF2Service.SERVICE_UUID, HF2Service.CHARACTERISTIC_TX_UUID) || this;
+                _this.device = device;
+                return _this;
+            }
+            HF2Service.prototype.handlePacket = function (data) {
+                var cmd = data.getUint8(0);
+                switch (cmd & 0xc0) {
+                    case HF2Service.BLEHF2_FLAG_SERIAL_OUT:
+                    case HF2Service.BLEHF2_FLAG_SERIAL_ERR:
+                        var n = Math.min(data.byteLength - 1, cmd & ~0xc0); // length in bytes
+                        var text = "";
+                        for (var i = 0; i < n; ++i)
+                            text += String.fromCharCode(data.getUint8(i + 1));
+                        if (text) {
+                            window.postMessage({
+                                type: "serial",
+                                id: this.device.name || "hf2",
+                                data: text
+                            }, "*");
+                        }
+                        break;
+                }
+            };
+            HF2Service.SERVICE_UUID = 'b112f5e6-2679-30da-a26e-0273b6043849';
+            HF2Service.CHARACTERISTIC_TX_UUID = 'b112f5e6-2679-30da-a26e-0273b604384a';
+            HF2Service.BLEHF2_FLAG_SERIAL_OUT = 0x80;
+            HF2Service.BLEHF2_FLAG_SERIAL_ERR = 0xC0;
+            return HF2Service;
+        }(BLETXService));
+        webBluetooth.HF2Service = HF2Service;
         var UARTService = /** @class */ (function (_super) {
             __extends(UARTService, _super);
             function UARTService(device) {
-                var _this = _super.call(this, device, true) || this;
+                var _this = _super.call(this, "uart", device, UARTService.SERVICE_UUID, UARTService.CHARACTERISTIC_TX_UUID) || this;
                 _this.device = device;
-                _this.handleUARTNotifications = _this.handleUARTNotifications.bind(_this);
                 return _this;
             }
-            UARTService.prototype.createConnectPromise = function () {
-                var _this = this;
-                pxt.debug("ble: connecting uart");
-                return this.device.connectAsync()
-                    .then(function () { return _this.alivePromise(_this.device.gatt.getPrimaryService(UARTService.SERVICE_UUID)); })
-                    .then(function (service) {
-                    pxt.debug("ble: uart service connected");
-                    _this.uartService = service;
-                    return _this.alivePromise(_this.uartService.getCharacteristic(UARTService.CHARACTERISTIC_TX_UUID));
-                }).then(function (txCharacteristic) {
-                    pxt.debug("ble: uart tx characteristic connected");
-                    _this.txCharacteristic = txCharacteristic;
-                    return _this.txCharacteristic.startNotifications();
-                }).then(function () {
-                    _this.txCharacteristic.addEventListener('characteristicvaluechanged', _this.handleUARTNotifications);
-                    pxt.tickEvent("webble.uart.connected");
-                });
-            };
-            UARTService.prototype.handleUARTNotifications = function (event) {
-                var dataView = event.target.value;
+            UARTService.prototype.handlePacket = function (data) {
                 var decoder = new window.TextDecoder();
-                var text = decoder.decode(dataView);
+                var text = decoder.decode(data);
                 if (text) {
                     window.postMessage({
                         type: "serial",
-                        id: this.device.name || "ble",
+                        id: this.device.name || "uart",
                         data: text
                     }, "*");
                 }
             };
-            UARTService.prototype.disconnect = function () {
-                _super.prototype.disconnect.call(this);
-                if (this.txCharacteristic && this.device.connected) {
-                    try {
-                        this.txCharacteristic.stopNotifications();
-                        this.txCharacteristic.removeEventListener('characteristicvaluechanged', this.handleUARTNotifications);
-                    }
-                    catch (e) {
-                        pxt.log("uart: error " + e.message);
-                    }
-                }
-                this.uartService = undefined;
-                this.txCharacteristic = undefined;
-            };
             // Nordic UART BLE service
             UARTService.SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'; // must be lower case!
-            UARTService.CHARACTERISTIC_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
             UARTService.CHARACTERISTIC_TX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
             return UARTService;
-        }(BLEService));
+        }(BLETXService));
         webBluetooth.UARTService = UARTService;
         var PartialFlashingState;
         (function (PartialFlashingState) {
@@ -11182,9 +11268,10 @@ var pxt;
         var PartialFlashingService = /** @class */ (function (_super) {
             __extends(PartialFlashingService, _super);
             function PartialFlashingService(device) {
-                var _this = _super.call(this, device, false) || this;
+                var _this = _super.call(this, "partial flashing", device, false) || this;
                 _this.device = device;
                 _this.state = PartialFlashingState.Idle;
+                _this.disconnectOnAutoReconnect = true;
                 _this.handleCharacteristic = _this.handleCharacteristic.bind(_this);
                 return _this;
             }
@@ -11204,24 +11291,25 @@ var pxt;
             };
             PartialFlashingService.prototype.createConnectPromise = function () {
                 var _this = this;
-                pxt.debug("pf: connecting to partial flash service");
+                this.debug("connecting to partial flash service");
                 return this.device.connectAsync()
                     .then(function () { return _this.alivePromise(_this.device.gatt.getPrimaryService(PartialFlashingService.SERVICE_UUID)); })
                     .then(function (service) {
-                    pxt.debug("pf: connecting to characteristic");
+                    _this.debug("connecting to characteristic");
                     return _this.alivePromise(service.getCharacteristic(PartialFlashingService.CHARACTERISTIC_UUID));
                 }).then(function (characteristic) {
-                    pxt.debug("pf: starting notifications");
+                    _this.debug("starting notifications");
                     _this.pfCharacteristic = characteristic;
                     _this.pfCharacteristic.startNotifications();
                     _this.pfCharacteristic.addEventListener('characteristicvaluechanged', _this.handleCharacteristic);
                     // looks like we asked the device to reconnect in pairing mode, 
                     // let's see if that worked out
                     if (_this.state == PartialFlashingState.PairingModeRequested) {
-                        pxt.debug("pf: checking pairing mode");
+                        _this.debug("checking pairing mode");
                         _this.autoReconnect = false;
-                        _this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.STATUS]));
+                        return _this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.STATUS]));
                     }
+                    return Promise.resolve();
                 });
             };
             PartialFlashingService.prototype.disconnect = function () {
@@ -11237,6 +11325,7 @@ var pxt;
                         pxt.log("ble: partial flash disconnect error " + e.message);
                     }
                 }
+                this.pfCharacteristic = undefined;
             };
             // finds block starting with MAGIC_BLOCK
             PartialFlashingService.prototype.findMarker = function (offset, marker) {
@@ -11258,17 +11347,17 @@ var pxt;
             PartialFlashingService.prototype.flashAsync = function (hex) {
                 var _this = this;
                 if (this.hex) {
-                    pxt.debug("pf: flashing already in progress");
+                    this.debug("flashing already in progress");
                     return Promise.resolve();
                 }
-                this.device.pauseUART();
+                this.device.pauseLog();
                 return this.createFlashPromise(hex)
-                    .finally(function () { return _this.device.resumeUART(); });
+                    .finally(function () { return _this.device.resumeLogOnDisconnection(); });
             };
             PartialFlashingService.prototype.createFlashPromise = function (hex) {
                 var _this = this;
                 if (this.hex) {
-                    pxt.debug("pf: flashing already in progress");
+                    this.debug("flashing already in progress");
                     return Promise.resolve();
                 }
                 this.clearFlashData();
@@ -11277,27 +11366,27 @@ var pxt;
                 ts.pxtc.UF2.writeHex(uf2, this.hex.split(/\r?\n/));
                 var flashUsableEnd = pxt.appTarget.compile.flashUsableEnd;
                 this.bin = ts.pxtc.UF2.toBin(pxt.U.stringToUint8Array(ts.pxtc.UF2.serializeFile(uf2)), flashUsableEnd).buf;
-                pxt.debug("pf: bin bytes " + this.bin.length);
+                this.debug("bin bytes " + this.bin.length);
                 this.magicOffset = this.findMarker(0, PartialFlashingService.MAGIC_MARKER);
-                pxt.debug("pf: magic block " + this.magicOffset.toString(16));
+                this.debug("magic block " + this.magicOffset.toString(16));
                 if (this.magicOffset < 0) {
-                    pxt.debug("pf: magic block not found, not a valid HEX file");
+                    this.debug("magic block not found, not a valid HEX file");
                     pxt.U.userError(lf("Invalid file"));
                 }
-                pxt.debug("pf: bytes to flash " + (this.bin.length - this.magicOffset));
+                this.debug("bytes to flash " + (this.bin.length - this.magicOffset));
                 // magic + 16bytes = hash
                 var hashOffset = this.magicOffset + PartialFlashingService.MAGIC_MARKER.length;
                 this.dalHash = pxt.Util.toHex(this.bin.slice(hashOffset, hashOffset + 8));
                 this.makeCodeHash = pxt.Util.toHex(this.bin.slice(hashOffset + 8, hashOffset + 16));
-                pxt.debug("pf: DAL hash " + this.dalHash);
-                pxt.debug("pf: MakeCode hash " + this.makeCodeHash);
+                this.debug("DAL hash " + this.dalHash);
+                this.debug("MakeCode hash " + this.makeCodeHash);
                 return this.connectAsync()
                     .then(function () { return new Promise(function (resolve, reject) {
                     _this.flashResolve = resolve;
                     _this.flashReject = reject;
-                    pxt.debug("pf: check service version");
+                    _this.debug("check service version");
                     _this.state = PartialFlashingState.StatusRequested;
-                    _this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.STATUS]));
+                    return _this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.STATUS]));
                 }); }).then(function () { }, function (e) {
                     pxt.log("pf: error " + e.message);
                     _this.clearFlashData();
@@ -11305,7 +11394,7 @@ var pxt;
             };
             PartialFlashingService.prototype.checkStateTransition = function (cmd, acceptedStates) {
                 if (!(this.state & acceptedStates)) {
-                    pxt.debug("pf: flash cmd " + cmd + " in state " + this.state.toString(16) + " ");
+                    this.debug("flash cmd " + cmd + " in state " + this.state.toString(16) + " ");
                     this.flashReject(new Error());
                     this.clearFlashData();
                     return false;
@@ -11313,6 +11402,7 @@ var pxt;
                 return true;
             };
             PartialFlashingService.prototype.handleCharacteristic = function (ev) {
+                var _this = this;
                 // check service is still alive
                 if (this.aliveToken.isCancelled()) {
                     this.flashReject(new Error());
@@ -11321,7 +11411,7 @@ var pxt;
                 var dataView = event.target.value;
                 var packet = new Uint8Array(dataView.buffer);
                 var cmd = packet[0];
-                //pxt.debug(`pf: flash state ${this.state} - cmd ${cmd}`);
+                //this.debug(`flash state ${this.state} - cmd ${cmd}`);
                 if (this.state == PartialFlashingState.Idle)
                     return;
                 switch (cmd) {
@@ -11330,10 +11420,11 @@ var pxt;
                             return;
                         this.version = packet[1];
                         this.mode = packet[2];
-                        pxt.debug("ble: flash service version " + this.version + " mode " + this.mode);
-                        pxt.debug("pf: reading DAL region");
+                        this.debug("flash service version " + this.version + " mode " + this.mode);
+                        this.debug("reading DAL region");
                         this.state = PartialFlashingState.RegionDALRequested;
-                        this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.REGION_INFO, PartialFlashingService.REGION_DAL]));
+                        this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.REGION_INFO, PartialFlashingService.REGION_DAL]))
+                            .then(function () { });
                         break;
                     case PartialFlashingService.REGION_INFO:
                         if (!this.checkStateTransition(cmd, PartialFlashingState.RegionDALRequested | PartialFlashingState.RegionMakeCodeRequested))
@@ -11343,48 +11434,52 @@ var pxt;
                             end: (packet[6] << 24) | (packet[7] << 16) | (packet[8] << 8) | packet[9],
                             hash: pxt.Util.toHex(packet.slice(10))
                         };
-                        pxt.debug("pf: read region " + packet[1] + " start " + region.start.toString(16) + " end " + region.end.toString(16) + " hash " + region.hash);
+                        this.debug("read region " + packet[1] + " start " + region.start.toString(16) + " end " + region.end.toString(16) + " hash " + region.hash);
                         if (packet[1] == PartialFlashingService.REGION_DAL) {
                             if (region.hash != this.dalHash) {
                                 pxt.tickEvent("webble.flash.DALrequired");
-                                pxt.debug("pf: DAL hash does not match, partial flashing not possible");
+                                this.debug("DAL hash does not match, partial flashing not possible");
                                 this.state = PartialFlashingState.USBFlashRequired;
                                 this.flashReject(new Error("USB flashing required"));
                                 this.clearFlashData();
                                 return;
                             }
-                            pxt.debug("pf: DAL hash match, reading makecode region");
+                            this.debug("DAL hash match, reading makecode region");
                             this.state = PartialFlashingState.RegionMakeCodeRequested;
-                            this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.REGION_INFO, PartialFlashingService.REGION_MAKECODE]));
+                            this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.REGION_INFO, PartialFlashingService.REGION_MAKECODE]))
+                                .then(function () { });
                         }
                         else if (packet[1] == PartialFlashingService.REGION_MAKECODE) {
                             if (region.start != this.magicOffset) {
-                                pxt.debug("pf: magic offset and MakeCode region.start not matching");
+                                this.debug("magic offset and MakeCode region.start not matching");
                                 pxt.U.userError(lf("Invalid file"));
                             }
                             if (region.hash == this.makeCodeHash) {
                                 pxt.tickEvent("webble.flash.noop");
-                                pxt.debug("pf: MakeCode hash matches, same code!");
+                                this.debug("MakeCode hash matches, same code!");
                                 // always restart even to match USB drag and drop behavior
-                                pxt.debug("pf: restart application mode");
-                                this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.RESET, PartialFlashingService.MODE_APPLICATION]));
-                                this.state = PartialFlashingState.Idle;
-                                this.flashResolve();
-                                this.clearFlashData();
+                                this.debug("restart application mode");
+                                this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.RESET, PartialFlashingService.MODE_APPLICATION]))
+                                    .then(function () {
+                                    _this.state = PartialFlashingState.Idle;
+                                    _this.flashResolve();
+                                    _this.clearFlashData();
+                                });
                             }
                             else {
                                 // must be in pairing mode
                                 if (this.mode != PartialFlashingService.MODE_PAIRING) {
-                                    pxt.debug("ble: application mode, reset into pairing mode");
+                                    this.debug("application mode, reset into pairing mode");
                                     this.state = PartialFlashingState.PairingModeRequested;
                                     this.autoReconnect = true;
-                                    this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.RESET, PartialFlashingService.MODE_PAIRING]));
+                                    this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.RESET, PartialFlashingService.MODE_PAIRING]))
+                                        .then(function () { });
                                     return;
                                 }
                                 // ready to flash the data in 4 chunks
                                 this.flashOffset = region.start;
                                 this.flashPacketNumber = 0;
-                                pxt.debug("pf: starting to flash from address " + this.flashOffset.toString(16));
+                                this.debug("starting to flash from address " + this.flashOffset.toString(16));
                                 this.flashNextPacket();
                             }
                         }
@@ -11394,7 +11489,7 @@ var pxt;
                             return;
                         switch (packet[1]) {
                             case PartialFlashingService.PACKET_OUT_OF_ORDER:
-                                pxt.debug("pf: packet out of order");
+                                this.debug("packet out of order");
                                 this.flashPacketToken.cancel(); // cancel pending writes
                                 this.flashPacketNumber += 4;
                                 this.chunkDelay = Math.min(this.chunkDelay + 10, PartialFlashingService.CHUNK_MAX_DELAY);
@@ -11406,12 +11501,15 @@ var pxt;
                                 this.flashOffset += 64;
                                 this.flashPacketNumber += 4;
                                 if (this.flashOffset >= this.bin.length) {
-                                    pxt.debug('pf: end transmission');
+                                    this.debug('end transmission');
                                     this.state = PartialFlashingState.EndOfTransmision;
-                                    this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.END_OF_TRANSMISSION]));
-                                    // we are done!
-                                    this.flashResolve();
-                                    this.clearFlashData();
+                                    this.pfCharacteristic.writeValue(new Uint8Array([PartialFlashingService.END_OF_TRANSMISSION]))
+                                        .finally(function () {
+                                        // we are done!
+                                        if (_this.flashResolve)
+                                            _this.flashResolve();
+                                        _this.clearFlashData();
+                                    });
                                 }
                                 else {
                                     this.flashNextPacket();
@@ -11420,7 +11518,7 @@ var pxt;
                         }
                         break;
                     default:
-                        pxt.debug("pf: unknown message " + pxt.Util.toHex(packet));
+                        this.debug("unknown message " + pxt.Util.toHex(packet));
                         this.disconnect();
                         break;
                 }
@@ -11432,7 +11530,7 @@ var pxt;
                 this.flashPacketToken = new pxt.Util.CancellationToken();
                 this.flashPacketToken.startOperation();
                 var hex = this.bin.slice(this.flashOffset, this.flashOffset + 64);
-                pxt.debug("pf: flashing " + this.flashOffset.toString(16) + " / " + this.bin.length.toString(16) + " " + (((this.flashOffset - this.magicOffset) / (this.bin.length - this.magicOffset) * 100) >> 0) + "%");
+                this.debug("flashing " + this.flashOffset.toString(16) + " / " + this.bin.length.toString(16) + " " + (((this.flashOffset - this.magicOffset) / (this.bin.length - this.magicOffset) * 100) >> 0) + "%");
                 // add delays or chrome crashes
                 var chunk = new Uint8Array(20);
                 Promise.delay(this.chunkDelay)
@@ -11444,8 +11542,8 @@ var pxt;
                     chunk[3] = _this.flashPacketNumber; // packet number
                     for (var i = 0; i < 16; i++)
                         chunk[4 + i] = hex[i];
-                    //pxt.debug(`pf: chunk 0 ${Util.toHex(chunk)}`)
-                    _this.pfCharacteristic.writeValue(chunk);
+                    //this.debug(`chunk 0 ${Util.toHex(chunk)}`)
+                    return _this.pfCharacteristic.writeValue(chunk);
                 }).delay(this.chunkDelay).then(function () {
                     _this.flashPacketToken.throwIfCancelled();
                     chunk[0] = PartialFlashingService.FLASH_DATA;
@@ -11454,8 +11552,8 @@ var pxt;
                     chunk[3] = _this.flashPacketNumber + 1; // packet number
                     for (var i = 0; i < 16; i++)
                         chunk[4 + i] = hex[16 + i] || 0;
-                    //pxt.debug(`pf: chunk 1 ${Util.toHex(chunk)}`)
-                    _this.pfCharacteristic.writeValue(chunk);
+                    //this.debug(`chunk 1 ${Util.toHex(chunk)}`)
+                    return _this.pfCharacteristic.writeValue(chunk);
                 }).delay(this.chunkDelay).then(function () {
                     _this.flashPacketToken.throwIfCancelled();
                     chunk[0] = PartialFlashingService.FLASH_DATA;
@@ -11464,8 +11562,8 @@ var pxt;
                     chunk[3] = _this.flashPacketNumber + 2; // packet number
                     for (var i = 0; i < 16; i++)
                         chunk[4 + i] = hex[32 + i] || 0;
-                    //pxt.debug(`pf: chunk 2 ${Util.toHex(chunk)}`)
-                    _this.pfCharacteristic.writeValue(chunk);
+                    //this.debug(`chunk 2 ${Util.toHex(chunk)}`)
+                    return _this.pfCharacteristic.writeValue(chunk);
                 }).delay(this.chunkDelay).then(function () {
                     _this.flashPacketToken.throwIfCancelled();
                     chunk[0] = PartialFlashingService.FLASH_DATA;
@@ -11474,8 +11572,8 @@ var pxt;
                     chunk[3] = _this.flashPacketNumber + 3; // packet number
                     for (var i = 0; i < 16; i++)
                         chunk[4 + i] = hex[48 + i] || 0;
-                    //pxt.debug(`pf: chunk 3 ${Util.toHex(chunk)}`)
-                    _this.pfCharacteristic.writeValue(chunk);
+                    //this.debug(`chunk 3 ${Util.toHex(chunk)}`)
+                    return _this.pfCharacteristic.writeValue(chunk);
                 }).then(function () {
                     // give 500ms (A LOT) to process packet or consider the protocol stuck
                     // and send a bogus package to trigger an out of order situations
@@ -11491,16 +11589,15 @@ var pxt;
                             )
                                 return Promise.resolve();
                             // we are definitely stuck
-                            pxt.debug("pf: packet transfer deadlock, force restart");
+                            _this.debug("packet transfer deadlock, force restart");
                             chunk[0] = PartialFlashingService.FLASH_DATA;
                             chunk[1] = 0;
                             chunk[2] = 0;
                             chunk[3] = ~0; // bobus packet number
                             for (var i = 0; i < 16; i++)
                                 chunk[4 + i] = 0;
-                            _this.pfCharacteristic.writeValue(chunk);
-                            // keep trying
-                            return transferDaemonAsync();
+                            return _this.pfCharacteristic.writeValue(chunk)
+                                .then(function () { return transferDaemonAsync(); });
                         });
                     };
                     transferDaemonAsync()
@@ -11530,7 +11627,7 @@ var pxt;
             PartialFlashingService.REGION_DAL = 0x01;
             PartialFlashingService.REGION_MAKECODE = 0x02;
             PartialFlashingService.MAGIC_MARKER = pxt.Util.fromHex('708E3B92C615A841C49866C975EE5197');
-            PartialFlashingService.CHUNK_MIN_DELAY = 25;
+            PartialFlashingService.CHUNK_MIN_DELAY = 0;
             PartialFlashingService.CHUNK_MAX_DELAY = 75;
             return PartialFlashingService;
         }(BLEService));
@@ -11538,14 +11635,24 @@ var pxt;
         var BLEDevice = /** @class */ (function (_super) {
             __extends(BLEDevice, _super);
             function BLEDevice(device) {
-                var _this = _super.call(this, new pxt.Util.CancellationToken()) || this;
+                var _this = _super.call(this, "ble", new pxt.Util.CancellationToken()) || this;
                 _this.device = undefined;
                 _this.services = [];
+                _this.pendingResumeLogOnDisconnection = false;
+                _this.servicesVersion = 0;
                 _this.device = device;
                 _this.handleDisconnected = _this.handleDisconnected.bind(_this);
+                _this.handleServiceAdded = _this.handleServiceAdded.bind(_this);
+                _this.handleServiceChanged = _this.handleServiceChanged.bind(_this);
+                _this.handleServiceRemoved = _this.handleServiceRemoved.bind(_this);
                 _this.device.addEventListener('gattserverdisconnected', _this.handleDisconnected);
-                if (hasConsole())
+                _this.device.addEventListener('serviceadded', _this.handleServiceAdded);
+                _this.device.addEventListener('servicechanged', _this.handleServiceChanged);
+                _this.device.addEventListener('serviceremoved', _this.handleServiceRemoved);
+                if (hasConsole()) {
                     _this.services.push(_this.uartService = new UARTService(_this));
+                    _this.services.push(_this.hf2Service = new HF2Service(_this));
+                }
                 if (hasPartialFlash())
                     _this.services.push(_this.partialFlashingService = new PartialFlashingService(_this));
                 _this.aliveToken.startOperation();
@@ -11555,16 +11662,27 @@ var pxt;
                 this.services.filter(function (service) { return service.autoReconnect; })
                     .forEach(function (service) { return service.connectAsync().catch(function () { }); });
             };
-            BLEDevice.prototype.pauseUART = function () {
+            BLEDevice.prototype.pauseLog = function () {
                 if (this.uartService) {
                     this.uartService.autoReconnect = false;
                     this.uartService.disconnect();
                 }
+                if (this.hf2Service) {
+                    this.hf2Service.autoReconnect = false;
+                    this.hf2Service.disconnect();
+                }
             };
-            BLEDevice.prototype.resumeUART = function () {
+            BLEDevice.prototype.resumeLogOnDisconnection = function () {
+                this.pendingResumeLogOnDisconnection = true;
+            };
+            BLEDevice.prototype.resumeLog = function () {
                 if (this.uartService) {
                     this.uartService.autoReconnect = true;
                     this.uartService.connectAsync().catch(function () { });
+                }
+                if (this.hf2Service) {
+                    this.hf2Service.autoReconnect = true;
+                    this.hf2Service.connectAsync().catch(function () { });
                 }
             };
             Object.defineProperty(BLEDevice.prototype, "isPaired", {
@@ -11596,30 +11714,44 @@ var pxt;
                 configurable: true
             });
             BLEDevice.prototype.createConnectPromise = function () {
-                pxt.debug("ble: connecting gatt server");
+                var _this = this;
+                this.debug("connecting gatt server");
                 return this.alivePromise(this.device.gatt.connect()
-                    .then(function () { return pxt.debug("ble: gatt server connected"); }));
+                    .then(function () { return _this.debug("gatt server connected"); }));
+            };
+            BLEDevice.prototype.handleServiceAdded = function (event) {
+                this.debug("service added");
+                this.servicesVersion++;
+            };
+            BLEDevice.prototype.handleServiceRemoved = function (event) {
+                this.debug("service removed");
+                this.servicesVersion++;
+            };
+            BLEDevice.prototype.handleServiceChanged = function (event) {
+                this.debug("service changed");
+                this.servicesVersion++;
             };
             BLEDevice.prototype.handleDisconnected = function (event) {
-                pxt.debug("ble: disconnected");
+                var _this = this;
+                this.debug("disconnected");
                 this.disconnect();
+                if (this.pendingResumeLogOnDisconnection) {
+                    this.pendingResumeLogOnDisconnection = false;
+                    Promise.delay(500).then(function () { return _this.resumeLog(); });
+                }
             };
             BLEDevice.prototype.disconnect = function () {
                 _super.prototype.disconnect.call(this);
                 this.services.forEach(function (service) { return service.disconnect(); });
                 if (!this.connected)
                     return;
-                pxt.debug("ble: disconnect");
+                this.debug("disconnect");
                 try {
-                    try {
+                    if (this.device.gatt && this.device.gatt.connected)
                         this.device.gatt.disconnect();
-                    }
-                    catch (e) {
-                        pxt.debug("ble: gatt disconnect error " + e.message);
-                    }
                 }
                 catch (e) {
-                    pxt.log("ble: error " + e.message);
+                    this.debug("gatt disconnect error " + e.message);
                 }
             };
             return BLEDevice;
@@ -11631,9 +11763,11 @@ var pxt;
                 return Promise.resolve();
             pxt.log("ble: requesting device");
             var optionalServices = [];
-            if (pxt.appTarget.appTheme.bluetoothUartFilters)
+            if (hasConsole()) {
                 optionalServices.push(UARTService.SERVICE_UUID);
-            if (pxt.appTarget.appTheme.bluetoothPartialFlashing)
+                optionalServices.push(HF2Service.SERVICE_UUID);
+            }
+            if (hasPartialFlash())
                 optionalServices.push(PartialFlashingService.SERVICE_UUID);
             return navigator.bluetooth.requestDevice({
                 filters: pxt.appTarget.appTheme.bluetoothUartFilters,
@@ -11656,7 +11790,8 @@ var pxt;
             }
             return connectAsync()
                 .catch(function (e) {
-                webBluetooth.bleDevice.aliveToken.resolveCancel();
+                if (webBluetooth.bleDevice && webBluetooth.bleDevice.aliveToken)
+                    webBluetooth.bleDevice.aliveToken.resolveCancel();
                 pxt.log("ble: error " + e.message);
             });
         }

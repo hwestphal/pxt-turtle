@@ -307,15 +307,15 @@ var pxsim;
         }
         turtle.clear = clear;
         /**
-         * Draw image
-         * @param img image to draw, eg: img``
+         * Draw sprite
+         * @param sprite sprite to draw, eg: img``
          */
         //% weight=5
-        //% blockId=turtleDrawImage block="draw %img=image_picker"
-        function drawImage(img) {
-            pxsim.board().drawImage(img);
+        //% blockId=turtleDrawSprite block="draw %sprite=spriteEditor"
+        function drawSprite(sprite) {
+            pxsim.board().drawSprite(sprite);
         }
-        turtle.drawImage = drawImage;
+        turtle.drawSprite = drawSprite;
     })(turtle = pxsim.turtle || (pxsim.turtle = {}));
 })(pxsim || (pxsim = {}));
 (function (pxsim) {
@@ -610,10 +610,10 @@ var pxsim;
                 this.stage.removeChildAt(1);
             }
         };
-        TurtleBoard.prototype.drawImage = function (img) {
-            var bitmap = new createjs.Bitmap(img);
-            bitmap.regX = img.width / 2;
-            bitmap.regY = img.height / 2;
+        TurtleBoard.prototype.drawSprite = function (sprite) {
+            var bitmap = new createjs.Bitmap(sprite);
+            bitmap.regX = sprite.width / 2;
+            bitmap.regY = sprite.height / 2;
             bitmap.x = this.xOffset + this.x;
             bitmap.y = this.yOffset - this.y;
             bitmap.rotation = this.heading;
@@ -642,16 +642,22 @@ var pxsim;
         console.log("%c" + new Date().toISOString(), "color:blue; font-style: italic", msg);
     }
     pxsim.log = log;
-    function toImage(buffer) {
+    function toSprite(buffer) {
         var width = buffer.data[1];
         var height = buffer.data[2];
+        var dataHeight = Math.ceil(height / 8) * 8;
         var data = buffer.data.slice(4);
         var array = new Uint8ClampedArray(width * height * 4);
         for (var i = 0; i < data.length; i++) {
-            var x = Math.floor(2 * i / height);
-            var y = (2 * i) % width;
-            setColor(data[i] & 0x0f, array, width, x, y);
-            setColor(data[i] >> 4, array, width, x, y + 1);
+            var y = (2 * i) % dataHeight;
+            if (y < height) {
+                var x = Math.floor(2 * i / dataHeight);
+                setColor(data[i] & 0x0f, array, width, x, y);
+                y += 1;
+                if (y < height) {
+                    setColor(data[i] >> 4, array, width, x, y);
+                }
+            }
         }
         var canvas = document.createElement("canvas");
         canvas.width = width;
@@ -659,7 +665,7 @@ var pxsim;
         canvas.getContext("2d").putImageData(new ImageData(array, width, height), 0, 0);
         return canvas;
     }
-    pxsim.toImage = toImage;
+    pxsim.toSprite = toSprite;
     var palette = [
         [0x00, 0x00, 0x00],
         [0xff, 0x00, 0x00],

@@ -4107,6 +4107,7 @@ var pxsim;
 /// <reference path="../localtypings/pxtparts.d.ts"/>
 var pxsim;
 (function (pxsim) {
+    var MIN_MESSAGE_WAIT_MS = 200;
     var U;
     (function (U) {
         function addClass(element, classes) {
@@ -4202,7 +4203,29 @@ var pxsim;
     var SERIAL_BUFFER_LENGTH = 16;
     var BaseBoard = /** @class */ (function () {
         function BaseBoard() {
+            var _this = this;
             this.serialOutBuffer = '';
+            this.messages = [];
+            this.lastSerialTime = 0;
+            this.debouncedPostAll = function () {
+                var nowtime = Date.now();
+                if (nowtime - _this.lastSerialTime > MIN_MESSAGE_WAIT_MS) {
+                    clearTimeout(_this.serialTimeout);
+                    if (_this.messages.length) {
+                        Runtime.postMessage({
+                            type: 'bulkserial',
+                            data: _this.messages,
+                            id: pxsim.runtime.id,
+                            sim: true
+                        });
+                        _this.messages = [];
+                        _this.lastSerialTime = nowtime;
+                    }
+                }
+                else {
+                    _this.serialTimeout = setTimeout(_this.debouncedPostAll, 50);
+                }
+            };
         }
         BaseBoard.prototype.updateView = function () { };
         BaseBoard.prototype.receiveMessage = function (msg) { };
@@ -4212,16 +4235,13 @@ var pxsim;
         };
         BaseBoard.prototype.kill = function () { };
         BaseBoard.prototype.writeSerial = function (s) {
-            if (!s)
-                return;
             this.serialOutBuffer += s;
             if (/\n/.test(this.serialOutBuffer) || this.serialOutBuffer.length > SERIAL_BUFFER_LENGTH) {
-                Runtime.postMessage({
-                    type: 'serial',
-                    data: this.serialOutBuffer,
-                    id: pxsim.runtime.id,
-                    sim: true
+                this.messages.push({
+                    time: Date.now(),
+                    data: this.serialOutBuffer
                 });
+                this.debouncedPostAll();
                 this.serialOutBuffer = '';
             }
         };
@@ -4330,7 +4350,7 @@ var pxsim;
                     return Promise.resolve();
                 }
             });
-            // all events will be processed by above code, so 
+            // all events will be processed by above code, so
             // start afresh
             this.events = [];
             return ret;
