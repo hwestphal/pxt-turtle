@@ -156,8 +156,8 @@ namespace pxsim {
             }
         }
 
-        drawSprite(sprite: Sprite) {
-            const bitmap = new createjs.Bitmap(sprite);
+        drawSprite(sprite: SpriteImpl) {
+            const bitmap = new createjs.Bitmap(sprite.canvas);
             bitmap.regX = sprite.width / 2;
             bitmap.regY = sprite.height / 2;
             bitmap.x = this.xOffset + this.x;
@@ -213,7 +213,27 @@ namespace pxsim {
         canvas.width = width;
         canvas.height = height;
         canvas.getContext("2d")!.putImageData(new ImageData(array, width, height), 0, 0);
-        return canvas;
+        return new SpriteImpl(canvas);
+    }
+
+    export class SpriteImpl implements Sprite {
+        constructor(public canvas: HTMLCanvasElement) { }
+
+        get width() {
+            return this.canvas.width;
+        }
+
+        get height() {
+            return this.canvas.height;
+        }
+
+        private getWidth() {
+            return this.width;
+        }
+
+        private getHeight() {
+            return this.height;
+        }
     }
 
     const palette = [

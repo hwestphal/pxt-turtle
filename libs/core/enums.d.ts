@@ -10,6 +10,8 @@ declare const enum Speed {
 }
 
 declare interface Sprite {
+    //% shim=.getWidth
     readonly width: number;
+    //% shim=.getHeight
     readonly height: number;
 }

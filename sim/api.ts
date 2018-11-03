@@ -193,7 +193,7 @@ namespace pxsim.turtle {
     //% weight=5
     //% blockId=turtleDrawSprite block="draw %sprite=spriteEditor"
     export function drawSprite(sprite: Sprite) {
-        board().drawSprite(sprite);
+        board().drawSprite(sprite as SpriteImpl);
     }
 
 }
