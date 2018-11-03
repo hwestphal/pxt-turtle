@@ -188,7 +188,13 @@ namespace pxsim {
 
     export function log(msg: string) {
         // tslint:disable-next-line:no-console
-        console.log(`%c${new Date().toISOString()}`, "color:blue; font-style: italic", msg);
+        console.log(`%c${toLocalISOString(new Date())} %c[TURTLE]`, "color: blue; font-style: italic", "font-weight: bold", msg);
+    }
+
+    function toLocalISOString(date: Date) {
+        const modDate = new Date();
+        modDate.setTime(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+        return modDate.toISOString().slice(0, -1);
     }
 
     export function toSprite(buffer: RefBuffer): Sprite {
@@ -198,15 +204,10 @@ namespace pxsim {
         const data = buffer.data.slice(4);
         const array = new Uint8ClampedArray(width * height * 4);
         for (let i = 0; i < data.length; i++) {
-            let y = (2 * i) % dataHeight;
-            if (y < height) {
-                const x = Math.floor(2 * i / dataHeight);
-                setColor(data[i] & 0x0f, array, width, x, y);
-                y += 1;
-                if (y < height) {
-                    setColor(data[i] >> 4, array, width, x, y);
-                }
-            }
+            const x = Math.floor(2 * i / dataHeight);
+            const y = (2 * i) % dataHeight;
+            setColor(data[i] & 0x0f, array, width, x, y);
+            setColor(data[i] >> 4, array, width, x, y + 1);
         }
         const canvas = document.createElement("canvas");
         canvas.width = width;
