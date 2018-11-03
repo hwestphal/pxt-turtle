@@ -1277,11 +1277,11 @@ var pxt;
             var e = emptyEnv(w);
             // append functions in stdcalltable
             if (blockInfo) {
-                // Enums are not enclosed in namespaces, so add them to the taken names
-                // to avoid collision
+                // Enums, tagged templates, and namespaces are not enclosed in namespaces,
+                // so add them to the taken names to avoid collision
                 Object.keys(blockInfo.apis.byQName).forEach(function (name) {
                     var info = blockInfo.apis.byQName[name];
-                    if (info.kind === pxtc.SymbolKind.Enum) {
+                    if (info.kind === pxtc.SymbolKind.Enum || info.kind === pxtc.SymbolKind.Function || info.kind === pxtc.SymbolKind.Module) {
                         e.renames.takenNames[info.qName] = true;
                     }
                 });
@@ -4968,7 +4968,9 @@ var pxt;
             }
             if (!foundIt) {
                 varField.initModel();
-                varField.getVariable().name = newName;
+                var model = varField.getVariable();
+                model.name = newName;
+                varField.setValue(model.getId());
             }
         }
         blocks.setVarFieldValue = setVarFieldValue;

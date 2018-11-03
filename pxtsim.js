@@ -4836,6 +4836,7 @@ var pxsim;
         SimulatorState[SimulatorState["Stopped"] = 1] = "Stopped";
         SimulatorState[SimulatorState["Running"] = 2] = "Running";
         SimulatorState[SimulatorState["Paused"] = 3] = "Paused";
+        SimulatorState[SimulatorState["Suspended"] = 4] = "Suspended";
     })(SimulatorState = pxsim.SimulatorState || (pxsim.SimulatorState = {}));
     var SimulatorDebuggerCommand;
     (function (SimulatorDebuggerCommand) {
@@ -4970,6 +4971,16 @@ var pxsim;
                 }
                 this.scheduleFrameCleanup();
             }
+        };
+        SimulatorDriver.prototype.suspend = function () {
+            this.postMessage({ type: 'stop' });
+            this.setState(SimulatorState.Suspended);
+            var frames = this.container.getElementsByTagName("iframe");
+            for (var i = 0; i < frames.length; ++i) {
+                var frame = frames[i];
+                pxsim.U.addClass(frame, this.getStoppedClass());
+            }
+            this.scheduleFrameCleanup();
         };
         SimulatorDriver.prototype.unload = function () {
             this.cancelFrameCleanup();
@@ -5210,7 +5221,7 @@ var pxsim;
                     var brk = msg;
                     if (this.state == SimulatorState.Running) {
                         if (brk.exceptionMessage)
-                            this.stop();
+                            this.suspend();
                         else
                             this.setState(SimulatorState.Paused);
                         if (this.options.onDebuggerBreakpoint)
