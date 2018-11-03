@@ -611,7 +611,7 @@ var pxsim;
             }
         };
         TurtleBoard.prototype.drawSprite = function (sprite) {
-            var bitmap = new createjs.Bitmap(sprite);
+            var bitmap = new createjs.Bitmap(sprite.canvas);
             bitmap.regX = sprite.width / 2;
             bitmap.regY = sprite.height / 2;
             bitmap.x = this.xOffset + this.x;
@@ -639,9 +639,14 @@ var pxsim;
         _a);
     function log(msg) {
         // tslint:disable-next-line:no-console
-        console.log("%c" + new Date().toISOString(), "color:blue; font-style: italic", msg);
+        console.log("%c" + toLocalISOString(new Date()) + " %c[TURTLE]", "color: blue; font-style: italic", "font-weight: bold", msg);
     }
     pxsim.log = log;
+    function toLocalISOString(date) {
+        var modDate = new Date();
+        modDate.setTime(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+        return modDate.toISOString().slice(0, -1);
+    }
     function toSprite(buffer) {
         var width = buffer.data[1];
         var height = buffer.data[2];
@@ -649,23 +654,45 @@ var pxsim;
         var data = buffer.data.slice(4);
         var array = new Uint8ClampedArray(width * height * 4);
         for (var i = 0; i < data.length; i++) {
+            var x = Math.floor(2 * i / dataHeight);
             var y = (2 * i) % dataHeight;
-            if (y < height) {
-                var x = Math.floor(2 * i / dataHeight);
-                setColor(data[i] & 0x0f, array, width, x, y);
-                y += 1;
-                if (y < height) {
-                    setColor(data[i] >> 4, array, width, x, y);
-                }
-            }
+            setColor(data[i] & 0x0f, array, width, x, y);
+            setColor(data[i] >> 4, array, width, x, y + 1);
         }
         var canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
         canvas.getContext("2d").putImageData(new ImageData(array, width, height), 0, 0);
-        return canvas;
+        return new SpriteImpl(canvas);
     }
     pxsim.toSprite = toSprite;
+    var SpriteImpl = /** @class */ (function () {
+        function SpriteImpl(canvas) {
+            this.canvas = canvas;
+        }
+        Object.defineProperty(SpriteImpl.prototype, "width", {
+            get: function () {
+                return this.canvas.width;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(SpriteImpl.prototype, "height", {
+            get: function () {
+                return this.canvas.height;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        SpriteImpl.prototype.getWidth = function () {
+            return this.width;
+        };
+        SpriteImpl.prototype.getHeight = function () {
+            return this.height;
+        };
+        return SpriteImpl;
+    }());
+    pxsim.SpriteImpl = SpriteImpl;
     var palette = [
         [0x00, 0x00, 0x00],
         [0xff, 0x00, 0x00],
