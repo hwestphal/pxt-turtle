@@ -1875,6 +1875,36 @@ var pxt;
 (function (pxt) {
     var blocks;
     (function (blocks_2) {
+        /**
+         * Converts a DOM into workspace without triggering any Blockly event
+         * @param dom
+         * @param workspace
+         */
+        function domToWorkspaceNoEvents(dom, workspace) {
+            pxt.tickEvent("blocks.domtow");
+            try {
+                Blockly.Events.disable();
+                return Blockly.Xml.domToWorkspace(dom, workspace);
+            }
+            finally {
+                Blockly.Events.enable();
+            }
+        }
+        blocks_2.domToWorkspaceNoEvents = domToWorkspaceNoEvents;
+        function clearWithoutEvents(workspace) {
+            pxt.tickEvent("blocks.clear");
+            if (!workspace)
+                return;
+            try {
+                Blockly.Events.disable();
+                workspace.clear();
+                workspace.clearUndo();
+            }
+            finally {
+                Blockly.Events.enable();
+            }
+        }
+        blocks_2.clearWithoutEvents = clearWithoutEvents;
         function saveWorkspaceXml(ws) {
             var xml = Blockly.Xml.workspaceToDom(ws, true);
             var text = Blockly.Xml.domToPrettyText(xml);
@@ -1913,7 +1943,7 @@ var pxt;
             var workspace = new Blockly.Workspace();
             try {
                 var dom = Blockly.Xml.textToDom(xml);
-                Blockly.Xml.domToWorkspace(dom, workspace);
+                pxt.blocks.domToWorkspaceNoEvents(dom, workspace);
                 return workspace;
             }
             catch (e) {
@@ -2121,6 +2151,11 @@ var pxt;
                     var otherSvg = svgclone.querySelector("g.blocklyWorkspace > g." + otherClass);
                     var blocksSvg = pxt.Util.toArray(parentSvg.querySelectorAll("g.blocklyWorkspace > g." + parentClass + " > g"));
                     var blockSvg = blocksSvg.splice(blocki, 1)[0];
+                    if (!blockSvg) {
+                        // seems like no blocks were generated
+                        pxt.log("missing block, did block failed to load?");
+                        return;
+                    }
                     // remove all but the block we care about
                     blocksSvg.filter(function (g) { return g != blockSvg; })
                         .forEach(function (g) {
@@ -2208,15 +2243,6 @@ var pxt;
                 });
             }
             layout.toPngAsync = toPngAsync;
-            function svgToPngAsync(svg, x, y, width, height, pixelDensity) {
-                return blocklyToSvgAsync(svg, x, y, width, height)
-                    .then(function (sg) {
-                    if (!sg)
-                        return Promise.resolve(undefined);
-                    return toPngAsyncInternal(sg.width, sg.height, pixelDensity, sg.xml);
-                });
-            }
-            layout.svgToPngAsync = svgToPngAsync;
             var MAX_SCREENSHOT_SIZE = 1e6; // max 1Mb
             function toPngAsyncInternal(width, height, pixelDensity, data) {
                 return new Promise(function (resolve, reject) {
@@ -2249,9 +2275,10 @@ var pxt;
             function toSvgAsync(ws) {
                 if (!ws)
                     return Promise.resolve(undefined);
-                var bbox = document.getElementsByClassName("blocklyBlockCanvas")[0].getBBox();
-                var sg = ws.svgBlockCanvas_.cloneNode(true);
-                return blocklyToSvgAsync(sg, bbox.x, bbox.y, bbox.width, bbox.height);
+                var metrics = ws.getBlocksBoundingBox();
+                var sg = ws.getParentSvg().cloneNode(true);
+                cleanUpBlocklySvg(sg);
+                return blocklyToSvgAsync(sg, metrics.x, metrics.y, metrics.width, metrics.height);
             }
             layout.toSvgAsync = toSvgAsync;
             function serializeNode(sg) {
@@ -2263,6 +2290,26 @@ var pxt;
                     .replace(new RegExp('&nbsp;', 'g'), '&#160;'); // Replace &nbsp; with &#160; as a workaround for having nbsp missing from SVG xml
             }
             layout.serializeSvgString = serializeSvgString;
+            function cleanUpBlocklySvg(svg) {
+                Blockly.utils.removeClass(svg, "blocklySvg");
+                Blockly.utils.addClass(svg, "blocklyPreview");
+                pxt.U.toArray(svg.querySelectorAll('.blocklyMainBackground,.blocklyScrollbarBackground'))
+                    .forEach(function (el) { if (el)
+                    el.parentNode.removeChild(el); });
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                pxt.U.toArray(svg.querySelectorAll('.blocklyBlockCanvas,.blocklyBubbleCanvas'))
+                    .forEach(function (el) { return el.removeAttribute('transform'); });
+                // In order to get the Blockly comment's text area to serialize properly they have to have names
+                var parser = new DOMParser();
+                pxt.U.toArray(svg.querySelectorAll('.blocklyCommentTextarea'))
+                    .forEach(function (el) {
+                    var dom = parser.parseFromString('<!doctype html><body>' + pxt.docs.html2Quote(el.value), 'text/html');
+                    el.textContent = dom.body.textContent;
+                });
+                return svg;
+            }
+            layout.cleanUpBlocklySvg = cleanUpBlocklySvg;
             function blocklyToSvgAsync(sg, x, y, width, height) {
                 if (!sg.childNodes[0])
                     return Promise.resolve(undefined);
@@ -2770,17 +2817,21 @@ var pxt;
             return value;
         }
         function createFlyoutHeadingLabel(name, color, icon, iconClass) {
-            var headingLabel = createFlyoutLabel(name, color, icon, iconClass);
+            var headingLabel = createFlyoutLabel(name, pxt.toolbox.convertColor(color), icon, iconClass);
             headingLabel.setAttribute('web-class', 'blocklyFlyoutHeading');
             return headingLabel;
         }
         blocks.createFlyoutHeadingLabel = createFlyoutHeadingLabel;
-        function createFlyoutGroupLabel(name, icon, labelLineWidth) {
+        function createFlyoutGroupLabel(name, icon, labelLineWidth, helpCallback) {
             var groupLabel = createFlyoutLabel(name, undefined, icon);
             groupLabel.setAttribute('web-class', 'blocklyFlyoutGroup');
             groupLabel.setAttribute('web-line', '1.5');
             if (labelLineWidth)
                 groupLabel.setAttribute('web-line-width', labelLineWidth);
+            if (helpCallback) {
+                groupLabel.setAttribute('web-help-button', 'true');
+                groupLabel.setAttribute('callbackkey', helpCallback);
+            }
             return groupLabel;
         }
         blocks.createFlyoutGroupLabel = createFlyoutGroupLabel;
@@ -2789,7 +2840,7 @@ var pxt;
             var headingLabel = goog.dom.createDom('label');
             headingLabel.setAttribute('text', name);
             if (color) {
-                headingLabel.setAttribute('web-icon-color', color);
+                headingLabel.setAttribute('web-icon-color', pxt.toolbox.convertColor(color));
             }
             if (icon) {
                 if (icon.length === 1) {
@@ -2888,20 +2939,6 @@ var pxt;
             return block;
         }
         blocks.createToolboxBlock = createToolboxBlock;
-        function createCategoryElement(name, nameid, weight, colour, iconClass) {
-            var result = document.createElement("category");
-            result.setAttribute("name", name);
-            result.setAttribute("nameid", nameid.toLowerCase());
-            result.setAttribute("weight", weight.toString());
-            if (colour) {
-                result.setAttribute("colour", colour);
-            }
-            if (iconClass) {
-                result.setAttribute("iconclass", iconClass);
-                result.setAttribute("expandedclass", iconClass);
-            }
-            return result;
-        }
         function injectBlocks(blockInfo) {
             // inject Blockly with all block definitions
             return blockInfo.blocks
@@ -3386,6 +3423,16 @@ var pxt;
             initDrag();
             initDebugger();
             initComments();
+            // PXT is in charge of disabling, don't record undo for disabled events
+            Blockly.Block.prototype.setDisabled = function (disabled) {
+                if (this.disabled != disabled) {
+                    var oldRecordUndo = Blockly.Events.recordUndo;
+                    Blockly.Events.recordUndo = false;
+                    Blockly.Events.fire(new Blockly.Events.BlockChange(this, 'disabled', null, this.disabled, disabled));
+                    Blockly.Events.recordUndo = oldRecordUndo;
+                    this.disabled = disabled;
+                }
+            };
         }
         function setBuiltinHelpInfo(block, id) {
             var info = pxt.blocks.getBlockDefinition(id);
@@ -3740,63 +3787,16 @@ var pxt;
                     return;
                 }
                 var menuOptions = [];
-                var topBlocks = this.getTopBlocks(true);
+                var topBlocks = this.getTopBlocks();
+                var topComments = this.getTopComments();
                 var eventGroup = Blockly.utils.genUid();
                 var ws = this;
                 // Option to add a workspace comment.
                 if (this.options.comments && !pxt.BrowserUtils.isIE()) {
                     menuOptions.push(Blockly.ContextMenu.workspaceCommentOption(ws, e));
                 }
-                // Add a little animation to collapsing and expanding.
+                // Add a little animation to deleting.
                 var DELAY = 10;
-                if (this.options.collapse) {
-                    var hasCollapsedBlocks = false;
-                    var hasExpandedBlocks = false;
-                    for (var i = 0; i < topBlocks.length; i++) {
-                        var block = topBlocks[i];
-                        while (block) {
-                            if (block.isCollapsed()) {
-                                hasCollapsedBlocks = true;
-                            }
-                            else {
-                                hasExpandedBlocks = true;
-                            }
-                            block = block.getNextBlock();
-                        }
-                    }
-                    /**
-                     * Option to collapse or expand top blocks.
-                     * @param {boolean} shouldCollapse Whether a block should collapse.
-                     * @private
-                     */
-                    var toggleOption_1 = function (shouldCollapse) {
-                        var ms = 0;
-                        for (var i = 0; i < topBlocks.length; i++) {
-                            var block = topBlocks[i];
-                            while (block) {
-                                setTimeout(block.setCollapsed.bind(block, shouldCollapse), ms);
-                                block = block.getNextBlock();
-                                ms += DELAY;
-                            }
-                        }
-                    };
-                    // Option to collapse top blocks.
-                    var collapseOption = { enabled: hasExpandedBlocks };
-                    collapseOption.text = lf("Collapse Block");
-                    collapseOption.callback = function () {
-                        pxt.tickEvent("blocks.context.collapse");
-                        toggleOption_1(true);
-                    };
-                    menuOptions.push(collapseOption);
-                    // Option to expand top blocks.
-                    var expandOption = { enabled: hasCollapsedBlocks };
-                    expandOption.text = lf("Expand Block");
-                    expandOption.callback = function () {
-                        pxt.tickEvent("blocks.context.expand");
-                        toggleOption_1(false);
-                    };
-                    menuOptions.push(expandOption);
-                }
                 // Option to delete all blocks.
                 // Count the number of blocks that are deletable.
                 var deleteList = Blockly.WorkspaceSvg.buildDeleteList_(topBlocks);
@@ -3850,7 +3850,7 @@ var pxt;
                 if (pxt.blocks.layout.screenshotEnabled()) {
                     var screenshotOption = {
                         text: lf("Download Screenshot"),
-                        enabled: topBlocks.length > 0,
+                        enabled: topBlocks.length > 0 || topComments.length > 0,
                         callback: function () {
                             pxt.tickEvent("blocks.context.screenshot", undefined, { interactiveConsent: true });
                             pxt.blocks.layout.screenshotAsync(_this)
@@ -4481,7 +4481,7 @@ var pxt;
                             field.appendChild(document.createTextNode(this.getProcedureCall()));
                             block.appendChild(field);
                             xml.appendChild(block);
-                            Blockly.Xml.domToWorkspace(xml, this.workspace);
+                            pxt.blocks.domToWorkspaceNoEvents(xml, this.workspace);
                             Blockly.Events.setGroup(false);
                         }
                     }
@@ -4566,7 +4566,7 @@ var pxt;
                     field.appendChild(document.createTextNode(name));
                     block.appendChild(field);
                     xml.appendChild(block);
-                    var newBlockIds = Blockly.Xml.domToWorkspace(xml, workspace);
+                    var newBlockIds = pxt.blocks.domToWorkspaceNoEvents(xml, workspace);
                     // Close flyout and highlight block
                     Blockly.hideChaff();
                     var newBlock = workspace.getBlockById(newBlockIds[0]);
@@ -5524,14 +5524,12 @@ var pxt;
                     rtl: pxt.Util.isUserLanguageRtl()
                 });
             }
-            workspace.clear();
+            pxt.blocks.clearWithoutEvents(workspace);
             try {
                 var text = blocksXml || "<xml xmlns=\"http://www.w3.org/1999/xhtml\"></xml>";
                 var xml = Blockly.Xml.textToDom(text);
-                Blockly.Events.disable();
-                Blockly.Xml.domToWorkspace(xml, workspace);
-                Blockly.Events.enable();
-                var layout_1 = options.splitSvg ? BlockLayout.Align : options.layout;
+                pxt.blocks.domToWorkspaceNoEvents(xml, workspace);
+                var layout_1 = options.splitSvg ? BlockLayout.Align : (options.layout || BlockLayout.Flow);
                 switch (layout_1) {
                     case BlockLayout.Align:
                         pxt.blocks.layout.verticalAlign(workspace, options.emPixels || 18);
@@ -5546,15 +5544,10 @@ var pxt;
                 }
                 var metrics_1 = workspace.getMetrics();
                 var svg = blocklyDiv.querySelectorAll('svg')[0].cloneNode(true);
-                Blockly.utils.removeClass(svg, "blocklySvg");
-                Blockly.utils.addClass(svg, "blocklyPreview");
+                pxt.blocks.layout.cleanUpBlocklySvg(svg);
                 pxt.U.toArray(svg.querySelectorAll('.blocklyBlockCanvas,.blocklyBubbleCanvas'))
                     .forEach(function (el) { return el.setAttribute('transform', "translate(" + -metrics_1.contentLeft + ", " + -metrics_1.contentTop + ") scale(1)"); });
-                var blocklyMainBackground = svg.querySelectorAll('.blocklyMainBackground')[0];
-                blocklyMainBackground.parentNode.removeChild(blocklyMainBackground);
                 svg.setAttribute('viewBox', "0 0 " + metrics_1.contentWidth + " " + metrics_1.contentHeight);
-                svg.removeAttribute('width');
-                svg.removeAttribute('height');
                 if (options.emPixels) {
                     svg.style.width = (metrics_1.contentWidth / options.emPixels) + 'em';
                     svg.style.height = (metrics_1.contentHeight / options.emPixels) + 'em';
@@ -8062,7 +8055,7 @@ var pxtblockly;
                     else if (thisField.minNote_ >= 28 && thisField.maxNote_ <= 63) {
                         name_6 = Notes[i].altPrefixedName || name_6;
                     }
-                    thisField.noteName_.push(name_6);
+                    thisField.noteName_.push(ts.pxtc.Util.rlf(name_6));
                     thisField.noteFreq_.push(Notes[i].freq);
                 }
                 // Do not remove this comment.
@@ -8225,7 +8218,7 @@ var pxtblockly;
         /**
          * Create a piano under the note field.
          */
-        FieldNote.prototype.showEditor_ = function (opt_quietInput) {
+        FieldNote.prototype.showEditor_ = function (e) {
             this.updateColor();
             // If there is an existing drop-down someone else owns, hide it immediately and clear it.
             Blockly.DropDownDiv.hideWithoutAnimation();
@@ -8233,7 +8226,10 @@ var pxtblockly;
             var contentDiv = Blockly.DropDownDiv.getContentDiv();
             //  change Note name to number frequency
             Blockly.FieldNumber.prototype.setText.call(this, this.getText());
-            FieldNote.superClass_.showEditor_.call(this, true);
+            var quietInput = (goog.userAgent.MOBILE || goog.userAgent.ANDROID ||
+                goog.userAgent.IPAD);
+            var readOnly = quietInput;
+            FieldNote.superClass_.showEditor_.call(this, e, false, readOnly);
             var pianoWidth;
             var pianoHeight;
             var keyWidth = 22;
@@ -8263,7 +8259,6 @@ var pxtblockly;
                 pianoHeight = keyHeight + labelHeight + prevNextHeight;
             }
             //  Check if Mobile, pagination -> true
-            var quietInput = opt_quietInput || false;
             if (!quietInput && (goog.userAgent.MOBILE || goog.userAgent.ANDROID)) {
                 pagination = true;
                 mobile = true;

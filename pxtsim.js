@@ -652,8 +652,6 @@ var pxsim;
                 .map(function (partName) { return { name: partName, def: _this.opts.partDefs[partName] }; })
                 .filter(function (d) { return !!d.def; });
             if (partNmAndDefs.length > 0) {
-                var partNmsList = partNmAndDefs.map(function (p) { return p.name; });
-                var partDefsList = partNmAndDefs.map(function (p) { return p.def; });
                 var dimensions_1 = partNmAndDefs.map(function (nmAndPart) { return _this.computePartDimensions(nmAndPart.def, nmAndPart.name); });
                 var partIRs_1 = [];
                 partNmAndDefs.forEach(function (nmAndDef, idx) {
@@ -661,7 +659,6 @@ var pxsim;
                     var irs = _this.allocPartIRs(nmAndDef.def, nmAndDef.name, dims);
                     partIRs_1 = partIRs_1.concat(irs);
                 });
-                // TODO filter parts that are not representable now
                 var partPlacements = this.placeParts(partIRs_1);
                 var partsAndWireIRs = partPlacements.map(function (p) { return _this.allocWireIRs(p); });
                 var allWireIRs = partsAndWireIRs.map(function (p) { return p.wires; }).reduce(function (p, n) { return p.concat(n); }, []);
@@ -689,7 +686,8 @@ var pxsim;
                         assembly: assembly
                     };
                 }).filter(function (p) { return !!p; });
-                var all = [basicWires].concat(partsAndWires);
+                var all = [basicWires].concat(partsAndWires)
+                    .filter(function (pw) { return pw.assembly && pw.assembly.length; }); // only keep steps with something to do
                 // hide breadboard if not used
                 var requiresBreadboard = all.some(function (r) {
                     return (r.part && r.part.breadboardConnections && r.part.breadboardConnections.length > 0)
@@ -1499,6 +1497,22 @@ var pxsim;
                     enumerable: true
                 });
             }
+            // Inject Math imul polyfill
+            if (!Math.imul) {
+                // for explanations see:
+                // http://stackoverflow.com/questions/3428136/javascript-integer-math-incorrect-results (second answer)
+                // (but the code below doesn't come from there; I wrote it myself)
+                // TODO use Math.imul if available
+                Math.imul = function (a, b) {
+                    var ah = (a >>> 16) & 0xffff;
+                    var al = a & 0xffff;
+                    var bh = (b >>> 16) & 0xffff;
+                    var bl = b & 0xffff;
+                    // the shift by 0 fixes the sign on the high part
+                    // the final |0 converts the unsigned value into a signed value
+                    return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0) | 0);
+                };
+            }
         }
         util.injectPolyphils = injectPolyphils;
         var Lazy = /** @class */ (function () {
@@ -2223,7 +2237,8 @@ var pxsim;
         }
         function mkBoardImgSvg(def) {
             var boardView = pxsim.visuals.mkBoardView({
-                visual: def
+                visual: def.visual,
+                boardDef: def
             });
             return boardView.getView();
         }
@@ -2433,6 +2448,7 @@ var pxsim;
             };
             var boardHost = new pxsim.visuals.BoardHost(pxsim.visuals.mkBoardView({
                 visual: opts.boardDef.visual,
+                boardDef: opts.boardDef,
                 wireframe: opts.wireframe
             }), opts);
             var view = boardHost.getView();
@@ -2506,7 +2522,7 @@ var pxsim;
         function mkPartsPanel(props) {
             var panel = mkPanel();
             // board and breadboard
-            var boardImg = mkBoardImgSvg(props.boardDef.visual);
+            var boardImg = mkBoardImgSvg(props.boardDef);
             var board = wrapSvg(boardImg, { left: QUANT_LBL(1), leftSize: QUANT_LBL_SIZE, cmpScale: PARTS_BOARD_SCALE });
             panel.appendChild(board);
             var bbRaw = mkBBSvg();
@@ -2781,12 +2797,10 @@ var pxsim;
     }());
     pxsim.RefObject = RefObject;
     var FnWrapper = /** @class */ (function () {
-        function FnWrapper(func, caps, a0, a1, a2, cb) {
+        function FnWrapper(func, caps, args, cb) {
             this.func = func;
             this.caps = caps;
-            this.a0 = a0;
-            this.a1 = a1;
-            this.a2 = a2;
+            this.args = args;
             this.cb = cb;
         }
         return FnWrapper;
@@ -2796,22 +2810,20 @@ var pxsim;
         __extends(RefRecord, _super);
         function RefRecord() {
             var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.fields = [];
+            _this.fields = {};
             return _this;
         }
         RefRecord.prototype.destroy = function () {
-            for (var i = 0; i < this.fields.length; ++i)
-                decr(this.fields[i]);
+            for (var _i = 0, _a = Object.keys(this.fields); _i < _a.length; _i++) {
+                var k = _a[_i];
+                decr(this.fields[k]);
+            }
             this.fields = null;
             this.vtable = null;
         };
-        RefRecord.prototype.isRef = function (idx) {
-            check(0 <= idx && idx < this.fields.length);
-            return true;
-        };
         RefRecord.prototype.print = function () {
             if (pxsim.runtime && pxsim.runtime.refCountingDebug)
-                console.log("RefRecord id:" + this.id + " (" + this.vtable.name + ") len:" + this.fields.length);
+                console.log("RefRecord id:" + this.id + " (" + this.vtable.name + ")");
         };
         return RefRecord;
     }(RefObject));
@@ -2825,7 +2837,7 @@ var pxsim;
         }
         RefAction.prototype.isRef = function (idx) {
             check(0 <= idx && idx < this.fields.length);
-            return idx < this.reflen;
+            return idx < this.len;
         };
         RefAction.prototype.ldclo = function (n) {
             n >>= 2;
@@ -2833,7 +2845,7 @@ var pxsim;
             return this.fields[n];
         };
         RefAction.prototype.destroy = function () {
-            for (var i = 0; i < this.reflen; ++i)
+            for (var i = 0; i < this.len; ++i)
                 decr(this.fields[i]);
             this.fields = null;
             this.func = null;
@@ -2847,55 +2859,41 @@ var pxsim;
     pxsim.RefAction = RefAction;
     var pxtcore;
     (function (pxtcore) {
-        function mkAction(reflen, len, fn) {
+        function mkAction(len, fn) {
             var r = new RefAction();
-            r.reflen = reflen;
+            r.len = len;
             r.func = fn;
             for (var i = 0; i < len; ++i)
                 r.fields.push(null);
             return r;
         }
         pxtcore.mkAction = mkAction;
-        function runAction3(a, a0, a1, a2) {
+        function runAction(a, args) {
             var cb = pxsim.getResume();
             if (a instanceof RefAction) {
                 pxtrt.incr(a);
-                cb(new FnWrapper(a.func, a.fields, a0, a1, a2, function () {
+                cb(new FnWrapper(a.func, a.fields, args, function () {
                     pxtrt.decr(a);
                 }));
             }
             else {
                 // no-closure case
-                cb(new FnWrapper(a, null, a0, a1, a2, null));
+                cb(new FnWrapper(a, null, args, null));
             }
         }
-        pxtcore.runAction3 = runAction3;
-        function runAction2(a, a0, a1) {
-            runAction3(a, a0, a1, null);
+        pxtcore.runAction = runAction;
+        function dumpPerfCounters() {
+            if (!pxsim.runtime || !pxsim.runtime.perfCounters)
+                return;
+            var csv = "calls,us,name\n";
+            for (var _i = 0, _a = pxsim.runtime.perfCounters; _i < _a.length; _i++) {
+                var p = _a[_i];
+                csv += p.numstops + "," + p.value + "," + p.name + "\n";
+            }
+            console.log(csv);
         }
-        pxtcore.runAction2 = runAction2;
-        function runAction1(a, v) {
-            runAction3(a, v, null, null);
-        }
-        pxtcore.runAction1 = runAction1;
-        function runAction0(a) {
-            runAction3(a, null, null, null);
-        }
-        pxtcore.runAction0 = runAction0;
+        pxtcore.dumpPerfCounters = dumpPerfCounters;
     })(pxtcore = pxsim.pxtcore || (pxsim.pxtcore = {}));
-    var RefLocal = /** @class */ (function (_super) {
-        __extends(RefLocal, _super);
-        function RefLocal() {
-            var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.v = 0;
-            return _this;
-        }
-        RefLocal.prototype.print = function () {
-            //console.log(`RefLocal id:${this.id} refs:${this.refcnt} v:${this.v}`)
-        };
-        return RefLocal;
-    }(RefObject));
-    pxsim.RefLocal = RefLocal;
     var RefRefLocal = /** @class */ (function (_super) {
         __extends(RefRefLocal, _super);
         function RefRefLocal() {
@@ -2923,7 +2921,7 @@ var pxsim;
         }
         RefMap.prototype.findIdx = function (key) {
             for (var i = 0; i < this.data.length; ++i) {
-                if (this.data[i].key >> 1 == key)
+                if (this.data[i].key == key)
                     return i;
             }
             return -1;
@@ -2931,9 +2929,7 @@ var pxsim;
         RefMap.prototype.destroy = function () {
             _super.prototype.destroy.call(this);
             for (var i = 0; i < this.data.length; ++i) {
-                if (this.data[i].key & 1) {
-                    decr(this.data[i].val);
-                }
+                decr(this.data[i].val);
                 this.data[i].val = 0;
             }
             this.data = [];
@@ -2945,7 +2941,7 @@ var pxsim;
         RefMap.prototype.toAny = function () {
             var r = {};
             this.data.forEach(function (d) {
-                r[d.keyName] = RefObject.toAny(d.val);
+                r[d.key] = RefObject.toAny(d.val);
             });
             return r;
         };
@@ -3021,10 +3017,6 @@ var pxsim;
         langsupp.toFloat = toFloat;
         function ignore(v) { return v; }
         langsupp.ignore = ignore;
-        function ptreqDecr(a, b) {
-            return pxsim.Number_.eqDecr(a, b);
-        }
-        langsupp.ptreqDecr = ptreqDecr;
     })(langsupp = pxsim.langsupp || (pxsim.langsupp = {}));
     (function (pxtcore) {
         pxtcore.incr = pxsim.incr;
@@ -3037,10 +3029,6 @@ var pxsim;
             dumpLivePointers();
         }
         pxtcore.debugMemLeaks = debugMemLeaks;
-        function allocate() {
-            pxsim.U.userError("allocate() called in simulator");
-        }
-        pxtcore.allocate = allocate;
         function templateHash() {
             return 0;
         }
@@ -3146,58 +3134,15 @@ var pxsim;
             return s;
         }
         pxtrt.emptyToNull = emptyToNull;
-        function ldfld(r, idx) {
-            nullCheck(r);
-            check(!r.isRef(idx));
-            var v = num(r.fields[idx]);
-            pxtrt.decr(r);
-            return v;
-        }
-        pxtrt.ldfld = ldfld;
-        function stfld(r, idx, v) {
-            nullCheck(r);
-            check(!r.isRef(idx));
-            r.fields[idx] = v;
-            pxtrt.decr(r);
-        }
-        pxtrt.stfld = stfld;
-        function ldfldRef(r, idx) {
-            nullCheck(r);
-            check(r.isRef(idx));
-            var v = pxtrt.incr(ref(r.fields[idx]));
-            pxtrt.decr(r);
-            return v;
-        }
-        pxtrt.ldfldRef = ldfldRef;
-        function stfldRef(r, idx, v) {
-            nullCheck(r);
-            check(r.isRef(idx));
-            pxtrt.decr(r.fields[idx]);
-            r.fields[idx] = v;
-            pxtrt.decr(r);
-        }
-        pxtrt.stfldRef = stfldRef;
-        function ldloc(r) {
-            return r.v;
-        }
-        pxtrt.ldloc = ldloc;
         function ldlocRef(r) {
             return pxtrt.incr(r.v);
         }
         pxtrt.ldlocRef = ldlocRef;
-        function stloc(r, v) {
-            r.v = v;
-        }
-        pxtrt.stloc = stloc;
         function stlocRef(r, v) {
             pxtrt.decr(r.v);
             r.v = v;
         }
         pxtrt.stlocRef = stlocRef;
-        function mkloc() {
-            return new RefLocal();
-        }
-        pxtrt.mkloc = mkloc;
         function mklocRef() {
             return new RefRefLocal();
         }
@@ -3220,17 +3165,18 @@ var pxsim;
         }
         pxtrt.mkMap = mkMap;
         function mapGet(map, key) {
-            var i = map.findIdx(key);
-            if (i < 0) {
-                pxtrt.decr(map);
-                return 0;
-            }
-            var r = map.data[i].val;
-            pxtrt.decr(map);
-            return r;
+            return mapGetByString(map, pxtrt.mapKeyNames[key]);
         }
         pxtrt.mapGet = mapGet;
-        function mapGetRef(map, key) {
+        function mapSet(map, key, val) {
+            return mapSetByString(map, pxtrt.mapKeyNames[key], val);
+        }
+        pxtrt.mapSet = mapSet;
+        function mapGetByString(map, key) {
+            if (map instanceof RefRecord) {
+                var r_1 = map;
+                return r_1.fields[key];
+            }
             var i = map.findIdx(key);
             if (i < 0) {
                 pxtrt.decr(map);
@@ -3240,58 +3186,45 @@ var pxsim;
             pxtrt.decr(map);
             return r;
         }
-        pxtrt.mapGetRef = mapGetRef;
-        function mapSet(map, key, val, keyName) {
+        pxtrt.mapGetByString = mapGetByString;
+        pxtrt.mapSetGeneric = mapSetByString;
+        pxtrt.mapGetGeneric = mapGetByString;
+        function mapSetByString(map, key, val) {
+            if (map instanceof RefRecord) {
+                var r = map;
+                r.fields[key] = val;
+                return;
+            }
             var i = map.findIdx(key);
             if (i < 0) {
                 map.data.push({
-                    key: key << 1,
+                    key: key,
                     val: val,
-                    keyName: keyName
                 });
             }
             else {
-                if (map.data[i].key & 1) {
-                    pxtrt.decr(map.data[i].val);
-                    map.data[i].key = key << 1;
-                }
+                pxtrt.decr(map.data[i].val);
                 map.data[i].val = val;
-                map.data[i].keyName = keyName;
             }
             pxtrt.decr(map);
         }
-        pxtrt.mapSet = mapSet;
-        function mapSetRef(map, key, val, keyName) {
-            var i = map.findIdx(key);
-            if (i < 0) {
-                map.data.push({
-                    key: (key << 1) | 1,
-                    val: val,
-                    keyName: keyName
-                });
-            }
-            else {
-                if (map.data[i].key & 1) {
-                    pxtrt.decr(map.data[i].val);
+        pxtrt.mapSetByString = mapSetByString;
+        function keysOf(v) {
+            var r = new pxsim.RefCollection();
+            if (v instanceof RefMap)
+                for (var _i = 0, _a = v.data; _i < _a.length; _i++) {
+                    var k = _a[_i];
+                    r.push(k.key);
                 }
-                else {
-                    map.data[i].key = (key << 1) | 1;
-                }
-                map.data[i].val = val;
-                map.data[i].keyName = keyName;
-            }
-            pxtrt.decr(map);
+            return r;
         }
-        pxtrt.mapSetRef = mapSetRef;
+        pxtrt.keysOf = keysOf;
     })(pxtrt = pxsim.pxtrt || (pxsim.pxtrt = {}));
     (function (pxtcore) {
         function mkClassInstance(vtable) {
             check(!!vtable.methods);
             var r = new RefRecord();
             r.vtable = vtable;
-            var len = vtable.numFields;
-            for (var i = 0; i < len; ++i)
-                r.fields.push(undefined);
             return r;
         }
         pxtcore.mkClassInstance = mkClassInstance;
@@ -3440,6 +3373,10 @@ var pxsim;
             return new RefCollection();
         }
         Array_.mk = mk;
+        function isArray(c) {
+            return c instanceof RefCollection;
+        }
+        Array_.isArray = isArray;
         function length(c) {
             pxsim.pxtrt.nullCheck(c);
             return c.getLength();
@@ -3512,10 +3449,18 @@ var pxsim;
     })(Array_ = pxsim.Array_ || (pxsim.Array_ = {}));
     var Math_;
     (function (Math_) {
-        function imul(x, y) {
-            return intMult(x, y);
-        }
-        Math_.imul = imul;
+        // for explanations see:
+        // http://stackoverflow.com/questions/3428136/javascript-integer-math-incorrect-results (second answer)
+        // (but the code below doesn't come from there; I wrote it myself)
+        Math_.imul = Math.imul || function (a, b) {
+            var ah = (a >>> 16) & 0xffff;
+            var al = a & 0xffff;
+            var bh = (b >>> 16) & 0xffff;
+            var bl = b & 0xffff;
+            // the shift by 0 fixes the sign on the high part
+            // the final |0 converts the unsigned value into a signed value
+            return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0) | 0);
+        };
         function idiv(x, y) {
             return (x / y) >> 0;
         }
@@ -3602,19 +3547,6 @@ var pxsim;
         }
         Math_.randomRange = randomRange;
     })(Math_ = pxsim.Math_ || (pxsim.Math_ = {}));
-    // for explanations see:
-    // http://stackoverflow.com/questions/3428136/javascript-integer-math-incorrect-results (second answer)
-    // (but the code below doesn't come from there; I wrote it myself)
-    // TODO use Math.imul if available
-    function intMult(a, b) {
-        var ah = (a >>> 16) & 0xffff;
-        var al = a & 0xffff;
-        var bh = (b >>> 16) & 0xffff;
-        var bl = b & 0xffff;
-        // the shift by 0 fixes the sign on the high part
-        // the final |0 converts the unsigned value into a signed value
-        return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0) | 0);
-    }
     var Number_;
     (function (Number_) {
         function lt(x, y) { return x < y; }
@@ -3656,7 +3588,7 @@ var pxsim;
         thumb.subs = subs;
         function divs(x, y) { return Math.floor(x / y) | 0; }
         thumb.divs = divs;
-        function muls(x, y) { return intMult(x, y); }
+        function muls(x, y) { return Math_.imul(x, y); }
         thumb.muls = muls;
         function ands(x, y) { return x & y; }
         thumb.ands = ands;
@@ -3686,7 +3618,7 @@ var pxsim;
         avr.subs = subs;
         function divs(x, y) { return toInt(Math.floor(x / y)); }
         avr.divs = divs;
-        function muls(x, y) { return toInt(intMult(x, y)); }
+        function muls(x, y) { return toInt(Math_.imul(x, y)); }
         avr.muls = muls;
         function ands(x, y) { return toInt(x & y); }
         avr.ands = ands;
@@ -4181,15 +4113,17 @@ var pxsim;
             return Date.now();
         }
         U.now = now;
+        var perf;
         // current time in microseconds
         function perfNowUs() {
-            var perf = typeof performance != "undefined" ?
-                performance.now.bind(performance) ||
-                    performance.moznow.bind(performance) ||
-                    performance.msNow.bind(performance) ||
-                    performance.webkitNow.bind(performance) ||
-                    performance.oNow.bind(performance) :
-                Date.now;
+            if (!perf)
+                perf = typeof performance != "undefined" ?
+                    performance.now.bind(performance) ||
+                        performance.moznow.bind(performance) ||
+                        performance.msNow.bind(performance) ||
+                        performance.webkitNow.bind(performance) ||
+                        performance.oNow.bind(performance) :
+                    Date.now;
             return perf() * 1000;
         }
         U.perfNowUs = perfNowUs;
@@ -4204,6 +4138,7 @@ var pxsim;
     var BaseBoard = /** @class */ (function () {
         function BaseBoard() {
             var _this = this;
+            this.messageListeners = [];
             this.serialOutBuffer = '';
             this.messages = [];
             this.lastSerialTime = 0;
@@ -4228,7 +4163,18 @@ var pxsim;
             };
         }
         BaseBoard.prototype.updateView = function () { };
-        BaseBoard.prototype.receiveMessage = function (msg) { };
+        BaseBoard.prototype.receiveMessage = function (msg) {
+            this.dispatchMessage(msg);
+        };
+        BaseBoard.prototype.dispatchMessage = function (msg) {
+            for (var _i = 0, _a = this.messageListeners; _i < _a.length; _i++) {
+                var listener = _a[_i];
+                listener(msg);
+            }
+        };
+        BaseBoard.prototype.addMessageListener = function (listener) {
+            this.messageListeners.push(listener);
+        };
         BaseBoard.prototype.initAsync = function (msg) {
             this.runOptions = msg;
             return Promise.resolve();
@@ -4266,7 +4212,7 @@ var pxsim;
         }
         CoreBoard.prototype.kill = function () {
             _super.prototype.kill.call(this);
-            pxsim.AudioContextManager.stop();
+            pxsim.AudioContextManager.stopAll();
         };
         return CoreBoard;
     }(BaseBoard));
@@ -4396,7 +4342,7 @@ var pxsim;
     }
     // wraps simulator code as STS code - useful for default event handlers
     function syntheticRefAction(f) {
-        return pxsim.pxtcore.mkAction(0, 0, function (s) { return _leave(s, f(s)); });
+        return pxsim.pxtcore.mkAction(0, function (s) { return _leave(s, f(s)); });
     }
     pxsim.syntheticRefAction = syntheticRefAction;
     var Runtime = /** @class */ (function () {
@@ -4410,6 +4356,9 @@ var pxsim;
             this.globals = {};
             this.loopLock = null;
             this.loopLockWaitList = [];
+            this.perfOffset = 0;
+            this.perfElapsed = 0;
+            this.perfStack = 0;
             this.refCountingDebug = false;
             this.refCounting = true;
             this.refObjId = 1;
@@ -4589,6 +4538,7 @@ var pxsim;
                     return;
                 }
                 U.assert(!__this.loopLock);
+                __this.perfStartRuntime();
                 try {
                     pxsim.runtime = __this;
                     while (!!p) {
@@ -4600,8 +4550,10 @@ var pxsim;
                         if (__this.currFrame.overwrittenPC)
                             p = __this.currFrame;
                     }
+                    __this.perfStopRuntime();
                 }
                 catch (e) {
+                    __this.perfStopRuntime();
                     if (__this.errorHandler)
                         __this.errorHandler(e);
                     else {
@@ -4664,6 +4616,22 @@ var pxsim;
             function setupResume(s, retPC) {
                 currResume = buildResume(s, retPC);
             }
+            function setupLambda(s, a) {
+                if (a instanceof pxsim.RefAction) {
+                    s.fn = a.func;
+                    s.caps = a.fields;
+                }
+                else {
+                    s.fn = a;
+                }
+            }
+            function checkSubtype(v, low, high) {
+                return v && v.vtable && low <= v.vtable.classNo && v.vtable.classNo <= high;
+            }
+            function failedCast(v) {
+                // TODO generate the right panic codes
+                oops("failed cast on " + v);
+            }
             function buildResume(s, retPC) {
                 if (currResume)
                     oops("already has resume");
@@ -4686,7 +4654,7 @@ var pxsim;
                         var frame_1 = {
                             parent: s,
                             fn: w.func,
-                            lambdaArgs: [w.a0, w.a1, w.a2],
+                            lambdaArgs: w.args,
                             pc: 0,
                             caps: w.caps,
                             depth: s.depth + 1,
@@ -4755,7 +4723,7 @@ var pxsim;
                 return U.nextTick(function () {
                     pxsim.runtime = _this;
                     _this.setupTop(resolve);
-                    pxsim.pxtcore.runAction3(a, arg0, arg1, arg2);
+                    pxsim.pxtcore.runAction(a, [arg0, arg1, arg2]);
                     pxsim.decr(a); // if it's still running, action.run() has taken care of incrementing the counter
                 });
             });
@@ -4824,9 +4792,64 @@ var pxsim;
                 console.log("Live String:", JSON.stringify(k), "refcnt=", n);
             });
         };
+        Runtime.prototype.setupPerfCounters = function (names) {
+            if (!names || !names.length)
+                return;
+            this.perfCounters = names.map(function (s) { return new PerfCounter(s); });
+        };
+        Runtime.prototype.perfStartRuntime = function () {
+            if (this.perfOffset !== 0) {
+                this.perfStack++;
+            }
+            else {
+                this.perfOffset = U.perfNowUs() - this.perfElapsed;
+            }
+        };
+        Runtime.prototype.perfStopRuntime = function () {
+            if (this.perfStack) {
+                this.perfStack--;
+            }
+            else {
+                this.perfElapsed = this.perfNow();
+                this.perfOffset = 0;
+            }
+        };
+        Runtime.prototype.perfNow = function () {
+            if (this.perfOffset === 0)
+                U.userError("bad time now");
+            return (U.perfNowUs() - this.perfOffset) | 0;
+        };
+        Runtime.prototype.startPerfCounter = function (n) {
+            if (!this.perfCounters)
+                return;
+            var c = this.perfCounters[n];
+            if (c.start)
+                U.userError("startPerf");
+            c.start = this.perfNow();
+        };
+        Runtime.prototype.stopPerfCounter = function (n) {
+            if (!this.perfCounters)
+                return;
+            var c = this.perfCounters[n];
+            if (!c.start)
+                U.userError("stopPerf");
+            c.value += this.perfNow() - c.start;
+            c.start = 0;
+            c.numstops++;
+        };
         return Runtime;
     }());
     pxsim.Runtime = Runtime;
+    var PerfCounter = /** @class */ (function () {
+        function PerfCounter(name) {
+            this.name = name;
+            this.start = 0;
+            this.numstops = 0;
+            this.value = 0;
+        }
+        return PerfCounter;
+    }());
+    pxsim.PerfCounter = PerfCounter;
 })(pxsim || (pxsim = {}));
 var pxsim;
 (function (pxsim) {
@@ -4922,7 +4945,8 @@ var pxsim;
             }
             // dispatch to all iframe besides self
             var frames = this.container.getElementsByTagName("iframe");
-            if (source && (msg.type === 'eventbus' || msg.type == 'radiopacket' || msg.type == 'irpacket' || msg.type == 'blepacket')) {
+            var broadcastmsg = msg;
+            if (source && broadcastmsg && !!broadcastmsg.broadcast) {
                 if (frames.length < 2) {
                     this.container.appendChild(this.createFrame());
                     frames = this.container.getElementsByTagName("iframe");
@@ -5226,6 +5250,13 @@ var pxsim;
                             this.setState(SimulatorState.Paused);
                         if (this.options.onDebuggerBreakpoint)
                             this.options.onDebuggerBreakpoint(brk);
+                        var stackTrace = brk.exceptionMessage + "\n";
+                        for (var _i = 0, _a = brk.stackframes; _i < _a.length; _i++) {
+                            var s = _a[_i];
+                            var fi = s.funcInfo;
+                            stackTrace += "   at " + fi.functionName + " (" + fi.fileName + ":" + (fi.line + 1) + ":" + (fi.column + 1) + ")\n";
+                        }
+                        console.error(stackTrace);
                     }
                     else {
                         console.error("debugger: trying to pause from " + this.state);
@@ -5440,10 +5471,12 @@ var pxsim;
     var AudioContextManager;
     (function (AudioContextManager) {
         var _frequency = 0;
-        var _context; // AudioContext
-        var _vco; // OscillatorNode;
-        var _vca; // GainNode;
+        var _context;
+        var _vco;
+        var _vca;
         var _mute = false; //mute audio
+        // for playing WAV
+        var audio;
         function context() {
             if (!_context)
                 _context = freshContext();
@@ -5463,7 +5496,7 @@ var pxsim;
         }
         function mute(mute) {
             _mute = mute;
-            stop();
+            stopAll();
         }
         AudioContextManager.mute = mute;
         function stopTone() {
@@ -5474,6 +5507,11 @@ var pxsim;
                 audio.pause();
             }
         }
+        function stopAll() {
+            stopTone();
+            muteAllChannels();
+        }
+        AudioContextManager.stopAll = stopAll;
         function stop() {
             stopTone();
         }
@@ -5482,6 +5520,156 @@ var pxsim;
             return _frequency;
         }
         AudioContextManager.frequency = frequency;
+        var waveForms = [null, "triangle", "sawtooth", "sine"];
+        var noiseBuffer;
+        var squareBuffer = [];
+        function getNoiseBuffer() {
+            if (!noiseBuffer) {
+                // normalized to 100Hz
+                var bufferSize = 1024;
+                noiseBuffer = context().createBuffer(1, bufferSize, 100 * bufferSize);
+                var output = noiseBuffer.getChannelData(0);
+                for (var i = 0; i < bufferSize; i++) {
+                    output[i] = (((i * 7919) & 1023) / 512.0) - 1.0;
+                }
+            }
+            return noiseBuffer;
+        }
+        function getSquareBuffer(param) {
+            if (!squareBuffer[param]) {
+                // normalized to 100Hz
+                var bufferSize = 100;
+                var buf = context().createBuffer(1, bufferSize, 100 * bufferSize);
+                var output = buf.getChannelData(0);
+                for (var i = 0; i < bufferSize; i++) {
+                    output[i] = i < param ? 1 : -1;
+                }
+                squareBuffer[param] = buf;
+            }
+            return squareBuffer[param];
+        }
+        /*
+        #define SW_TRIANGLE 1
+        #define SW_SAWTOOTH 2
+        #define SW_SINE 3 // TODO remove it? it takes space
+        #define SW_NOISE 4
+        #define SW_SQUARE_10 11
+        #define SW_SQUARE_50 15
+        */
+        /*
+         struct SoundInstruction {
+             uint8_t soundWave;
+             uint8_t flags;
+             uint16_t frequency;
+             uint16_t duration;
+             uint16_t startVolume;
+             uint16_t endVolume;
+         };
+         */
+        function getGenerator(waveFormIdx, hz) {
+            var form = waveForms[waveFormIdx];
+            if (form) {
+                var src = context().createOscillator();
+                src.type = form;
+                src.frequency.value = hz;
+                return src;
+            }
+            var buffer;
+            if (waveFormIdx == 4)
+                buffer = getNoiseBuffer();
+            else if (11 <= waveFormIdx && waveFormIdx <= 15)
+                buffer = getSquareBuffer((waveFormIdx - 10) * 10);
+            else
+                return null;
+            var node = context().createBufferSource();
+            node.buffer = buffer;
+            node.loop = true;
+            node.playbackRate.value = hz / 100;
+            return node;
+        }
+        var channels = [];
+        var Channel = /** @class */ (function () {
+            function Channel() {
+            }
+            Channel.prototype.mute = function () {
+                if (this.generator) {
+                    this.generator.stop();
+                    this.generator.disconnect();
+                }
+                if (this.gain)
+                    this.gain.disconnect();
+                this.gain = null;
+                this.generator = null;
+            };
+            Channel.prototype.remove = function () {
+                var idx = channels.indexOf(this);
+                if (idx >= 0)
+                    channels.splice(idx, 1);
+                this.mute();
+            };
+            return Channel;
+        }());
+        function muteAllChannels() {
+            while (channels.length)
+                channels[0].remove();
+        }
+        function playInstructionsAsync(b) {
+            var ctx = context();
+            var idx = 0;
+            var ch = new Channel();
+            var currWave = -1;
+            var currFreq = -1;
+            var timeOff = 0;
+            if (channels.length > 5)
+                channels[0].remove();
+            channels.push(ch);
+            var scaleVol = function (n) { return (n / 1024) * 2; };
+            var finish = function () {
+                ch.mute();
+                timeOff = 0;
+                currWave = -1;
+                currFreq = -1;
+            };
+            var loopAsync = function () {
+                if (idx >= b.data.length || !b.data[idx])
+                    return Promise.delay(timeOff).then(finish);
+                var soundWaveIdx = b.data[idx];
+                var flags = b.data[idx + 1];
+                var freq = pxsim.BufferMethods.getNumber(b, pxsim.BufferMethods.NumberFormat.UInt16LE, idx + 2);
+                var duration = pxsim.BufferMethods.getNumber(b, pxsim.BufferMethods.NumberFormat.UInt16LE, idx + 4);
+                var startVol = pxsim.BufferMethods.getNumber(b, pxsim.BufferMethods.NumberFormat.UInt16LE, idx + 6);
+                var endVol = pxsim.BufferMethods.getNumber(b, pxsim.BufferMethods.NumberFormat.UInt16LE, idx + 8);
+                if (!ctx)
+                    return Promise.delay(duration);
+                if (currWave != soundWaveIdx || currFreq != freq) {
+                    if (ch.generator) {
+                        return Promise.delay(timeOff)
+                            .then(function () {
+                            finish();
+                            return loopAsync();
+                        });
+                    }
+                    ch.generator = _mute ? null : getGenerator(soundWaveIdx, freq);
+                    if (!ch.generator)
+                        return Promise.delay(duration);
+                    currWave = soundWaveIdx;
+                    currFreq = freq;
+                    ch.gain = ctx.createGain();
+                    ch.gain.gain.value = scaleVol(startVol);
+                    ch.generator.connect(ch.gain);
+                    ch.gain.connect(ctx.destination);
+                    ch.generator.start();
+                }
+                idx += 10;
+                ch.gain.gain.setValueAtTime(scaleVol(startVol), ctx.currentTime + timeOff);
+                timeOff += duration;
+                ch.gain.gain.linearRampToValueAtTime(scaleVol(endVol), ctx.currentTime + timeOff);
+                return loopAsync();
+            };
+            return loopAsync()
+                .then(function () { return ch.remove(); });
+        }
+        AudioContextManager.playInstructionsAsync = playInstructionsAsync;
         function tone(frequency, gain) {
             if (_mute)
                 return;
@@ -5522,7 +5710,6 @@ var pxsim;
                 res += String.fromCharCode(input[i]);
             return res;
         }
-        var audio;
         function playBufferAsync(buf) {
             if (!buf)
                 return Promise.resolve();
@@ -6102,6 +6289,7 @@ var pxsim;
             var boardVis = opts.visual;
             return new visuals.GenericBoardSvg({
                 visualDef: boardVis,
+                boardDef: opts.boardDef,
                 wireframe: opts.wireframe,
             });
         };
@@ -6115,8 +6303,8 @@ var pxsim;
                     opts.boardDef.pinStyles = {};
                 this.state = opts.state;
                 var activeComponents = opts.partsList;
-                var useBreadboard = 0 < activeComponents.length || opts.forceBreadboardLayout;
-                if (useBreadboard) {
+                var useBreadboardView = 0 < activeComponents.length || opts.forceBreadboardLayout;
+                if (useBreadboardView) {
                     this.breadboard = new visuals.Breadboard({
                         wireframe: opts.wireframe,
                     });
@@ -6137,7 +6325,6 @@ var pxsim;
                     var edges = composition.edges;
                     this.fromMBCoord = composition.toHostCoord1;
                     this.fromBBCoord = composition.toHostCoord2;
-                    var pinDist = composition.scaleUnit;
                     this.partGroup = over;
                     this.partOverGroup = pxsim.svg.child(this.view, "g");
                     this.style = pxsim.svg.child(this.view, "style", {});
@@ -6150,11 +6337,27 @@ var pxsim;
                         getBBCoord: this.breadboard.getCoord.bind(this.breadboard),
                         partsList: activeComponents,
                     });
-                    this.addAll(allocRes);
-                    if (!allocRes.requiresBreadboard && !opts.forceBreadboardRender)
-                        this.breadboard.hide();
+                    if (!allocRes.partsAndWires.length) {
+                        // nothing got allocated, so we rollback the changes.
+                        useBreadboardView = false;
+                    }
+                    else {
+                        this.addAll(allocRes);
+                        if (!allocRes.requiresBreadboard && !opts.forceBreadboardRender)
+                            this.breadboard.hide();
+                    }
                 }
-                else {
+                if (!useBreadboardView) {
+                    // delete any kind of left over
+                    delete this.breadboard;
+                    delete this.wireFactory;
+                    delete this.partOverGroup;
+                    delete this.partGroup;
+                    delete this.style;
+                    delete this.defs;
+                    delete this.fromBBCoord;
+                    delete this.fromMBCoord;
+                    // allocate view
                     var el = this.boardView.getView().el;
                     this.view = el;
                     this.partGroup = pxsim.svg.child(this.view, "g");
@@ -6380,9 +6583,9 @@ var pxsim;
                     var cx = xOff + j * opts.pinDist + colGaps * opts.pinDist;
                     var colIdx = j + colIdxOffset;
                     var addEl = function (pin) {
-                        var pinX = cx - pin.w * 0.5;
-                        var pinY = cy - pin.h * 0.5;
-                        pxsim.svg.hydrate(pin.el, { x: pinX, y: pinY });
+                        pxsim.svg.hydrate(pin.el, pin.el.tagName == "circle"
+                            ? { cx: cx + pin.w * 0.5, cy: cy + pin.h * 0.5 }
+                            : { x: cx - pin.w * 0.5, y: cy - pin.h * 0.5 });
                         grid.appendChild(pin.el);
                         return pin.el;
                     };
@@ -6850,6 +7053,24 @@ var pxsim;
                 //let backgroundCover = this.mkGrayCover(0, 0, this.width, this.height);
                 //this.g.appendChild(backgroundCover);
                 // ----- pins
+                var mkRoundPin = function () {
+                    var el = pxsim.svg.elt("circle");
+                    var width = SQUARE_PIN_WIDTH;
+                    pxsim.svg.hydrate(el, {
+                        class: "sim-board-pin",
+                        r: width / 2,
+                    });
+                    return { el: el, w: width, h: width, x: 0, y: 0 };
+                };
+                var mkRoundHoverPin = function () {
+                    var el = pxsim.svg.elt("circle");
+                    var width = SQUARE_PIN_HOVER_WIDTH;
+                    pxsim.svg.hydrate(el, {
+                        class: "sim-board-pin-hover",
+                        r: width / 2
+                    });
+                    return { el: el, w: width, h: width, x: 0, y: 0 };
+                };
                 var mkSquarePin = function () {
                     var el = pxsim.svg.elt("rect");
                     var width = SQUARE_PIN_WIDTH;
@@ -6884,8 +7105,8 @@ var pxsim;
                         rowCount: rowCount,
                         colCount: colCount,
                         pinDist: visuals.PIN_DIST,
-                        mkPin: mkSquarePin,
-                        mkHoverPin: mkSquareHoverPin,
+                        mkPin: visDef.useCrocClips ? mkRoundPin : mkSquarePin,
+                        mkHoverPin: visDef.useCrocClips ? mkRoundHoverPin : mkSquareHoverPin,
                         getRowName: getRowName,
                         getColName: getColName,
                         getGroupName: getGroupName,
@@ -6939,7 +7160,7 @@ var pxsim;
                 };
                 this.allLabels = this.allPins.map(function (p, pIdx) {
                     var blk = pinToBlockDef[pIdx];
-                    return mkLabel(p.cx, p.cy, p.col, blk.labelPosition);
+                    return mkLabel(p.cx, p.cy, p.col, blk.labelPosition || "above");
                 });
                 //catalog labels
                 this.allPins.forEach(function (pin, pinIdx) {
@@ -6956,8 +7177,26 @@ var pxsim;
                     _this.g.appendChild(lbl.hoverEl);
                 });
             }
-            GenericBoardSvg.prototype.getCoord = function (pinNm) {
+            GenericBoardSvg.prototype.findPin = function (pinNm) {
                 var pin = this.pinNmToPin[pinNm];
+                if (!pin && this.props.boardDef.gpioPinMap) {
+                    pinNm = this.props.boardDef.gpioPinMap[pinNm];
+                    if (pinNm)
+                        pin = this.pinNmToPin[pinNm];
+                }
+                return pin;
+            };
+            GenericBoardSvg.prototype.findPinLabel = function (pinNm) {
+                var pin = this.pinNmToLbl[pinNm];
+                if (!pin && this.props.boardDef.gpioPinMap) {
+                    pinNm = this.props.boardDef.gpioPinMap[pinNm];
+                    if (pinNm)
+                        pin = this.pinNmToLbl[pinNm];
+                }
+                return pin;
+            };
+            GenericBoardSvg.prototype.getCoord = function (pinNm) {
+                var pin = this.findPin(pinNm);
                 if (!pin)
                     return null;
                 return [pin.cx, pin.cy];
@@ -6974,8 +7213,8 @@ var pxsim;
                 return visuals.PIN_DIST;
             };
             GenericBoardSvg.prototype.highlightPin = function (pinNm) {
-                var lbl = this.pinNmToLbl[pinNm];
-                var pin = this.pinNmToPin[pinNm];
+                var lbl = this.findPinLabel(pinNm);
+                var pin = this.findPin(pinNm);
                 if (lbl && pin) {
                     pxsim.svg.addClass(lbl.el, "highlight");
                     pxsim.svg.addClass(lbl.hoverEl, "highlight");

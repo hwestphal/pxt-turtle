@@ -292,7 +292,7 @@ var ts;
                 return "TBD(load_reg_src_off)";
             };
             AssemblerSnippets.prototype.rt_call = function (name, r0, r1) { return "TBD(rt_call)"; };
-            AssemblerSnippets.prototype.call_lbl = function (lbl) { return "TBD(call_lbl)"; };
+            AssemblerSnippets.prototype.call_lbl = function (lbl, saveStack) { return "TBD(call_lbl)"; };
             AssemblerSnippets.prototype.call_reg = function (reg) { return "TBD(call_reg)"; };
             AssemblerSnippets.prototype.vcall = function (mapMethod, isSet, vtableShift) {
                 return "TBD(vcall)";
@@ -303,14 +303,19 @@ var ts;
             AssemblerSnippets.prototype.helper_prologue = function () { return "TBD(lambda_prologue)"; };
             AssemblerSnippets.prototype.helper_epilogue = function () { return "TBD(lambda_epilogue)"; };
             AssemblerSnippets.prototype.pop_clean = function (pops) { return "TBD"; };
-            AssemblerSnippets.prototype.load_ptr = function (lbl, reg) { return "TBD(load_ptr)"; };
             AssemblerSnippets.prototype.load_ptr_full = function (lbl, reg) { return "TBD(load_ptr_full)"; };
             AssemblerSnippets.prototype.emit_int = function (v, reg) { return "TBD(emit_int)"; };
+            AssemblerSnippets.prototype.obj_header = function (vt) {
+                if (pxtc.target.gc)
+                    return ".word " + vt;
+                else
+                    return ".short " + pxt.REFCNT_FLASH + ", " + vt + ">>" + pxtc.target.vtableShift;
+            };
             AssemblerSnippets.prototype.string_literal = function (lbl, s) {
-                return "\n.balign 4\n" + lbl + "meta: .short 0xffff, " + pxt.REF_TAG_STRING + ", " + s.length + "\n" + lbl + ": .string " + asmStringLiteral(s) + "\n";
+                return "\n.balign 4\n" + lbl + "meta: " + this.obj_header("pxt::string_vt") + "\n        .short " + s.length + "\n" + lbl + ": .string " + asmStringLiteral(s) + "\n";
             };
             AssemblerSnippets.prototype.hex_literal = function (lbl, data) {
-                return "\n.balign 4\n" + lbl + ": .short 0xffff, " + pxt.REF_TAG_BUFFER + ", " + (data.length >> 1) + ", 0x0000\n        .hex " + data + (data.length % 4 == 0 ? "" : "00") + "\n";
+                return "\n.balign 4\n" + lbl + ": " + this.obj_header("pxt::buffer_vt") + "\n        .short " + (data.length >> 1) + ", 0x0000\n        .hex " + data + (data.length % 4 == 0 ? "" : "00") + "\n";
             };
             AssemblerSnippets.prototype.method_call = function (procid, topExpr) {
                 return "";
@@ -335,12 +340,19 @@ var ts;
                 this.calls = [];
                 this.proc = null;
                 this.baseStackSize = 0; // real stack size is this + exprStack.length
+                this.labelledHelpers = {};
                 this.write = function (s) { _this.resText += pxtc.asmline(s); };
                 this.t = t; // TODO in future, figure out if we follow the "Snippets" architecture
                 this.bin = bin;
                 this.proc = proc;
-                this.work();
+                if (this.proc)
+                    this.work();
             }
+            ProctoAssembler.prototype.emitHelpers = function () {
+                this.emitLambdaTrampoline();
+                this.emitArrayMethods();
+                this.emitFieldMethods();
+            };
             ProctoAssembler.prototype.redirectOutput = function (f) {
                 var prevWrite = this.write;
                 var res = "";
@@ -366,33 +378,28 @@ var ts;
                 else
                     return npush;
             };
-            ProctoAssembler.prototype.alignStack = function (offset) {
-                if (offset === void 0) { offset = 0; }
-                var npush = this.stackAlignmentNeeded(offset);
-                if (!npush)
-                    return "";
-                this.write(this.t.push_locals(npush));
-                return this.t.pop_locals(npush);
-            };
             ProctoAssembler.prototype.getAssembly = function () {
                 return this.resText;
             };
             ProctoAssembler.prototype.work = function () {
                 var _this = this;
-                var name = this.proc.getName();
-                if (pxtc.assembler.debug && this.proc.action) {
-                    var info = ts.pxtc.nodeLocationInfo(this.proc.action);
-                    name += " " + info.fileName + ":" + (info.line + 1);
-                }
-                this.write("\n;\n; Function " + name + "\n;\n");
-                if (this.proc.args.length <= 3)
-                    this.emitLambdaWrapper(this.proc.isRoot);
+                this.write("\n;\n; Function " + this.proc.getFullName() + "\n;\n");
+                this.emitLambdaWrapper(this.proc.isRoot);
                 var baseLabel = this.proc.label();
                 var bkptLabel = baseLabel + "_bkpt";
                 var locLabel = baseLabel + "_locals";
                 var endLabel = baseLabel + "_end";
                 this.write(".section code");
-                this.write("\n" + baseLabel + ":\n    @stackmark func\n    @stackmark args\n");
+                this.write(baseLabel + ":");
+                if (this.proc.classInfo && this.proc.info.thisParameter
+                    && !pxtc.target.switches.skipClassCheck
+                    && !pxtc.target.switches.noThisCheckOpt) {
+                    this.write("mov r7, lr");
+                    this.write("ldr r0, [sp, #0]");
+                    this.emitInstanceOf(this.proc.classInfo, "validate");
+                    this.write("mov lr, r7");
+                }
+                this.write("\n" + baseLabel + "_nochk:\n    @stackmark func\n    @stackmark args\n");
                 // create a new function for later use by hex file generation
                 this.proc.fillDebugInfo = function (th) {
                     var labels = th.getLabels();
@@ -430,6 +437,12 @@ var ts;
                 }
                 this.baseStackSize = 1; // push {lr}
                 var numlocals = this.proc.locals.length;
+                this.write("push {lr}");
+                this.write(".locals:\n");
+                if (this.proc.perfCounterNo) {
+                    this.write(this.t.emit_int(this.proc.perfCounterNo, "r0"));
+                    this.write("bl pxt::startPerfCounter");
+                }
                 this.write(this.t.proc_setup(numlocals));
                 this.baseStackSize += numlocals;
                 this.write("@stackmark locals");
@@ -482,10 +495,17 @@ var ts;
                 pxtc.assert(0 <= numlocals && numlocals < 127);
                 if (numlocals > 0)
                     this.write(this.t.pop_locals(numlocals));
+                if (this.proc.perfCounterNo) {
+                    this.write("mov r4, r0");
+                    this.write(this.t.emit_int(this.proc.perfCounterNo, "r0"));
+                    this.write("bl pxt::stopPerfCounter");
+                    this.write("mov r0, r4");
+                }
                 this.write(endLabel + ":");
                 this.write(this.t.proc_return());
                 this.write("@stackempty func");
                 this.write("@stackempty args");
+                this.write("; endfun");
             };
             ProctoAssembler.prototype.mkLbl = function (root) {
                 var l = root + this.bin.lblNo++;
@@ -616,10 +636,7 @@ var ts;
                             pxtc.oops();
                         break;
                     case pxtc.ir.EK.PointerLiteral:
-                        if (e.args)
-                            this.write(this.t.load_ptr_full(e.data, reg));
-                        else
-                            this.write(this.t.load_ptr(e.data, reg));
+                        this.write(this.t.load_ptr_full(e.data, reg));
                         break;
                     case pxtc.ir.EK.SharedRef:
                         var arg = e.args[0];
@@ -647,7 +664,12 @@ var ts;
                                 this.write(this.t.emit_int(cell.index, reg));
                                 off = reg;
                             }
-                            this.write(this.t.load_reg_src_off(reg, "r6", off, false, false, inf));
+                            if (pxtc.target.gc) {
+                                this.write(this.t.load_reg_src_off("r7", "r6", "#0"));
+                                this.write(this.t.load_reg_src_off(reg, "r7", off, false, false, inf));
+                            }
+                            else
+                                this.write(this.t.load_reg_src_off(reg, "r6", off, false, false, inf));
                         }
                         else {
                             var _a = this.cellref(cell), src = _a[0], imm = _a[1], idx_1 = _a[2];
@@ -694,9 +716,8 @@ var ts;
                         this.emitCallRaw("pxt::decr");
                         break;
                     case pxtc.ir.EK.FieldAccess:
-                        var info = e.data;
-                        // it does the decr itself, no mask
-                        return this.emitExpr(pxtc.ir.rtcall(this.withRef("pxtrt::ldfld", info.isRef), [e.args[0], pxtc.ir.numlit(info.idx)]));
+                        this.emitExpr(e.args[0]);
+                        return this.emitFieldAccess(e);
                     case pxtc.ir.EK.Store:
                         return this.emitStore(e.args[0], e.args[1]);
                     case pxtc.ir.EK.RuntimeCall:
@@ -708,9 +729,251 @@ var ts;
                     case pxtc.ir.EK.Sequence:
                         e.args.forEach(function (e) { return _this.emitExpr(e); });
                         return this.clearStack();
+                    case pxtc.ir.EK.InstanceOf:
+                        this.emitExpr(e.args[0]);
+                        return this.emitInstanceOf(e.data, e.jsInfo);
                     default:
                         return this.emitExprInto(e, "r0");
                 }
+            };
+            ProctoAssembler.prototype.emitFieldAccess = function (e, store) {
+                var _this = this;
+                if (store === void 0) { store = false; }
+                var info = e.data;
+                var pref = store ? "st" : "ld";
+                var lbl = pref + "fld_" + info.classInfo.id + "_" + info.name;
+                if (info.needsCheck && !pxtc.target.switches.skipClassCheck) {
+                    this.emitInstanceOf(info.classInfo, "validateDecr");
+                    lbl += "_chk";
+                }
+                if (pxtc.target.gc) {
+                    var off = info.idx * 4 + 4;
+                    var xoff = "#" + off;
+                    if (off > 124) {
+                        this.t.emit_int(off, "r3");
+                        xoff = "r3";
+                    }
+                    if (store)
+                        this.write("str r1, [r0, " + xoff + "]");
+                    else
+                        this.write("ldr r0, [r0, " + xoff + "]");
+                    return;
+                }
+                this.emitLabelledHelper(lbl, function () {
+                    var off = info.idx * 4 + 4;
+                    var xoff = "#" + off;
+                    if (off > 124) {
+                        _this.t.emit_int(off, "r3");
+                        xoff = "r3";
+                    }
+                    _this.write("mov r7, lr");
+                    if (store) {
+                        _this.write("push {r0, r1}");
+                        _this.write("ldr r0, [r0, " + xoff + "]");
+                        _this.write("bl _pxt_decr");
+                        _this.write("pop {r0, r1}");
+                        if (off > 124)
+                            _this.t.emit_int(off, "r3");
+                        _this.write("str r1, [r0, " + xoff + "]");
+                        if (info.needsCheck)
+                            _this.write("ldrh r2, [r0, #0]");
+                    }
+                    else {
+                        _this.write("ldr r4, [r0, " + xoff + "]");
+                    }
+                    if (info.needsCheck) {
+                        // already decremented, but need to check for refcnt=0
+                        _this.write("cmp r2, #1");
+                        _this.write("bne .notzero");
+                        _this.write("bl pxt::deleteRefObject");
+                        _this.write(".notzero:");
+                    }
+                    else {
+                        // need to decrement
+                        _this.write("bl _pxt_decr");
+                    }
+                    if (!store) {
+                        _this.write("mov r0, r4");
+                        _this.write("bl _pxt_incr");
+                    }
+                    _this.write("bx r7");
+                });
+            };
+            ProctoAssembler.prototype.emitClassCall = function (procid) {
+                var _this = this;
+                var effIdx = procid.virtualIndex + pxtc.firstMethodOffset();
+                this.write(this.t.emit_int(effIdx * 4, "r1"));
+                var info = procid.classInfo;
+                var suff = "";
+                if (procid.isThis)
+                    suff += "_this";
+                this.emitLabelledHelper("classCall_" + info.id + suff, function () {
+                    _this.write("ldr r0, [sp, #0] ; ld-this");
+                    _this.loadVTable();
+                    if (!pxtc.target.switches.skipClassCheck && !procid.isThis)
+                        _this.checkSubtype(info);
+                    _this.write("ldr r1, [r3, r1] ; ld-method");
+                    _this.write("bx r1 ; keep lr from caller");
+                    _this.write(".fail:");
+                    _this.write(_this.t.callCPP("pxt::failedCast"));
+                });
+            };
+            ProctoAssembler.prototype.ifaceCallCore = function (numargs, getset, noObjlit) {
+                if (noObjlit === void 0) { noObjlit = false; }
+                this.write("\n                ldr r2, [r3, #12] ; load mult\n                movs r7, r2\n                beq .objlit ; built-in types have mult=0\n                muls r7, r1\n                lsrs r7, r2\n                lsls r7, r7, #1 ; r7 - hash offset\n                ldr r3, [r3, #4] ; iface table\n                adds r3, r3, r7\n                ; r0-this, r1-method idx, r2-free, r3-hash entry, r4-num args, r7-free\n                ");
+                for (var i = 0; i < pxtc.vtLookups; ++i) {
+                    if (i > 0)
+                        this.write("    adds r3, #2");
+                    this.write("\n                ldrh r2, [r3, #0] ; r2-offset of descriptor\n                ldrh r7, [r2, r3] ; r7-method idx\n                cmp r7, r1\n                beq .hit\n                ");
+                }
+                if (getset == "get") {
+                    this.write("movs r0, #0 ; undefined");
+                    this.write("bx lr");
+                }
+                else
+                    this.write("b .fail2");
+                this.write("\n            .hit:\n                adds r3, r3, r2 ; r3-descriptor\n                ldr r2, [r3, #4]\n                lsls r7, r2, #31\n                beq .field\n            ");
+                if (getset == "set") {
+                    this.write("\n                    ; check for next descriptor\n                    ldrh r7, [r3, #8]\n                    cmp r7, r1\n                    bne .fail2 ; no setter!\n                    ldr r2, [r3, #12]\n                ");
+                }
+                this.write(this.t.emit_int(numargs, "r4"));
+                this.write("bx r2");
+                if (!noObjlit) {
+                    this.write("\n                .objlit:\n                    ldrh r2, [r3, #8]\n                    cmp r2, #" + pxt.BuiltInType.RefMap + "\n                    bne .fail\n                    mov r4, lr\n                ");
+                    if (getset && !pxtc.target.gc) {
+                        this.write("movs r3, #0");
+                        this.write("str r3, [sp, #0] ; clear so it won't get decr()ed outside");
+                    }
+                    if (getset == "set") {
+                        this.write("ldr r2, [sp, #4] ; ld-val");
+                        if (!pxtc.target.gc)
+                            this.write("str r3, [sp, #4] ; clear so it won't get decr()ed outside");
+                    }
+                    this.write(this.t.callCPP(getset == "set" ? "pxtrt::mapSet" : "pxtrt::mapGet"));
+                    if (getset) {
+                        this.write("bx r4");
+                    }
+                    else {
+                        this.write("mov lr, r4");
+                        this.write("b .moveArgs");
+                    }
+                }
+                this.write(".field:");
+                if (getset == "set") {
+                    if (pxtc.target.gc) {
+                        this.write("\n                        ldr r3, [sp, #4] ; ld-val\n                        str r3, [r0, r2] ; store field\n                        bx lr\n                    ");
+                    }
+                    else {
+                        this.write("\n                        ldr r7, [r0, r2] ; load field\n                        ldr r3, [sp, #4] ; ld-val\n                        str r7, [sp, #4] ; save previous value - it will get decr()ed outside\n                        str r3, [r0, r2] ; store field\n                        bx lr\n                    ");
+                    }
+                }
+                else if (getset == "get") {
+                    if (pxtc.target.gc) {
+                        this.write("\n                        ldr r0, [r0, r2] ; load field\n                        bx lr\n                    ");
+                    }
+                    else {
+                        this.write("\n                        mov r4, lr\n                        ldr r0, [r0, r2] ; load field\n                        bl _pxt_incr\n                        bx r4\n                    ");
+                    }
+                }
+                else {
+                    if (pxtc.target.gc) {
+                        this.write("\n                        ldr r0, [r0, r2] ; load field\n                    ");
+                    }
+                    else {
+                        this.write("\n                        mov r4, lr\n                        ldr r7, [r0, r2] ; load field\n                        bl _pxt_decr\n                        mov r0, r7\n                        bl _pxt_incr\n                        mov lr, r4\n                    ");
+                    }
+                }
+                if (!getset) {
+                    this.write(".moveArgs:");
+                    for (var i = 0; i < numargs; ++i) {
+                        if (i == numargs - 1)
+                            // we keep the actual lambda value on the stack, so it gets decremented
+                            this.write("movs r1, r0");
+                        else
+                            this.write("ldr r1, [sp, #4*" + (i + 1) + "]");
+                        this.write("str r1, [sp, #4*" + i + "]");
+                    }
+                    // one argument consumed
+                    this.lambdaCall(numargs - 1);
+                }
+                if (noObjlit)
+                    this.write(".objlit:");
+                this.write("\n            .fail:\n                " + this.t.callCPP("pxt::failedCast") + "\n            .fail2:\n                " + this.t.callCPP("pxt::missingProperty") + "\n            ");
+            };
+            ProctoAssembler.prototype.emitIfaceCall = function (procid, numargs, getset) {
+                var _this = this;
+                if (getset === void 0) { getset = ""; }
+                pxtc.U.assert(procid.ifaceIndex > 0);
+                this.write(this.t.emit_int(procid.ifaceIndex, "r1"));
+                this.emitLabelledHelper("ifacecall" + numargs + "_" + getset, function () {
+                    _this.write("ldr r0, [sp, #0] ; ld-this");
+                    _this.loadVTable();
+                    _this.ifaceCallCore(numargs, getset);
+                });
+            };
+            // vtable in r3; clobber r2
+            ProctoAssembler.prototype.checkSubtype = function (info, failLbl, r2) {
+                if (failLbl === void 0) { failLbl = ".fail"; }
+                if (r2 === void 0) { r2 = "r2"; }
+                this.write("ldrh " + r2 + ", [r3, #8]");
+                this.write("cmp " + r2 + ", #" + info.classNo);
+                if (info.classNo == info.lastSubtypeNo) {
+                    this.write("bne " + failLbl); // different class
+                }
+                else {
+                    this.write("blt " + failLbl);
+                    this.write("cmp " + r2 + ", #" + info.lastSubtypeNo);
+                    this.write("bgt " + failLbl);
+                }
+            };
+            // keep r0, keep r1, clobber r2, vtable in r3
+            ProctoAssembler.prototype.loadVTable = function (decr, r2) {
+                if (decr === void 0) { decr = false; }
+                if (r2 === void 0) { r2 = "r2"; }
+                this.write("lsls " + r2 + ", r0, #30");
+                this.write("bne .fail"); // tagged
+                this.write("cmp r0, #0");
+                this.write("beq .fail"); // null
+                this.write("ldr r3, [r0, #0]");
+                if (!pxtc.target.gc) {
+                    this.write("lsls " + r2 + ", r3, #30");
+                    this.write("beq .fail"); // C++ class - TODO remove
+                    if (decr) {
+                        this.write("lsls " + r2 + ", r3, #31");
+                        this.write("beq .inflash");
+                        this.write("uxth " + r2 + ", r3");
+                        this.write("subs " + r2 + ", #2");
+                        this.write("blt .fail"); // ref-cnt underflow!
+                        this.write("strh " + r2 + ", [r0, #0]");
+                        this.write(".inflash:");
+                    }
+                    this.write("lsrs r3, r3, #16");
+                    this.write("lsls r3, r3, #" + pxtc.target.vtableShift);
+                }
+                this.write("; vtable in R3");
+            };
+            ProctoAssembler.prototype.emitInstanceOf = function (info, tp) {
+                var _this = this;
+                var lbl = "inst_" + info.id + "_" + tp;
+                this.emitLabelledHelper(lbl, function () {
+                    _this.loadVTable(tp == "validateDecr");
+                    _this.checkSubtype(info);
+                    if (tp == "bool") {
+                        _this.write("movs r0, #" + pxtc.taggedTrue);
+                        _this.write("bx lr");
+                        _this.write(".fail:");
+                        _this.write("movs r0, #" + pxtc.taggedFalse);
+                        _this.write("bx lr");
+                    }
+                    else if (tp == "validate" || tp == "validateDecr") {
+                        _this.write("bx lr");
+                        _this.write(".fail:");
+                        _this.write(_this.t.callCPP("pxt::failedCast"));
+                    }
+                    else {
+                        pxtc.U.oops();
+                    }
+                });
             };
             ProctoAssembler.prototype.emitSharedDef = function (e) {
                 var arg = e.args[0];
@@ -741,8 +1004,12 @@ var ts;
                     var r = nonRefs_1[_a];
                     r.currUses = 1;
                 }
-                if (refs.length == 0) {
+                if (pxtc.target.gc || refs.length == 0) {
                     // no helper in that case
+                    for (var _b = 0, refs_1 = refs; _b < refs_1.length; _b++) {
+                        var r = refs_1[_b];
+                        r.currUses = 1;
+                    }
                     this.clearStack();
                     return;
                 }
@@ -759,7 +1026,7 @@ var ts;
                             _this.exprStack.shift();
                             refs.splice(idx, 1);
                             _this.write(_this.t.pop_fixed(["r0"]));
-                            _this.write(_this.t.inline_decr(k++, _this.stackSize()));
+                            _this.write(_this.t.inline_decr(k++));
                         }
                         else {
                             break;
@@ -769,7 +1036,7 @@ var ts;
                         var r = refs.shift();
                         r.currUses = 1;
                         _this.write(_this.loadFromExprStack("r0", r));
-                        _this.write(_this.t.inline_decr(k++, _this.stackSize()));
+                        _this.write(_this.t.inline_decr(k++));
                     }
                     _this.clearStack();
                     _this.write(_this.t.mov("r0", "r7"));
@@ -779,8 +1046,12 @@ var ts;
                 this.emitHelper("@dummystack " + numPops + "\n" + decr, "clr" + numArgs);
                 this.write("@dummystack " + -numPops);
             };
-            ProctoAssembler.prototype.emitRtCall = function (topExpr) {
+            ProctoAssembler.prototype.builtInClassNo = function (typeNo) {
+                return { id: "builtin" + typeNo, classNo: typeNo, lastSubtypeNo: typeNo };
+            };
+            ProctoAssembler.prototype.emitRtCall = function (topExpr, genCall) {
                 var _this = this;
+                if (genCall === void 0) { genCall = null; }
                 var name = topExpr.data;
                 var maskInfo = topExpr.mask || { refMask: 0 };
                 var convs = maskInfo.conversions || [];
@@ -836,20 +1107,41 @@ var ts;
                     if (convArgs_1.length) {
                         var conv = this.redirectOutput(function () {
                             var off = 0;
-                            if (_this.t.stackAligned())
-                                off += 2;
-                            else
-                                off += 1;
+                            if (!pxtc.target.switches.inlineConversions) {
+                                if (_this.t.stackAligned())
+                                    off += 2;
+                                else
+                                    off += 1;
+                            }
                             for (var _i = 0, convArgs_2 = convArgs_1; _i < convArgs_2.length; _i++) {
                                 var a = convArgs_2[_i];
-                                _this.write(_this.loadFromExprStack("r0", a.expr, off));
-                                _this.alignedCall(a.conv.method, "", off);
-                                if (a.conv.returnsRef)
-                                    // replace the entry on the stack with the return value,
-                                    // as the original was already decr'ed, but the result
-                                    // has yet to be
-                                    _this.write(_this.loadFromExprStack("r0", a.expr, off, true));
-                                _this.write(_this.t.push_fixed(["r0"]));
+                                if (pxtc.isThumb() && a.conv.method == "pxt::toInt") {
+                                    // SPEED 2.5%
+                                    _this.write(_this.loadFromExprStack("r0", a.expr, off));
+                                    _this.write("asrs r0, r0, #1");
+                                    var idx = pxtc.target.switches.inlineConversions ? a.expr.getId() : off;
+                                    _this.write("bcs .isint" + idx);
+                                    _this.write("lsls r0, r0, #1");
+                                    _this.alignedCall(a.conv.method, "", off);
+                                    _this.write(".isint" + idx + ":");
+                                    _this.write(_this.t.push_fixed(["r0"]));
+                                }
+                                else {
+                                    _this.write(_this.loadFromExprStack("r0", a.expr, off));
+                                    if (a.conv.refTag) {
+                                        if (!pxtc.target.switches.skipClassCheck)
+                                            _this.emitInstanceOf(_this.builtInClassNo(a.conv.refTag), "validate");
+                                    }
+                                    else {
+                                        _this.alignedCall(a.conv.method, "", off);
+                                        if (a.conv.returnsRef)
+                                            // replace the entry on the stack with the return value,
+                                            // as the original was already decr'ed, but the result
+                                            // has yet to be
+                                            _this.write(_this.loadFromExprStack("r0", a.expr, off, true));
+                                    }
+                                    _this.write(_this.t.push_fixed(["r0"]));
+                                }
                                 off++;
                             }
                             for (var _a = 0, _b = pxtc.U.reversed(convArgs_1); _a < _b.length; _a++) {
@@ -863,7 +1155,10 @@ var ts;
                                     _this.write(_this.loadFromExprStack("r" + a.idx, a.expr, off));
                             }
                         });
-                        this.emitHelper(this.t.helper_prologue() + conv + this.t.helper_epilogue(), "conv");
+                        if (pxtc.target.switches.inlineConversions)
+                            this.write(conv);
+                        else
+                            this.emitHelper(this.t.helper_prologue() + conv + this.t.helper_epilogue(), "conv");
                     }
                     else {
                         // not really worth a helper; some of this will be peep-holed away
@@ -878,18 +1173,34 @@ var ts;
                     if (a.isSimple)
                         this.emitExprInto(a.expr, "r" + a.idx);
                 }
-                if (name != "langsupp::ignore")
-                    this.alignedCall(name);
+                if (genCall) {
+                    genCall();
+                }
+                else {
+                    if (name != "langsupp::ignore")
+                        this.alignedCall(name, "", 0, true);
+                }
                 if (clearStack) {
                     this.clearArgs(complexArgs.filter(function (a) { return !a.isRef; }).map(function (a) { return a.expr; }), complexArgs.filter(function (a) { return a.isRef; }).map(function (a) { return a.expr; }));
                 }
             };
-            ProctoAssembler.prototype.alignedCall = function (name, cmt, off) {
+            ProctoAssembler.prototype.alignedCall = function (name, cmt, off, saveStack) {
                 if (cmt === void 0) { cmt = ""; }
                 if (off === void 0) { off = 0; }
-                var unalign = this.alignStack(off);
-                this.write(this.t.call_lbl(name) + cmt);
-                this.write(unalign);
+                if (saveStack === void 0) { saveStack = false; }
+                if (pxtc.U.startsWith(name, "_cmp_") || pxtc.U.startsWith(name, "_pxt_"))
+                    saveStack = false;
+                this.write(this.t.call_lbl(name, saveStack, this.stackAlignmentNeeded(off)) + cmt);
+            };
+            ProctoAssembler.prototype.emitLabelledHelper = function (lbl, generate) {
+                if (!this.labelledHelpers[lbl]) {
+                    var outp = this.redirectOutput(generate);
+                    this.emitHelper(outp, lbl);
+                    this.labelledHelpers[lbl] = this.bin.codeHelpers[outp];
+                }
+                else {
+                    this.write(this.t.call_lbl(this.labelledHelpers[lbl]));
+                }
             };
             ProctoAssembler.prototype.emitHelper = function (asm, baseName) {
                 if (baseName === void 0) { baseName = "hlp"; }
@@ -928,15 +1239,118 @@ var ts;
             ProctoAssembler.prototype.alignExprStack = function (numargs) {
                 var interAlign = this.stackAlignmentNeeded(numargs);
                 if (interAlign) {
-                    this.write(this.t.push_locals(interAlign));
-                    for (var i = 0; i < interAlign; ++i)
+                    if (!pxtc.target.gc)
+                        this.write(this.t.push_locals(interAlign));
+                    for (var i = 0; i < interAlign; ++i) {
+                        // r5 should be safe to push on gc stack
+                        if (pxtc.target.gc)
+                            this.write("push {r5} ; align");
                         this.pushDummy();
+                    }
                 }
             };
+            ProctoAssembler.prototype.emitFieldMethods = function () {
+                for (var _i = 0, _a = ["get", "set"]; _i < _a.length; _i++) {
+                    var op = _a[_i];
+                    this.write("\n                .section code\n                _pxt_map_" + op + ":\n                ");
+                    this.loadVTable(false, "r4");
+                    this.checkSubtype(this.builtInClassNo(pxt.BuiltInType.RefMap), ".notmap", "r4");
+                    this.write(this.t.callCPPPush(op == "set" ? "pxtrt::mapSetByString" : "pxtrt::mapGetByString"));
+                    this.write(".notmap:");
+                    var numargs = op == "set" ? 2 : 1;
+                    var hasAlign = false;
+                    this.write("mov r4, r3 ; save VT");
+                    if (op == "set") {
+                        if (pxtc.target.stackAlign) {
+                            hasAlign = true;
+                            this.write("push {lr} ; align");
+                        }
+                        if (pxtc.target.gc) {
+                            this.write("\n                            push {r0, r2, lr}\n                            mov r0, r1\n                        ");
+                        }
+                        else {
+                            this.write("\n                            mov r7, r1\n                            push {r0, r2, lr}\n                            bl _pxt_incr\n                            ldr r0, [sp, #4]\n                            bl _pxt_incr\n                            mov r0, r7\n                        ");
+                        }
+                    }
+                    else {
+                        if (pxtc.target.gc) {
+                            this.write("\n                            push {r0, lr}\n                            mov r0, r1\n                        ");
+                        }
+                        else {
+                            this.write("\n                            mov r7, r1\n                            push {r0, lr}\n                            bl _pxt_incr\n                            mov r0, r7\n                        ");
+                        }
+                    }
+                    this.write("\n                    bl pxtrt::lookupMapKey\n                    mov r1, r0 ; put key index in r1\n                    ldr r0, [sp, #0] ; restore obj pointer\n                    mov r3, r4 ; restore vt\n                    bl .dowork\n                ");
+                    if (!pxtc.target.gc) {
+                        this.write("mov r7, r0");
+                        for (var i = 0; i < numargs; ++i) {
+                            this.write("pop {r0}");
+                            this.write("bl _pxt_decr");
+                        }
+                        if (hasAlign)
+                            this.write(this.t.pop_locals(1));
+                        this.write("mov r0, r7");
+                    }
+                    else {
+                        this.write(this.t.pop_locals(numargs + (hasAlign ? 1 : 0)));
+                    }
+                    this.write("pop {pc}");
+                    this.write(".dowork:");
+                    this.ifaceCallCore(numargs, op, true);
+                }
+            };
+            ProctoAssembler.prototype.emitArrayMethods = function () {
+                for (var _i = 0, _a = ["get", "set"]; _i < _a.length; _i++) {
+                    var op = _a[_i];
+                    this.write("\n                .section code\n                _pxt_array_" + op + ":\n                ");
+                    this.loadVTable(false, "r4");
+                    if (!pxtc.target.switches.skipClassCheck)
+                        this.checkSubtype(this.builtInClassNo(pxt.BuiltInType.RefCollection), ".fail", "r4");
+                    // on linux we use 32 bits for array size
+                    var ldrSize = pxtc.target.stackAlign ? "ldr" : "ldrh";
+                    this.write("\n                    asrs r1, r1, #1\n                    bcc .notint\n                    " + ldrSize + " r4, [r0, #8]\n                    cmp r1, r4\n                    bhs .oob\n                    lsls r1, r1, #2\n                    ldr r4, [r0, #4]\n                ");
+                    if (pxtc.target.gc) {
+                        if (op == "set") {
+                            this.write("\n                            str r2, [r4, r1]\n                            bx lr\n                        ");
+                        }
+                        else {
+                            this.write("\n                            ldr r0, [r4, r1]\n                            bx lr\n                        ");
+                        }
+                    }
+                    else {
+                        if (op == "set") {
+                            this.write("\n                            ldr r0, [r4, r1]\n                            str r2, [r4, r1]\n                            mov r4, r2\n                            push {lr}\n                            bl _pxt_decr\n                            mov r0, r4\n                            bl _pxt_incr\n                            pop {pc}\n                        ");
+                        }
+                        else {
+                            this.write("\n                            ldr r0, [r4, r1]\n                            push {lr}\n                            bl _pxt_incr\n                            pop {pc}\n                        ");
+                        }
+                    }
+                    this.write("\n                .notint:\n                    lsls r1, r1, #1\n                    push {r0, r2}\n                    mov r0, r1\n                    " + this.t.callCPP("pxt::toInt") + "\n                    mov r1, r0\n                    pop {r0, r2}\n                " + (op == "set" ? ".oob:" : "") + "\n                    " + this.t.pushLR() + "\n                    " + this.t.callCPP("Array_::" + op + "At") + "\n                    " + this.t.popPC() + "\n\n                .fail:\n                    bl pxt::failedCast\n                ");
+                    if (op == "get") {
+                        this.write("\n                        .oob:\n                            movs r0, #0 ; undefined\n                            bx lr\n                    ");
+                    }
+                }
+            };
+            ProctoAssembler.prototype.emitLambdaTrampoline = function () {
+                var gcNo = pxtc.target.gc ? ";" : "";
+                var rfNo = !pxtc.target.gc ? ";" : "";
+                var r3 = pxtc.target.stackAlign ? "r3," : "";
+                this.write("\n            .section code\n            _pxt_lambda_trampoline:\n                push {" + r3 + " r4, r5, r6, r7, lr}\n                mov r4, r1\n                mov r5, r2\n                mov r6, r3\n                mov r7, r0");
+                // TODO should inline this?
+                this.emitInstanceOf(this.builtInClassNo(pxt.BuiltInType.RefAction), "validate");
+                this.write("\n                " + rfNo + "mov r0, sp\n                " + rfNo + "bl pxt::pushThreadContext\n                " + gcNo + "bl pxtrt::getGlobalsPtr\n                push {r4, r5, r6, r7} ; push args and the lambda\n                mov r6, r0          ; save ctx or globals\n                mov r5, r7          ; save lambda for closure\n                " + gcNo + "mov r0, r7\n                " + gcNo + "bl _pxt_incr        ; make sure lambda stays alive\n                ldr r0, [r5, #8]    ; ld fnptr\n                movs r4, #3         ; 3 args\n                blx r0              ; execute the actual lambda\n                mov r7, r0          ; save result\n                @dummystack 4\n                add sp, #4*4        ; remove arguments and lambda\n                " + gcNo + "mov r0, r5   ; decrement lambda\n                " + gcNo + "bl _pxt_decr\n                " + rfNo + "mov r0, r6   ; or pop the thread context\n                " + rfNo + "bl pxt::popThreadContext\n                mov r0, r7 ; restore result\n                pop {" + r3 + " r4, r5, r6, r7, pc}");
+                this.write("\n            .section code\n            _pxt_stringConv:\n            ");
+                this.loadVTable();
+                this.checkSubtype(this.builtInClassNo(pxt.BuiltInType.BoxedString), ".notstring");
+                this.write("\n                bx lr\n\n            .notstring: ; no string, but vtable in r3\n                ldr r7, [r3, #4*" + (pxtc.firstMethodOffset() - 1) + "]\n                cmp r7, #0\n                beq .fail\n                push {r0, lr}\n                " + gcNo + "bl _pxt_incr\n                movs r4, #1\n                blx r7\n                " + rfNo + "str r0, [sp, #0]\n                " + gcNo + "mov r7, r0\n                " + gcNo + "pop {r0}\n                " + gcNo + "bl _pxt_decr\n                " + gcNo + "mov r0, r7\n                " + gcNo + "push {r7}\n                b .numops\n\n            .fail: ; not an object or no toString\n                push {r0, lr}\n            .numops:\n                " + this.t.callCPP("numops::toString") + "\n                " + rfNo + "pop {r1}\n                " + gcNo + "mov r7, r0\n                " + gcNo + "pop {r0}\n                " + gcNo + "bl _pxt_decr\n                " + gcNo + "mov r0, r7\n                pop {pc}\n            ");
+            };
             ProctoAssembler.prototype.emitProcCall = function (topExpr) {
+                var _this = this;
                 var complexArgs = [];
                 var theOne = null;
                 var theOneReg = "";
+                var procid = topExpr.data;
+                var isLambda = procid.virtualIndex == -1;
                 var seenUpdate = false;
                 for (var _i = 0, _a = pxtc.U.reversed(topExpr.args); _i < _a.length; _i++) {
                     var c = _a[_i];
@@ -973,8 +1387,8 @@ var ts;
                     }
                 }
                 this.alignExprStack(topExpr.args.length);
-                // available registers
-                var regList = ["r1", "r2", "r3", "r4", "r7"];
+                // available registers; r7 can be used in loading globals, don't use it
+                var regList = ["r1", "r2", "r3", "r4"];
                 var regExprs = [];
                 if (complexArgs.length) {
                     var maxDepth = -1;
@@ -1004,8 +1418,12 @@ var ts;
                         this.write(this.t.reg_gets_imm("r7", 0));
                     }
                 }
-                for (var _d = 0, _e = pxtc.U.reversed(topExpr.args); _d < _e.length; _d++) {
-                    var a = _e[_d];
+                var argsToPush = pxtc.U.reversed(topExpr.args);
+                // for lambda, move the first argument (lambda object) to the end
+                if (isLambda)
+                    argsToPush.unshift(argsToPush.pop());
+                for (var _d = 0, argsToPush_1 = argsToPush; _d < argsToPush_1.length; _d++) {
+                    var a = argsToPush_1[_d];
                     if (complexArgs.indexOf(a) >= 0) {
                         if (regList) {
                             this.write(this.t.push_fixed([regList[regExprs.indexOf(a)]]));
@@ -1031,46 +1449,40 @@ var ts;
                     }
                 }
                 var lbl = this.mkLbl("_proccall");
-                var procid = topExpr.data;
+                var argsToClear = topExpr.args.slice();
                 var procIdx = -1;
-                if (procid.virtualIndex != null || procid.ifaceIndex != null) {
+                if (isLambda) {
+                    var numargs_1 = topExpr.args.length - 1;
+                    this.write(this.loadFromExprStack("r0", topExpr.args[0]));
+                    this.emitLabelledHelper("lambda_call" + numargs_1, function () {
+                        _this.lambdaCall(numargs_1);
+                        _this.write(".fail:");
+                        _this.write(_this.t.callCPP("pxt::failedCast"));
+                    });
+                }
+                else if (procid.virtualIndex != null || procid.ifaceIndex != null) {
                     var custom = this.t.method_call(procid, topExpr);
                     if (custom) {
                         this.write(custom);
-                        this.write(lbl + ":");
                     }
                     else if (procid.mapMethod) {
                         var isSet = /Set/.test(procid.mapMethod);
                         pxtc.assert(isSet == (topExpr.args.length == 2));
                         pxtc.assert(!isSet == (topExpr.args.length == 1));
-                        this.write(this.t.emit_int(procid.mapIdx, "r1"));
-                        if (isSet)
-                            this.write(this.t.emit_int(procid.ifaceIndex, "r2"));
-                        this.emitHelper(this.t.vcall(procid.mapMethod, isSet, this.bin.options.target.vtableShift), "vcall");
-                        this.write(lbl + ":");
+                        this.emitIfaceCall(procid, topExpr.args.length, isSet ? "set" : "get");
+                    }
+                    else if (procid.ifaceIndex != null) {
+                        this.emitIfaceCall(procid, topExpr.args.length);
                     }
                     else {
-                        this.write(this.t.prologue_vtable(0, this.bin.options.target.vtableShift));
-                        var effIdx = procid.virtualIndex + pxtc.numSpecialMethods + 2;
-                        if (procid.ifaceIndex != null) {
-                            this.write(this.t.load_reg_src_off("r0", "r0", "#4") + " ; iface table");
-                            effIdx = procid.ifaceIndex;
-                        }
-                        if (effIdx <= 31) {
-                            this.write(this.t.load_reg_src_off("r0", "r0", effIdx.toString(), true) + " ; ld-method");
-                        }
-                        else {
-                            this.write(this.t.emit_int(effIdx * 4, "r1"));
-                            this.write(this.t.load_reg_src_off("r0", "r0", "r1") + " ; ld-method");
-                        }
-                        this.write(this.t.call_reg("r0"));
-                        this.write(lbl + ":");
+                        this.emitClassCall(procid);
                     }
+                    this.write(lbl + ":");
                 }
                 else {
                     var proc = procid.proc;
                     procIdx = proc.seqNo;
-                    this.write(this.t.call_lbl(proc.label()));
+                    this.write(this.t.call_lbl(proc.label() + (procid.isThis ? "_nochk" : "")));
                     this.write(lbl + ":");
                 }
                 this.calls.push({
@@ -1081,9 +1493,38 @@ var ts;
                 });
                 // note that we have to treat all arguments as refs,
                 // because the procedure might have overriden them and we need to unref them
-                this.clearArgs([], topExpr.args);
+                // this doesn't apply to the lambda expression itself though
+                if (isLambda && topExpr.args[0].isStateless()) {
+                    this.clearArgs([topExpr.args[0]], topExpr.args.slice(1));
+                }
+                else {
+                    this.clearArgs([], topExpr.args);
+                }
+            };
+            ProctoAssembler.prototype.lambdaCall = function (numargs) {
+                this.write("; lambda call");
+                this.loadVTable();
+                if (!pxtc.target.switches.skipClassCheck)
+                    this.checkSubtype(this.builtInClassNo(pxt.BuiltInType.RefAction));
+                // the conditional branch below saves stack space for functions that do not require closure
+                this.write("\n                movs r4, #" + numargs + "\n                ldrh r1, [r0, #4]\n                cmp r1, #0\n                bne .pushR5\n                ldr r1, [r0, #8]\n                bx r1 ; keep lr from the caller\n            .pushR5:\n                sub sp, #8\n            ");
+                // move arguments two steps up
+                for (var i = 0; i < numargs; ++i) {
+                    this.write("ldr r1, [sp, #4*" + (i + 2) + "]");
+                    this.write("str r1, [sp, #4*" + i + "]");
+                }
+                var gcNo = pxtc.target.gc ? ";" : "";
+                this.write("\n                str r5, [sp, #4*" + numargs + "]\n                mov r1, lr\n                str r1, [sp, #4*" + (numargs + 1) + "]\n                mov r5, r0\n                ldr r7, [r5, #8]\n                " + gcNo + "ldr r0, [sp, #4*" + numargs + "]\n                " + gcNo + "bl _pxt_incr\n                blx r7\n                " + gcNo + "mov r7, r0\n                ldr r4, [sp, #4*" + (numargs + 1) + "]\n                ldr r5, [sp, #4*" + numargs + "]\n                " + gcNo + "mov r0, r5\n                " + gcNo + "bl _pxt_decr\n            ");
+                // move arguments back where they were
+                for (var i = 0; i < numargs; ++i) {
+                    this.write("ldr r1, [sp, #4*" + i + "]");
+                    this.write("str r1, [sp, #4*" + (i + 2) + "]");
+                }
+                this.write("\n                add sp, #8\n                " + gcNo + "mov r0, r7\n                bx r4\n            ");
+                this.write("; end lambda call");
             };
             ProctoAssembler.prototype.emitStore = function (trg, src) {
+                var _this = this;
                 switch (trg.exprKind) {
                     case pxtc.ir.EK.CellRef:
                         var cell = trg.data;
@@ -1095,7 +1536,13 @@ var ts;
                                 this.write(this.t.emit_int(cell.index, "r1"));
                                 off = "r1";
                             }
-                            this.write(this.t.load_reg_src_off("r0", "r6", off, false, true, inf));
+                            if (pxtc.target.gc) {
+                                this.write(this.t.load_reg_src_off("r7", "r6", "#0"));
+                                this.write(this.t.load_reg_src_off("r0", "r7", off, false, true, inf));
+                            }
+                            else {
+                                this.write(this.t.load_reg_src_off("r0", "r6", off, false, true, inf));
+                            }
                         }
                         else {
                             var _a = this.cellref(cell), reg = _a[0], imm = _a[1], off = _a[2];
@@ -1103,9 +1550,7 @@ var ts;
                         }
                         break;
                     case pxtc.ir.EK.FieldAccess:
-                        var info = trg.data;
-                        // it does the decr itself, no mask
-                        this.emitExpr(pxtc.ir.rtcall(this.withRef("pxtrt::stfld", info.isRef), [trg.args[0], pxtc.ir.numlit(info.idx), src]));
+                        this.emitRtCall(pxtc.ir.rtcall("dummy", [trg.args[0], src]), function () { return _this.emitFieldAccess(trg, true); });
                         break;
                     default: pxtc.oops();
                 }
@@ -1115,8 +1560,9 @@ var ts;
                     throw pxtc.oops();
                 }
                 else if (cell.iscap) {
-                    pxtc.assert(0 <= cell.index && cell.index < 32);
-                    return ["r5", cell.index.toString(), true];
+                    var idx = cell.index + 3;
+                    pxtc.assert(0 <= idx && idx < 32);
+                    return ["r5", idx.toString(), true];
                 }
                 else if (cell.isarg) {
                     var idx = cell.index;
@@ -1128,43 +1574,68 @@ var ts;
             };
             ProctoAssembler.prototype.emitLambdaWrapper = function (isMain) {
                 var _this = this;
-                var node = this.proc.action;
                 this.write("");
                 this.write(".section code");
-                if (isMain)
-                    this.write(this.t.unconditional_branch(".themain"));
                 this.write(".balign 4");
-                this.write(this.proc.label() + "_Lit:");
-                this.write(".short 0xffff, " + pxt.REF_TAG_ACTION + "   ; action literal");
                 if (isMain)
-                    this.write(".themain:");
-                this.write("@stackmark litfunc");
-                var parms = this.proc.args.map(function (a) { return a.def; });
-                var numpop = parms.length;
-                this.write(this.t.proc_setup(0, true));
-                var setup = this.redirectOutput(function () {
-                    _this.write(_this.t.push_fixed(["r4", "r5", "r6", "r7"]));
-                    _this.baseStackSize = 1 + 4;
-                    var alignment = _this.stackAlignmentNeeded(parms.length);
-                    if (alignment) {
-                        _this.write(_this.t.push_locals(alignment));
-                        numpop += alignment;
+                    this.proc.info.usedAsValue = true;
+                if (!this.proc.info.usedAsValue && !this.proc.info.usedAsIface)
+                    return;
+                // TODO can use InlineRefAction_vtable or something to limit the size of the thing
+                if (this.proc.info.usedAsValue) {
+                    this.write(this.proc.label() + "_Lit:");
+                    this.write(this.t.obj_header("pxt::RefAction_vtable"));
+                    this.write(".short 0, 0 ; no captured vars");
+                    this.write(".word " + this.proc.label() + "_args@fn");
+                }
+                this.write(this.proc.label() + "_args:");
+                var numargs = this.proc.args.length;
+                if (numargs == 0)
+                    return;
+                this.write("cmp r4, #" + numargs);
+                this.write("bge " + this.proc.label() + "_nochk");
+                var needsAlign = this.stackAlignmentNeeded(numargs + 1);
+                var numpush = needsAlign ? numargs + 2 : numargs + 1;
+                this.write("push {lr}");
+                this.emitLabelledHelper("expand_args_" + numargs, function () {
+                    _this.write("movs r0, #0");
+                    _this.write("movs r1, #0");
+                    if (needsAlign)
+                        _this.write("push {r0}");
+                    for (var i = numargs; i > 0; i--) {
+                        if (i != numargs) {
+                            _this.write("cmp r4, #" + i);
+                            _this.write("blt .zero" + i);
+                            _this.write("ldr r0, [sp, #" + (numpush - 1) + "*4]");
+                            _this.write("str r1, [sp, #" + (numpush - 1) + "*4] ; clear existing");
+                            _this.write(".zero" + i + ":");
+                        }
+                        _this.write("push {r0}");
                     }
-                    parms.forEach(function (_, i) {
-                        if (i >= 3)
-                            pxtc.U.userError(pxtc.U.lf("only up to three parameters supported in lambdas"));
-                        _this.write(_this.t.push_local("r" + (parms.length - i)));
-                    });
-                    _this.write(_this.t.lambda_init());
+                    _this.write("bx lr");
                 });
-                var stackEntries = numpop + 4;
-                this.write("@dummystack " + stackEntries);
-                this.emitHelper(setup + "\n@dummystack " + -stackEntries, "lambda_setup");
-                this.write(this.t.call_lbl(this.proc.label()));
-                if (numpop)
-                    this.write(this.t.pop_locals(numpop));
-                this.write(this.t.pop_fixed(["r4", "r5", "r6", "r7", "pc"]));
-                this.write("@stackempty litfunc");
+                this.write("bl " + this.proc.label() + "_nochk");
+                if (pxtc.target.gc) {
+                    var stackSize = numargs + (needsAlign ? 1 : 0);
+                    this.write("@dummystack " + stackSize);
+                    this.write("add sp, #4*" + stackSize);
+                    this.write("pop {pc}");
+                }
+                else {
+                    this.emitLabelledHelper("clr_and_ret_" + numargs, function () {
+                        _this.write("@dummystack " + numpush);
+                        _this.write("mov r7, r0");
+                        for (var i = numargs; i > 0; i--) {
+                            _this.write("pop {r0}");
+                            _this.write("bl _pxt_decr");
+                        }
+                        _this.write("mov r0, r7");
+                        if (needsAlign)
+                            _this.write("pop {r1, pc}");
+                        else
+                            _this.write("pop {pc}");
+                    });
+                }
             };
             ProctoAssembler.prototype.emitCallRaw = function (name) {
                 var inf = pxtc.hex.lookupFunc(name);
@@ -1204,10 +1675,6 @@ var ts;
             "numops::eqq": "===",
             "numops::neqq": "!==",
             "numops::neq": "!=",
-            "langsupp::ptreq": "==",
-            "langsupp::ptreqq": "===",
-            "langsupp::ptrneqq": "!==",
-            "langsupp::ptrneq": "!=",
         };
         function isBuiltinSimOp(name) {
             return !!pxtc.U.lookup(jsOpMap, name.replace(/\./g, "::"));
@@ -1226,20 +1693,23 @@ var ts;
             var s = "var " + info.id + "_VT = {\n" +
                 ("  name: " + JSON.stringify(pxtc.getName(info.decl)) + ",\n") +
                 ("  numFields: " + info.allfields.length + ",\n") +
+                ("  classNo: " + info.classNo + ",\n") +
                 "  methods: [\n";
             for (var _i = 0, _a = info.vtable; _i < _a.length; _i++) {
                 var m = _a[_i];
                 s += "    " + m.label() + ",\n";
             }
             s += "  ],\n";
-            s += "  iface: [\n";
-            var i = 0;
+            s += "  iface: {\n";
             for (var _b = 0, _c = info.itable; _b < _c.length; _b++) {
                 var m = _c[_b];
-                s += "    " + (m ? m.label() : "null") + ",  // " + (info.itableInfo[i] || ".") + "\n";
-                i++;
+                s += "    \"" + m.name + "\": " + (m.proc ? m.proc.label() : "13") + ",\n";
+                if (m.setProc)
+                    s += "    \"set/" + m.name + "\": " + m.setProc.label() + ",\n";
+                else if (!m.proc)
+                    s += "    \"set/" + m.name + "\": 13,\n";
             }
-            s += "  ],\n";
+            s += "  },\n";
             if (info.toStringMethod)
                 s += "  toStringMethod: " + info.toStringMethod.label() + ",\n";
             s += "};\n";
@@ -1260,6 +1730,9 @@ var ts;
             jssource += "pxsim.setConfigData(" +
                 JSON.stringify(cfg, null, 1) + ", " +
                 JSON.stringify(cfgKey, null, 1) + ");\n";
+            jssource += "pxsim.pxtrt.mapKeyNames = " + JSON.stringify(bin.ifaceMembers, null, 1) + ";\n";
+            var perfCounters = bin.setPerfCounters(["SysScreen"]);
+            jssource += "__this.setupPerfCounters(" + JSON.stringify(perfCounters, null, 1) + ");\n";
             bin.procs.forEach(function (p) {
                 jssource += "\n" + irToJS(bin, p) + "\n";
             });
@@ -1280,7 +1753,11 @@ var ts;
             var write = function (s) { resText += "    " + s + "\n"; };
             var EK = pxtc.ir.EK;
             var refCounting = !!bin.target.jsRefCounting;
-            writeRaw("\nvar " + proc.label() + " " + (bin.procs[0] == proc ? "= entryPoint" : "") + " = function (s) {\nvar r0 = s.r0, step = s.pc;\ns.pc = -1;\nwhile (true) {\nif (yieldSteps-- < 0 && maybeYield(s, step, r0)) return null;\nswitch (step) {\n  case 0:\n");
+            writeRaw("\nvar " + proc.label() + " " + (bin.procs[0] == proc ? "= entryPoint" : "") + " = function (s) {\nvar r0 = s.r0, step = s.pc;\ns.pc = -1;\n");
+            if (proc.perfCounterNo) {
+                writeRaw("if (step == 0) __this.startPerfCounter(" + proc.perfCounterNo + ");\n");
+            }
+            writeRaw("\nwhile (true) {\nif (yieldSteps-- < 0 && maybeYield(s, step, r0)) return null;\nswitch (step) {\n  case 0:\n");
             //console.log(proc.toString())
             proc.resolve();
             //console.log("OPT", proc.toString())
@@ -1341,6 +1818,9 @@ var ts;
                         break;
                     default: pxtc.oops();
                 }
+            }
+            if (proc.perfCounterNo) {
+                writeRaw("__this.stopPerfCounter(" + proc.perfCounterNo + ");\n");
             }
             write("return leave(s, r0)");
             writeRaw("  default: oops()");
@@ -1440,13 +1920,6 @@ var ts;
                     default: throw pxtc.oops();
                 }
             }
-            function fieldShimName(info) {
-                if (info.shimName)
-                    return info.shimName;
-                if (!refCounting)
-                    return "." + info.name + "___" + info.idx;
-                return null;
-            }
             // result in R0
             function emitExpr(e) {
                 //console.log(`EMITEXPR ${e.sharingInfo()} E: ${e.toString()}`)
@@ -1469,15 +1942,16 @@ var ts;
                         break;
                     case EK.FieldAccess:
                         var info_1 = e.data;
-                        var shimName = fieldShimName(info_1);
+                        var shimName = info_1.shimName;
                         if (shimName) {
                             pxtc.assert(!refCounting);
                             emitExpr(e.args[0]);
                             write("r0 = r0" + shimName + ";");
                             return;
                         }
-                        // it does the decr itself, no mask
-                        return emitExpr(pxtc.ir.rtcall(withRef("pxtrt::ldfld", info_1.isRef), [e.args[0], pxtc.ir.numlit(info_1.idx)]));
+                        emitExpr(e.args[0]);
+                        write("r0 = r0.fields[\"" + info_1.name + "\"];");
+                        return;
                     case EK.Store:
                         return emitStore(e.args[0], e.args[1]);
                     case EK.RuntimeCall:
@@ -1488,8 +1962,25 @@ var ts;
                         return emitSharedDef(e);
                     case EK.Sequence:
                         return e.args.forEach(emitExpr);
+                    case EK.InstanceOf:
+                        emitExpr(e.args[0]);
+                        emitInstanceOf(e.data, e.jsInfo);
+                        return;
                     default:
                         write("r0 = " + emitExprInto(e) + ";");
+                }
+            }
+            function checkSubtype(info) {
+                return "checkSubtype(r0, " + info.classNo + ", " + info.lastSubtypeNo + ")";
+            }
+            function emitInstanceOf(info, tp) {
+                if (tp == "bool")
+                    write("r0 = " + checkSubtype(info) + ";");
+                else if (tp == "validate" || tp == "validateDecr") {
+                    write("if (!" + checkSubtype(info) + ") failedCast(r0);");
+                }
+                else {
+                    pxtc.U.oops();
                 }
             }
             function emitSharedDef(e) {
@@ -1529,7 +2020,7 @@ var ts;
                     var loc = ++lblIdx;
                     asyncContinuations.push(loc);
                     if (name == "String_::stringConv") {
-                        write("if ((" + args[0] + ").vtable) {");
+                        write("if ((" + args[0] + ") && (" + args[0] + ").vtable) {");
                     }
                     if (topExpr.callingConvention == pxtc.ir.CallingConvention.Promise) {
                         write("(function(cb) { " + text + ".done(cb) })(buildResume(s, " + loc + "));");
@@ -1557,26 +2048,50 @@ var ts;
                 var frameRef = "s.tmp_" + frameIdx;
                 var lblId = ++lblIdx;
                 write(frameRef + " = { fn: " + (proc ? proc.label() : null) + ", parent: s };");
+                var isLambda = procid.virtualIndex == -1;
                 //console.log("PROCCALL", topExpr.toString())
                 topExpr.args.forEach(function (a, i) {
                     emitExpr(a);
-                    write(frameRef + ".arg" + i + " = r0;");
+                    var arg = "arg" + i;
+                    if (isLambda) {
+                        if (i == 0)
+                            arg = "argL";
+                        else
+                            arg = "arg" + (i - 1);
+                    }
+                    write(frameRef + "." + arg + " = r0;");
                 });
                 write("s.pc = " + lblId + ";");
                 if (procid.ifaceIndex != null) {
+                    var isSet = false;
                     if (procid.mapMethod) {
                         write("if (" + frameRef + ".arg0.vtable === 42) {");
                         var args = topExpr.args.map(function (a, i) { return frameRef + ".arg" + i; });
-                        args.splice(1, 0, procid.mapIdx.toString());
+                        args.splice(1, 0, procid.ifaceIndex.toString());
                         write("  s.retval = " + shimToJs(procid.mapMethod) + "(" + args.join(", ") + ");");
                         write("  " + frameRef + ".fn = doNothing;");
                         write("} else {");
+                        if (/Set/.test(procid.mapMethod))
+                            isSet = true;
                     }
-                    write("pxsim.check(typeof " + frameRef + ".arg0  != \"number\", \"Can't access property of null/undefined.\")");
-                    write(frameRef + ".fn = " + frameRef + ".arg0.vtable.iface[" + procid.ifaceIndex + "];");
+                    write(frameRef + ".fn = " + frameRef + ".arg0.vtable.iface[\"" + (isSet ? "set/" : "") + bin.ifaceMembers[procid.ifaceIndex] + "\"];");
+                    write("if (" + frameRef + ".fn === 13) {");
+                    var fld = frameRef + ".arg0.fields[\"" + bin.ifaceMembers[procid.ifaceIndex] + "\"]";
+                    if (isSet) {
+                        write("  " + fld + " = " + frameRef + ".arg1;");
+                    }
+                    else {
+                        write("  s.retval = " + fld + ";");
+                    }
+                    write("  " + frameRef + ".fn = doNothing;");
+                    write("}");
                     if (procid.mapMethod) {
                         write("}");
                     }
+                }
+                else if (procid.virtualIndex == -1) {
+                    // lambda call
+                    write("setupLambda(" + frameRef + ", " + frameRef + ".argL);");
                 }
                 else if (procid.virtualIndex != null) {
                     pxtc.assert(procid.virtualIndex >= 0);
@@ -1609,14 +2124,10 @@ var ts;
                         break;
                     case EK.FieldAccess:
                         var info_2 = trg.data;
-                        var shimName = fieldShimName(info_2);
-                        if (shimName) {
-                            emitExpr(pxtc.ir.rtcall("=" + shimName, [trg.args[0], src]));
-                        }
-                        else {
-                            // it does the decr itself, no mask
-                            emitExpr(pxtc.ir.rtcall(withRef("pxtrt::stfld", info_2.isRef), [trg.args[0], pxtc.ir.numlit(info_2.idx), src]));
-                        }
+                        var shimName = info_2.shimName;
+                        if (!shimName)
+                            shimName = ".fields[\"" + info_2.name + "\"]";
+                        emitExpr(pxtc.ir.rtcall("=" + shimName, [trg.args[0], src]));
                         break;
                     default: pxtc.oops();
                 }
@@ -1661,14 +2172,15 @@ var ts;
                 return pxtc.target.stackAlign && pxtc.target.stackAlign > 1;
             };
             ThumbSnippets.prototype.pushLR = function () {
+                // r5 should contain GC-able value
                 if (this.stackAligned())
-                    return "push {lr, r6}  ; r6 for align";
+                    return "push {lr, r5}  ; r5 for align";
                 else
                     return "push {lr}";
             };
             ThumbSnippets.prototype.popPC = function () {
                 if (this.stackAligned())
-                    return "pop {pc, r6}  ; r6 for align";
+                    return "pop {pc, r5}  ; r5 for align";
                 else
                     return "pop {pc}";
             };
@@ -1685,7 +2197,7 @@ var ts;
             ThumbSnippets.prototype.push_fixed = function (regs) { return "push {" + regs.join(", ") + "}"; };
             ThumbSnippets.prototype.pop_fixed = function (regs) { return "pop {" + regs.join(", ") + "}"; };
             ThumbSnippets.prototype.proc_setup = function (numlocals, main) {
-                var r = "push {lr}\n";
+                var r = "";
                 if (numlocals > 0) {
                     r += "    movs r0, #0\n";
                     for (var i = 0; i < numlocals; ++i)
@@ -1695,12 +2207,18 @@ var ts;
             };
             ThumbSnippets.prototype.proc_return = function () { return "pop {pc}"; };
             ThumbSnippets.prototype.debugger_stmt = function (lbl) {
+                if (pxtc.target.gc)
+                    pxtc.oops();
                 return "\n    @stackempty locals\n    ldr r0, [r6, #0] ; debugger\n    subs r0, r0, #4  ; debugger\n" + lbl + ":\n    ldr r0, [r0, #0] ; debugger\n";
             };
             ThumbSnippets.prototype.debugger_bkpt = function (lbl) {
+                if (pxtc.target.gc)
+                    pxtc.oops();
                 return "\n    @stackempty locals\n    ldr r0, [r6, #0] ; brk\n" + lbl + ":\n    ldr r0, [r0, #0] ; brk\n";
             };
             ThumbSnippets.prototype.debugger_proc = function (lbl) {
+                if (pxtc.target.gc)
+                    pxtc.oops();
                 return "\n    ldr r0, [r6, #0]  ; brk-entry\n    ldr r0, [r0, #4]  ; brk-entry\n" + lbl + ":";
             };
             ThumbSnippets.prototype.push_local = function (reg) { return "push {" + reg + "}"; };
@@ -1736,11 +2254,24 @@ var ts;
             ThumbSnippets.prototype.rt_call = function (name, r0, r1) {
                 return name + " " + r0 + ", " + r1;
             };
-            ThumbSnippets.prototype.call_lbl = function (lbl) {
+            ThumbSnippets.prototype.alignedCall = function (lbl, stackAlign) {
+                if (stackAlign)
+                    return this.push_locals(stackAlign) + "\nbl " + lbl + "\n" + this.pop_locals(stackAlign);
+                else
+                    return "bl " + lbl;
+            };
+            ThumbSnippets.prototype.call_lbl = function (lbl, saveStack, stackAlign) {
                 var o = pxtc.U.lookup(inlineArithmetic, lbl);
-                if (o)
+                if (o) {
                     lbl = o;
-                return "bl " + lbl;
+                    saveStack = false;
+                }
+                if (!saveStack && lbl.indexOf("::") > 0)
+                    saveStack = true;
+                if (saveStack)
+                    return this.callCPP(lbl, stackAlign);
+                else
+                    return this.alignedCall(lbl, stackAlign);
             };
             ThumbSnippets.prototype.call_reg = function (reg) {
                 return "blx " + reg;
@@ -1748,7 +2279,7 @@ var ts;
             // NOTE: 43 (in cmp instruction below) is magic number to distinguish
             // NOTE: Map from RefRecord
             ThumbSnippets.prototype.vcall = function (mapMethod, isSet, vtableShift) {
-                return "\n    ldr r0, [sp, #0] ; ld-this\n    ldrh r3, [r0, #2] ; ld-vtable\n    lsls r3, r3, #" + vtableShift + "\n    ldr r3, [r3, #4] ; iface table\n    cmp r3, #43\n    beq .objlit\n.nonlit:\n    lsls r1, " + (isSet ? "r2" : "r1") + ", #2\n    ldr r0, [r3, r1] ; ld-method\n    bx r0\n.objlit:\n    " + (isSet ? "ldr r2, [sp, #4]" : "") + "\n    movs r3, #0 ; clear args on stack, so the outside decr() doesn't touch them\n    str r3, [sp, #0]\n    " + (isSet ? "str r3, [sp, #4]" : "") + "\n    " + this.pushLR() + "\n    bl " + mapMethod + "\n    " + this.popPC() + "\n";
+                return "\n    ldr r0, [sp, #0] ; ld-this\n    ldrh r3, [r0, #2] ; ld-vtable\n    lsls r3, r3, #" + vtableShift + "\n    ldr r3, [r3, #4] ; iface table\n    cmp r3, #43\n    beq .objlit\n.nonlit:\n    lsls r1, " + (isSet ? "r2" : "r1") + ", #2\n    ldr r0, [r3, r1] ; ld-method\n    bx r0\n.objlit:\n    " + (isSet ? "ldr r2, [sp, #4]" : "") + "\n    movs r3, #0 ; clear args on stack, so the outside decr() doesn't touch them\n    str r3, [sp, #0]\n    " + (isSet ? "str r3, [sp, #4]" : "") + "\n    " + this.pushLR() + "\n    " + this.callCPP(mapMethod) + "\n    " + this.popPC() + "\n";
             };
             ThumbSnippets.prototype.prologue_vtable = function (arg_top_index, vtableShift) {
                 return "\n    ldr r0, [sp, #4*" + arg_top_index + "]  ; ld-this\n    ldrh r0, [r0, #2] ; ld-vtable\n    lsls r0, r0, #" + vtableShift + "\n    ";
@@ -1763,21 +2294,49 @@ var ts;
                 pxtc.assert(!!lbl);
                 return "\n    ldlit " + reg + ", " + lbl + "\n";
             };
-            ThumbSnippets.prototype.load_ptr = function (lbl, reg) {
-                pxtc.assert(!!lbl);
-                return "\n    movs " + reg + ", " + lbl + "@hi  ; ldptr\n    lsls " + reg + ", " + reg + ", #8\n    adds " + reg + ", " + lbl + "@lo\n";
+            ThumbSnippets.prototype.load_vtable = function (trg, src) {
+                if (pxtc.target.gc)
+                    return "ldr " + trg + ", [" + src + ", #0]";
+                else
+                    return "ldrh " + trg + ", [" + src + ", #2]\n    lsls " + trg + ", " + trg + ", #" + pxtc.target.vtableShift;
             };
             ThumbSnippets.prototype.lambda_init = function () {
                 return "\n    mov r5, r0\n    mov r4, lr\n    bl pxtrt::getGlobalsPtr\n    mov r6, r0\n    bx r4\n";
             };
-            ThumbSnippets.prototype.inline_decr = function (idx, stackSize) {
-                if (!this.stackAligned())
-                    stackSize = 0;
+            ThumbSnippets.prototype.saveThreadStack = function () {
+                if (pxtc.target.gc)
+                    return "mov r7, sp\n    str r7, [r6, #4]\n";
+                else
+                    return "";
+            };
+            ThumbSnippets.prototype.restoreThreadStack = function () {
+                // TODO only for debug build!
+                if (pxtc.target.gc && pxtc.target.switches.gcDebug)
+                    return "movs r7, #0\n    str r7, [r6, #4]\n";
+                else
+                    return "";
+            };
+            ThumbSnippets.prototype.callCPPPush = function (lbl) {
+                return this.pushLR() + "\n" + this.callCPP(lbl) + "\n" + this.popPC() + "\n";
+            };
+            ThumbSnippets.prototype.callCPP = function (lbl, stackAlign) {
+                return this.saveThreadStack() + this.alignedCall(lbl, stackAlign) + "\n" + this.restoreThreadStack();
+            };
+            ThumbSnippets.prototype.inline_decr = function (idx) {
                 // TODO optimize sequences of pops without decr into sub on sp
-                return "\n    lsls r1, r0, #30\n    bne .tag" + idx + "\n    cmp r0, #0\n    beq .tag" + idx + "\n    " + (stackSize & 1 ? "push {r0} ; align" : "") + "\n    bl pxt::decr\n    " + (stackSize & 1 ? "pop {r0} ; unalign" : "") + "\n.tag" + idx + ":\n";
+                return "\n    lsls r1, r0, #30\n    bne .tag" + idx + "\n    bl _pxt_decr\n.tag" + idx + ":\n";
             };
             ThumbSnippets.prototype.arithmetic = function () {
+                var _this = this;
                 var r = "";
+                var boxedOp = function (op) {
+                    var r = ".boxed:\n";
+                    if (pxtc.target.gc)
+                        r += "\n                    " + _this.pushLR() + "\n                    push {r0, r1}\n                    " + _this.saveThreadStack() + "\n                    " + op + "\n                    " + _this.restoreThreadStack() + "\n                    add sp, #8\n                    " + _this.popPC() + "\n                ";
+                    else
+                        r += "\n                    push {r4, lr}\n                    push {r0, r1}\n                    " + op + "\n                    movs r4, r0\n                    pop {r0}\n                    bl _pxt_decr\n                    pop {r0}\n                    bl _pxt_decr\n                    movs r0, r4\n                    pop {r4, pc}\n                ";
+                    return r;
+                };
                 for (var _i = 0, _a = ["adds", "subs", "ands", "orrs", "eors"]; _i < _a.length; _i++) {
                     var op = _a[_i];
                     r += "\n_numops_" + op + ":\n    @scope _numops_" + op + "\n    lsls r2, r0, #31\n    beq .boxed\n    lsls r2, r1, #31\n    beq .boxed\n";
@@ -1789,26 +2348,54 @@ var ts;
                             r += "    adds r0, r0, #1\n";
                         r += "    blx lr\n";
                     }
-                    r += "\n.boxed:\n    push {r4, lr}\n    push {r0, r1}\n    bl numops::" + op + "\n    movs r4, r0\n    pop {r0}\n    " + (this.stackAligned() ? "push {r0} ; align" : "") + "\n    bl _pxt_decr\n    " + (this.stackAligned() ? "pop {r0} ; unalign" : "") + "\n    pop {r0}\n    bl _pxt_decr\n    movs r0, r4\n    pop {r4, pc}\n";
+                    r += boxedOp("bl numops::" + op);
                 }
-                r += "\n@scope _numops_toInt\n_numops_toInt:\n    asrs r0, r0, #1\n    bcc .over\n    blx lr\n.over:\n    " + this.pushLR() + "\n    lsls r0, r0, #1\n    bl pxt::toInt\n    " + this.popPC() + "\n\n_numops_fromInt:\n    lsls r2, r0, #1\n    asrs r1, r2, #1\n    cmp r0, r1\n    bne .over2\n    adds r0, r2, #1\n    blx lr\n.over2:\n    " + this.pushLR() + "\n    bl pxt::fromInt\n    " + this.popPC() + "\n";
-                for (var _b = 0, _c = ["incr", "decr"]; _b < _c.length; _b++) {
-                    var op = _c[_b];
+                r += "\n@scope _numops_toInt\n_numops_toInt:\n    asrs r0, r0, #1\n    bcc .over\n    blx lr\n.over:\n    lsls r0, r0, #1\n    " + this.callCPPPush("pxt::toInt") + "\n\n_numops_fromInt:\n    lsls r2, r0, #1\n    asrs r1, r2, #1\n    cmp r0, r1\n    bne .over2\n    adds r0, r2, #1\n    blx lr\n.over2:\n    " + this.callCPPPush("pxt::fromInt") + "\n";
+                // SPEED the inline ldrh/strh saves ~20%
+                var inlineIncrDecr = function (op) { return "\n    lsls r3, r0, #30\n    beq .t0\n.skip:\n    bx lr\n.t0:\n    cmp r0, #0\n    beq .skip\n    ldrh r3, [r0, #0]\n    " + (op == "decr" ? "subs r3, r3, #2" : "") + "\n    " + (op == "decr" ? "bmi .full" : "") + "\n    asrs r2, r3, #1\n    bcc .skip\n    beq .full\n    " + (op == "incr" ? "adds r3, r3, #2" : "") + "\n    strh r3, [r0, #0]\n    bx lr\n.full:\n    " + _this.callCPPPush("pxt::" + op) + "\n"; };
+                var withLDR = function (op, push) {
+                    if (push === void 0) { push = false; }
+                    for (var off = 32; off >= 0; off -= 4) {
+                        r += "\n_pxt_" + op + "_" + off + ":\n    ldr r0, [sp, #" + off + "]\n";
+                        if (off) {
+                            if (push)
+                                r += "\n    push {r0}\n    @dummystack -1\n";
+                            r += "\n    lsls r3, r0, #30\n    beq .t0\n    bx lr\n";
+                        }
+                    }
+                };
+                var ops = ["incr", "decr"];
+                if (pxtc.target.gc)
+                    ops = [];
+                for (var _b = 0, ops_1 = ops; _b < ops_1.length; _b++) {
+                    var op = ops_1[_b];
                     r += ".section code\n";
-                    for (var off = 56; off >= 0; off -= 4) {
-                        r += "\n_pxt_" + op + "_" + off + ":\n    ldr r0, [sp, #" + off + "]\n    " + (off == 0 ? '; ' : '') + "b _pxt_" + op + "\n";
-                    }
-                    r += "\n_pxt_" + op + ":\n    lsls r3, r0, #30\n    beq .t0\n.skip:\n    bx lr\n.t0:\n    cmp r0, #0\n    beq .skip\n    " + this.pushLR() + "\n    bl pxt::" + op + "\n    " + this.popPC() + "\n";
-                    for (var off = 56; off >= 0; off -= 4) {
-                        r += "\n_pxt_" + op + "_pushR0_" + off + ":\n    ldr r0, [sp, #" + off + "]\n    " + (off == 0 ? '; ' : '') + "b _pxt_" + op + "_pushR0\n";
-                    }
-                    r += "\n_pxt_" + op + "_pushR0:\n    push {r0}\n    @dummystack -1\n    lsls r3, r0, #30\n    beq .t2\n.skip2:\n    bx lr\n.t2:\n    cmp r0, #0\n    beq .skip2\n    push {lr}\n    bl pxt::" + op + "\n    pop {pc}\n";
+                    withLDR(op);
+                    r += "_pxt_" + op + ":\n" + inlineIncrDecr(op);
+                    r += ".section code\n";
+                    withLDR(op + "_pushR0", true);
+                    r += "\n_pxt_" + op + "_pushR0:\n    push {r0}\n    @dummystack -1\n    " + inlineIncrDecr(op) + "\n";
                 }
-                for (var _d = 0, _e = Object.keys(pxtc.thumbCmpMap); _d < _e.length; _d++) {
-                    var op = _e[_d];
+                /*
+        lsls r2, r0, #30
+        bne .r0prim
+        cmp r0, #0
+        beq .r0prim
+        ${this.load_vtable("r2", "r0")}
+        ldrb r2, [r2, #2]
+        cmp r2, #${pxt.ValTypeObject}
+        bne .r0prim
+        ; r0 is object
+                */
+                for (var _c = 0, _d = Object.keys(pxtc.thumbCmpMap); _c < _d.length; _c++) {
+                    var op = _d[_c];
                     op = op.replace(/.*::/, "");
                     // this make sure to set the Z flag correctly
-                    r += "\n_cmp_" + op + ":\n    @scope _cmp_" + op + "\n    lsls r2, r0, #31\n    beq .boxed\n    lsls r2, r1, #31\n    beq .boxed\n    subs r0, r1\n    b" + op.replace("qq", "q").replace("neq", "ne") + " .true\n.false:\n    movs r0, #0\n    bx lr\n.true:\n    movs r0, #1\n    bx lr\n.boxed:\n    push {r4, lr}\n    push {r0, r1}\n    bl numops::" + op + "\n    bl numops::toBoolDecr\n    movs r4, r0\n    pop {r0}\n    " + (this.stackAligned() ? "push {r0} ; align" : "") + "\n    bl _pxt_decr\n    " + (this.stackAligned() ? "pop {r0} ; unalign" : "") + "\n    pop {r0}\n    bl _pxt_decr\n    movs r0, r4\n    pop {r4, pc}\n";
+                    r += "\n.section code\n_cmp_" + op + ":\n    lsls r2, r0, #31\n    beq .boxed\n    lsls r2, r1, #31\n    beq .boxed\n    subs r0, r1\n    b" + op.replace("qq", "q").replace("neq", "ne") + " .true\n.false:\n    movs r0, #0\n    bx lr\n.true:\n    movs r0, #1\n    bx lr\n";
+                    // the cmp isn't really needed, given how toBoolDecr() is compiled,
+                    // but better not rely on it
+                    // Also, cmp isn't needed when ref-counting (it ends with movs r0, r4)
+                    r += boxedOp("\n                        bl numops::" + op + "\n                        bl numops::toBoolDecr\n                        cmp r0, #0");
                 }
                 return r;
             };
@@ -1918,6 +2505,7 @@ var ts;
             var maxCommentHeight = 360;
             var validStringRegex = /^[^\f\n\r\t\v\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*$/;
             var numberType = "math_number";
+            var minmaxNumberType = "math_number_minmax";
             var integerNumberType = "math_integer";
             var wholeNumberType = "math_whole_number";
             var stringType = "text";
@@ -2238,12 +2826,16 @@ var ts;
                         type: type
                     };
                 }
-                function mkValue(name, value, shadowType) {
+                function mkValue(name, value, shadowType, shadowMutation) {
                     if (shadowType && value.kind === "expr" && value.type !== shadowType) {
                         // Count the shadow block that will be emitted
                         countBlock();
                     }
-                    return { kind: "value", name: name, value: value, shadowType: shadowType };
+                    if ((!shadowType || shadowType === numberType) && shadowMutation && shadowMutation['min'] && shadowMutation['max']) {
+                        // Convert a number to a number with a slider (math_number_minmax) if min and max shadow options are defined
+                        shadowType = minmaxNumberType;
+                    }
+                    return { kind: "value", name: name, value: value, shadowType: shadowType, shadowMutation: shadowMutation };
                 }
                 function isEventExpression(expr) {
                     if (expr.expression.kind == SK.CallExpression) {
@@ -2280,13 +2872,18 @@ var ts;
                     }
                     closeBlockTag();
                 }
+                function emitMutation(mMap) {
+                    write("<mutation ", "");
+                    for (var key in mMap) {
+                        if (mMap[key] !== undefined) {
+                            write(key + "=\"" + mMap[key] + "\" ", "");
+                        }
+                    }
+                    write("/>");
+                }
                 function emitBlockNodeCore(n) {
                     if (n.mutation) {
-                        write("<mutation ", "");
-                        for (var key in n.mutation) {
-                            write(key + "=\"" + n.mutation[key] + "\" ", "");
-                        }
-                        write("/>");
+                        emitMutation(n.mutation);
                     }
                     if (n.fields) {
                         n.fields.forEach(emitFieldNode);
@@ -2300,10 +2897,16 @@ var ts;
                     var emitShadowOnly = false;
                     if (n.value.kind === "expr") {
                         var value = n.value;
+                        if (value.type === numberType && n.shadowType === minmaxNumberType) {
+                            value.type = minmaxNumberType;
+                            value.fields[0].name = 'SLIDER';
+                            value.mutation = n.shadowMutation;
+                        }
                         emitShadowOnly = value.type === n.shadowType;
                         if (!emitShadowOnly) {
                             switch (value.type) {
                                 case "math_number":
+                                case "math_number_minmax":
                                 case "math_integer":
                                 case "math_whole_number":
                                 case "logic_boolean":
@@ -2325,11 +2928,18 @@ var ts;
                                 case wholeNumberType:
                                     write("<shadow type=\"" + n.shadowType + "\"><field name=\"NUM\">0</field></shadow>");
                                     break;
+                                case minmaxNumberType:
+                                    write("<shadow type=\"" + minmaxNumberType + "\">");
+                                    if (n.shadowMutation) {
+                                        emitMutation(n.shadowMutation);
+                                    }
+                                    write("<field name=\"SLIDER\">0</field></shadow>");
+                                    break;
                                 case booleanType:
-                                    write("<shadow type=\"logic_boolean\"><field name=\"BOOL\">TRUE</field></shadow>");
+                                    write("<shadow type=\"" + booleanType + "\"><field name=\"BOOL\">TRUE</field></shadow>");
                                     break;
                                 case stringType:
-                                    write("<shadow type=\"text\"><field name=\"TEXT\"></field></shadow>");
+                                    write("<shadow type=\"" + stringType + "\"><field name=\"TEXT\"></field></shadow>");
                                     break;
                                 default:
                                     write("<shadow type=\"" + n.shadowType + "\"/>");
@@ -2491,7 +3101,7 @@ var ts;
                     }
                     return result;
                 }
-                function getValue(name, contents, shadowType) {
+                function getValue(name, contents, shadowType, shadowMutation) {
                     var value;
                     if (typeof contents === "number") {
                         value = getNumericLiteral(contents.toString());
@@ -2512,7 +3122,7 @@ var ts;
                         if (shadowType == "math_whole_number" && actualValue % 1 === 0 && actualValue > 0)
                             value.type = "math_whole_number";
                     }
-                    return mkValue(name, value, shadowType);
+                    return mkValue(name, value, shadowType, shadowMutation);
                 }
                 function getIdentifier(identifier) {
                     var name = getVariableName(identifier);
@@ -3114,8 +3724,16 @@ var ts;
                     var optionalCount = 0;
                     args.forEach(function (arg, i) {
                         var e = arg.value;
+                        var shadowMutation;
                         var param = arg.param;
                         var paramInfo = arg.info;
+                        var paramComp = comp.parameters[comp.thisParameter ? i - 1 : i];
+                        var paramRange = paramComp && paramComp.range;
+                        if (paramRange) {
+                            var min = paramRange['min'];
+                            var max = paramRange['max'];
+                            shadowMutation = { 'min': min.toString(), 'max': max.toString() };
+                        }
                         if (i === 0 && attributes.defaultInstance) {
                             if (e.getText() === attributes.defaultInstance) {
                                 return;
@@ -3193,13 +3811,13 @@ var ts;
                                 var aName = pxtc.U.htmlEscape(param.definitionName);
                                 var argAttrs = attrs(callInfo);
                                 if (shadowBlockInfo && shadowBlockInfo.attributes.shim === "TD_ID") {
-                                    addInput(mkValue(aName, getPropertyAccessExpression(e, false, param.shadowBlockId), param.shadowBlockId));
+                                    addInput(mkValue(aName, getPropertyAccessExpression(e, false, param.shadowBlockId), param.shadowBlockId, shadowMutation));
                                 }
                                 else if (paramInfo && paramInfo.isEnum || callInfo && (argAttrs.fixedInstance || argAttrs.blockIdentity === info.qName)) {
                                     addField(getField(aName, getPropertyAccessExpression(e, true).value));
                                 }
                                 else {
-                                    addInput(getValue(aName, e, param.shadowBlockId));
+                                    addInput(getValue(aName, e, param.shadowBlockId, shadowMutation));
                                 }
                                 break;
                             case SK.BinaryExpression:
@@ -3210,14 +3828,14 @@ var ts;
                                         break;
                                     }
                                 }
-                                addInput(getValue(pxtc.U.htmlEscape(param.definitionName), e, param.shadowBlockId));
+                                addInput(getValue(pxtc.U.htmlEscape(param.definitionName), e, param.shadowBlockId, shadowMutation));
                                 break;
                             default:
                                 var v = void 0;
                                 var vName = pxtc.U.htmlEscape(param.definitionName);
                                 var defaultV = true;
                                 if (info.qName == "Math.random") {
-                                    v = mkValue(vName, getMathRandomArgumentExpresion(e), numberType);
+                                    v = mkValue(vName, getMathRandomArgumentExpresion(e), numberType, shadowMutation);
                                     defaultV = false;
                                 }
                                 else if (isLiteralNode(e)) {
@@ -3235,7 +3853,7 @@ var ts;
                                             if (param.shadowOptions) {
                                                 fieldBlock.mutation = { "customfield": pxtc.Util.htmlEscape(JSON.stringify(param.shadowOptions)) };
                                             }
-                                            v = mkValue(vName, fieldBlock, param.shadowBlockId);
+                                            v = mkValue(vName, fieldBlock, param.shadowBlockId, shadowMutation);
                                             defaultV = false;
                                         }
                                     }
@@ -3245,7 +3863,7 @@ var ts;
                                     return;
                                 }
                                 if (defaultV) {
-                                    v = getValue(vName, e, param.shadowBlockId);
+                                    v = getValue(vName, e, param.shadowBlockId, shadowMutation);
                                 }
                                 addInput(v);
                                 break;
@@ -4319,6 +4937,7 @@ var ts;
             function isLiteralBlockType(type) {
                 switch (type) {
                     case numberType:
+                    case minmaxNumberType:
                     case integerNumberType:
                     case wholeNumberType:
                     case stringType:
@@ -4691,7 +5310,7 @@ var ts;
                         ln.update("bne " + lnNext.words[1]);
                         lnNext.update("");
                     }
-                    else if (lnop == "push" && ln.numArgs[0] == 0x4000 && lnNext.getOp() == "push") {
+                    else if (lnop == "push" && ln.numArgs[0] == 0x4000 && lnNext.getOp() == "push" && !(lnNext.numArgs[0] & 0x4000)) {
                         // RULE: push {lr}; push {X, ...} -> push {lr, X, ...}
                         ln.update(lnNext.text.replace("{", "{lr, "));
                         lnNext.update("");
@@ -4739,7 +5358,7 @@ var ts;
                         lnNext.update("@dummystack 1");
                     }
                     else if (lnop == "ldr" && ln.getOpExt() == "ldr $r5, [sp, $i1]" && lnNext.getOp() == "bl" &&
-                        /^_pxt_(incr|decr)(_pushR0)?$/.test(lnNext.words[1]) && ln.numArgs[0] == 0 && ln.numArgs[1] <= 56
+                        /^_pxt_(incr|decr)(_pushR0)?$/.test(lnNext.words[1]) && ln.numArgs[0] == 0 && ln.numArgs[1] <= 32
                         && lnNext2 && lnNext2.getOp() != "push") {
                         ln.update("bl " + lnNext.words[1] + "_" + ln.numArgs[1]);
                         lnNext.update("");
@@ -4912,6 +5531,7 @@ var ts;
                 EK[EK["Sequence"] = 12] = "Sequence";
                 EK[EK["JmpValue"] = 13] = "JmpValue";
                 EK[EK["Nop"] = 14] = "Nop";
+                EK[EK["InstanceOf"] = 15] = "InstanceOf";
             })(EK = ir.EK || (ir.EK = {}));
             var currExprId = 0;
             var Node = /** @class */ (function () {
@@ -4998,6 +5618,7 @@ var ts;
                         case EK.Incr:
                         case EK.Decr:
                         case EK.FieldAccess:
+                        case EK.InstanceOf:
                             return this.args[0].canUpdateCells();
                         case EK.RuntimeCall:
                         case EK.ProcCall:
@@ -5084,6 +5705,8 @@ var ts;
                                 return name_5 + "(" + e.args.map(str).join(", ") + ")";
                             case EK.Sequence:
                                 return "(" + e.args.map(str).join("; ") + ")";
+                            case EK.InstanceOf:
+                                return "(" + str(e.args[0]) + " instanceof " + e.data.id + ")";
                             case EK.Store:
                                 return "{ " + str(e.args[0]) + " := " + str(e.args[1]) + " }";
                             default: throw pxtc.oops();
@@ -5283,6 +5906,7 @@ var ts;
                     _this.locals = [];
                     _this.captured = [];
                     _this.args = [];
+                    _this.perfCounterNo = 0;
                     _this.body = [];
                     _this.lblNo = 0;
                     return _this;
@@ -5293,6 +5917,9 @@ var ts;
                     this.locals = [];
                     this.captured = [];
                     this.args = [];
+                };
+                Procedure.prototype.vtLabel = function () {
+                    return this.label() + "_args";
                 };
                 Procedure.prototype.label = function () {
                     return pxtc.getFunctionLabel(this.action);
@@ -5323,6 +5950,14 @@ var ts;
                     lbl.lblName = lblName;
                     lbl.lbl = lbl;
                     this.emit(lbl);
+                };
+                Procedure.prototype.getFullName = function () {
+                    var name = this.getName();
+                    if (this.action) {
+                        var info = ts.pxtc.nodeLocationInfo(this.action);
+                        name += " " + info.fileName.replace("pxt_modules/", "") + ":" + (info.line + 1);
+                    }
+                    return name;
                 };
                 Procedure.prototype.getName = function () {
                     var text = this.action && this.action.name ? this.action.name.text : null;
@@ -5558,6 +6193,8 @@ var ts;
             }
             ir.stmt = stmt;
             function op(kind, args, data) {
+                if (pxtc.target.gc && (kind == EK.Incr || kind == EK.Decr))
+                    return args[0];
                 return new Expr(kind, args, data);
             }
             ir.op = op;
@@ -5586,13 +6223,9 @@ var ts;
                 return sharedCore(expr, null);
             }
             ir.shared = shared;
-            function ptrlit(lbl, jsInfo, full) {
-                if (full === void 0) { full = false; }
+            function ptrlit(lbl, jsInfo) {
                 var r = op(EK.PointerLiteral, null, lbl);
                 r.jsInfo = jsInfo;
-                if (full) {
-                    r.args = [];
-                }
                 return r;
             }
             ir.ptrlit = ptrlit;
@@ -5678,9 +6311,10 @@ var ts;
         pxtc.taggedUndefined = 0;
         pxtc.taggedNull = taggedSpecialValue(1);
         pxtc.taggedFalse = taggedSpecialValue(2);
+        pxtc.taggedNaN = taggedSpecialValue(3);
         pxtc.taggedTrue = taggedSpecialValue(16);
         function fitsTaggedInt(vn) {
-            if (pxtc.target.boxDebug)
+            if (pxtc.target.switches.boxDebug)
                 return false;
             return (vn | 0) == vn && -1073741824 <= vn && vn <= 1073741823;
         }
@@ -5705,6 +6339,28 @@ var ts;
             "eq": true,
             "neq": true,
         };
+        var thumbFuns = {
+            "Array_::getAt": {
+                name: "_pxt_array_get",
+                argsFmt: ["T", "T", "T"],
+                value: 0
+            },
+            "Array_::setAt": {
+                name: "_pxt_array_set",
+                argsFmt: ["T", "T", "T", "T"],
+                value: 0
+            },
+            "pxtrt::mapGetGeneric": {
+                name: "_pxt_map_get",
+                argsFmt: ["T", "T", "S"],
+                value: 0
+            },
+            "pxtrt::mapSetGeneric": {
+                name: "_pxt_map_set",
+                argsFmt: ["T", "T", "S", "T"],
+                value: 0
+            },
+        };
         var EK = pxtc.ir.EK;
         pxtc.SK = ts.SyntaxKind;
         pxtc.numReservedGlobals = 1;
@@ -5728,7 +6384,7 @@ var ts;
         function inspect(n) {
             console.log(stringKind(n));
         }
-        // next free error 9275
+        // next free error 9276
         function userError(code, msg, secondary) {
             if (secondary === void 0) { secondary = false; }
             var e = new Error(msg);
@@ -5933,6 +6589,16 @@ var ts;
             return (decl.kind == pxtc.SK.FunctionDeclaration && !getEnclosingFunction(decl)) ||
                 isClassFunction(decl);
         }
+        function getRefTagToValidate(tp) {
+            switch (tp) {
+                case "_Buffer": return pxt.BuiltInType.BoxedBuffer;
+                case "_Image": return pxt.BuiltInType.RefImage;
+                case "_Action": return pxt.BuiltInType.RefAction;
+                case "_RefCollection": return pxt.BuiltInType.RefCollection;
+                default:
+                    return null;
+            }
+        }
         var lf = pxtc.assembler.lf;
         var checker;
         var lastSecondaryError;
@@ -6022,7 +6688,7 @@ var ts;
             return (isFunctionType(t) == null) && (isClassType(t) || isInterfaceType(t) || isObjectLiteral(t));
         }
         function castableToStructureType(t) {
-            return isStructureType(t) || (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined));
+            return isStructureType(t) || (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Any));
         }
         function isPossiblyGenericClassType(t) {
             var g = genericRoot(t);
@@ -6054,7 +6720,7 @@ var ts;
             var ok = ts.TypeFlags.String | ts.TypeFlags.Number | ts.TypeFlags.Boolean |
                 ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral | ts.TypeFlags.BooleanLiteral |
                 ts.TypeFlags.Void | ts.TypeFlags.Enum | ts.TypeFlags.EnumLiteral | ts.TypeFlags.Null | ts.TypeFlags.Undefined |
-                ts.TypeFlags.Never | ts.TypeFlags.TypeParameter;
+                ts.TypeFlags.Never | ts.TypeFlags.TypeParameter | ts.TypeFlags.Any;
             if ((t.flags & ok) == 0) {
                 if (isArrayType(t))
                     return t;
@@ -6174,7 +6840,10 @@ var ts;
                     }
                 }
         }
+        var checkSubtypes = false;
         function typeCheckSubtoSup(sub, sup) {
+            if (!checkSubtypes)
+                return;
             // get the direct types
             var supTypeLoc = sup.kind ? checker.getTypeAtLocation(sup) : sup;
             var subTypeLoc = sub.kind ? checker.getTypeAtLocation(sub) : sub;
@@ -6356,27 +7025,6 @@ var ts;
             return safeName(node) + "__P" + getNodeId(node);
         }
         pxtc.getFunctionLabel = getFunctionLabel;
-        function mkBogusMethod(info, name, parameter) {
-            var rootFunction = {
-                kind: pxtc.SK.MethodDeclaration,
-                parameters: parameter ? [parameter] : [],
-                name: {
-                    kind: pxtc.SK.Identifier,
-                    text: name,
-                    pos: 0,
-                    end: 0
-                },
-                body: {
-                    kind: pxtc.SK.Block,
-                    statements: []
-                },
-                parent: info.decl,
-                pos: 0,
-                end: 0,
-                isBogusFunction: true,
-            };
-            return rootFunction;
-        }
         function compileBinary(program, host, opts, res, entryPoint) {
             pxtc.target = opts.target;
             var diagnostics = ts.createDiagnosticCollection();
@@ -6388,7 +7036,7 @@ var ts;
             var functionInfo = {};
             var irCachesToClear = [];
             var ifaceMembers = {};
-            var nextIfaceMemberId = 0;
+            var explicitlyUsedIfaceMembers = {};
             var autoCreateFunctions = {};
             var configEntries = {};
             var currJres = null;
@@ -6544,9 +7192,6 @@ var ts;
                     case ts.SyntaxKind.TaggedTemplateExpression:
                         syntax = lf("tagged templates");
                         break;
-                    case ts.SyntaxKind.TypeOfExpression:
-                        syntax = lf("typeof");
-                        break;
                     case ts.SyntaxKind.SpreadElement:
                         syntax = lf("spread");
                         break;
@@ -6624,19 +7269,27 @@ var ts;
                     proc = prevProc;
                 }
             }
-            function getIfaceMemberId(name) {
+            function getIfaceMemberId(name, markUsed) {
+                if (markUsed === void 0) { markUsed = false; }
+                if (markUsed && !pxtc.U.lookup(explicitlyUsedIfaceMembers, name)) {
+                    pxtc.U.assert(!bin.finalPass);
+                    explicitlyUsedIfaceMembers[name] = 1;
+                    for (var _i = 0, _a = bin.usedClassInfos; _i < _a.length; _i++) {
+                        var inf = _a[_i];
+                        for (var _b = 0, _c = inf.methods; _b < _c.length; _b++) {
+                            var m = _c[_b];
+                            if (getName(m) == name)
+                                markFunctionUsed(m);
+                        }
+                    }
+                }
                 var v = pxtc.U.lookup(ifaceMembers, name);
                 if (v != null)
                     return v;
-                for (var _i = 0, _a = bin.usedClassInfos; _i < _a.length; _i++) {
-                    var inf = _a[_i];
-                    for (var _b = 0, _c = inf.methods; _b < _c.length; _b++) {
-                        var m = _c[_b];
-                        if (getName(m) == name)
-                            markFunctionUsed(m);
-                    }
-                }
-                v = ifaceMembers[name] = nextIfaceMemberId++;
+                pxtc.U.assert(!bin.finalPass);
+                // this gets renumbered before the final pass
+                v = ifaceMembers[name] = -1;
+                bin.emitString(name);
                 return v;
             }
             function finalEmit() {
@@ -6728,14 +7381,20 @@ var ts;
                 if (inf.vtable)
                     return inf.vtable;
                 var tbl = inf.baseClassInfo ? getVTable(inf.baseClassInfo).slice(0) : [];
+                inf.derivedClasses = [];
+                if (inf.baseClassInfo)
+                    inf.baseClassInfo.derivedClasses.push(inf);
                 scope(function () {
                     for (var _i = 0, _a = inf.methods; _i < _a.length; _i++) {
                         var m = _a[_i];
+                        bin.numMethods++;
                         var minf = getFunctionInfo(m);
                         if (isToString(m)) {
                             inf.toStringMethod = lookupProc(m);
+                            inf.toStringMethod.info.usedAsIface = true;
                         }
                         if (minf.virtualParent) {
+                            bin.numVirtMethods++;
                             var key = classFunctionKey(m);
                             var done = false;
                             var proc_1 = lookupProc(m);
@@ -6755,80 +7414,47 @@ var ts;
                     }
                     inf.vtable = tbl;
                     inf.itable = [];
-                    inf.itableInfo = [];
-                    var storeIface = function (name, proc) {
-                        var id = getIfaceMemberId(name);
-                        inf.itable[id] = proc;
-                        inf.itableInfo[id] = name;
-                        pxtc.assert(!!proc, "!!proc");
-                    };
-                    var emitSynthetic = function (fn, fill) {
-                        var proc = lookupProc(fn);
-                        if (!proc) {
-                            scope(function () {
-                                emitFuncCore(fn);
-                                proc = lookupProc(fn);
-                                proc.body = [];
-                                fill(proc);
-                            });
-                        }
-                        pxtc.assert(!!proc, "!!proc");
-                        storeIface(getName(fn), proc);
-                    };
-                    var _loop_2 = function (fld0) {
-                        var fld = fld0;
-                        var fname = getName(fld);
-                        var setname = "set/" + fname;
-                        if (isIfaceMemberUsed(fname)) {
-                            if (!fld.irGetter)
-                                fld.irGetter = mkBogusMethod(inf, fname);
-                            var idx_2 = fieldIndexCore(inf, fld, typeOf(fld));
-                            emitSynthetic(fld.irGetter, function (proc) {
-                                // we skip final decr, but the ldfld call will do its own decr
-                                var access = pxtc.ir.op(EK.FieldAccess, [proc.args[0].load()], idx_2);
-                                emitInJmpValue(access);
-                            });
-                        }
-                        if (isIfaceMemberUsed(setname)) {
-                            if (!fld.irSetter) {
-                                fld.irSetter = mkBogusMethod(inf, setname, {
-                                    kind: pxtc.SK.Parameter,
-                                    name: { text: "v" },
-                                    parent: fld.irSetter,
-                                    typeOverride: typeOf(fld),
-                                    symbol: {}
-                                });
-                            }
-                            var idx_3 = fieldIndexCore(inf, fld, typeOf(fld));
-                            emitSynthetic(fld.irSetter, function (proc) {
-                                // decrs work out
-                                var access = pxtc.ir.op(EK.FieldAccess, [proc.args[0].load()], idx_3);
-                                proc.emitExpr(pxtc.ir.op(EK.Store, [access, proc.args[1].load()]));
-                            });
-                        }
-                    };
                     for (var _b = 0, _c = inf.allfields; _b < _c.length; _b++) {
-                        var fld0 = _c[_b];
-                        _loop_2(fld0);
+                        var fld = _c[_b];
+                        var fname = getName(fld);
+                        var finfo = fieldIndexCore(inf, fld, false);
+                        inf.itable.push({
+                            name: fname,
+                            info: (finfo.idx + 1) * 4,
+                            idx: getIfaceMemberId(fname),
+                            proc: null
+                        });
                     }
                     for (var curr = inf; curr; curr = curr.baseClassInfo) {
+                        var _loop_2 = function (m) {
+                            var n = getName(m);
+                            if (isIfaceMemberUsed(n) || isUsed(m)) {
+                                var proc_2 = lookupProc(m);
+                                var ex = inf.itable.find(function (e) { return e.name == n; });
+                                var isSet = m.kind == pxtc.SK.SetAccessor;
+                                var isGet = m.kind == pxtc.SK.GetAccessor;
+                                if (ex) {
+                                    if (isSet && !ex.setProc)
+                                        ex.setProc = proc_2;
+                                    else if (isGet && !ex.proc)
+                                        ex.proc = proc_2;
+                                }
+                                else {
+                                    inf.itable.push({
+                                        name: n,
+                                        info: 0,
+                                        idx: getIfaceMemberId(n),
+                                        proc: !isSet ? proc_2 : null,
+                                        setProc: isSet ? proc_2 : null
+                                    });
+                                }
+                                proc_2.info.usedAsIface = true;
+                            }
+                        };
                         for (var _d = 0, _e = curr.methods; _d < _e.length; _d++) {
                             var m = _e[_d];
-                            var n = getName(m);
-                            if (isIfaceMemberUsed(n)) {
-                                var id = getIfaceMemberId(n);
-                                if (!inf.itable[id]) {
-                                    storeIface(n, lookupProc(m));
-                                }
-                            }
+                            _loop_2(m);
                         }
-                    }
-                    for (var i = 0; i < inf.itable.length; ++i)
-                        if (!inf.itable[i])
-                            inf.itable[i] = null; // avoid undefined
-                    for (var _f = 0, _g = Object.keys(ifaceMembers); _f < _g.length; _f++) {
-                        var k = _g[_f];
-                        inf.itableInfo[ifaceMembers[k]] = k;
                     }
                 });
                 return inf.vtable;
@@ -6881,6 +7507,20 @@ var ts;
                         computeVtableInfo(classInfos[ci]);
                 }
             }
+            function isCtorField(p) {
+                if (!p.modifiers)
+                    return false;
+                if (p.parent.kind != pxtc.SK.Constructor)
+                    return false;
+                for (var _i = 0, _a = p.modifiers; _i < _a.length; _i++) {
+                    var m = _a[_i];
+                    if (m.kind == pxtc.SK.PrivateKeyword ||
+                        m.kind == pxtc.SK.PublicKeyword ||
+                        m.kind == pxtc.SK.ProtectedKeyword)
+                        return true;
+                }
+                return false;
+            }
             function getClassInfo(t, decl) {
                 if (decl === void 0) { decl = null; }
                 if (!decl)
@@ -6888,7 +7528,6 @@ var ts;
                 var id = safeName(decl) + "__C" + getNodeId(decl);
                 var info = classInfos[id];
                 if (!info) {
-                    var reffields_1 = [];
                     info = {
                         id: id,
                         allfields: [],
@@ -6907,10 +7546,16 @@ var ts;
                             var mem = _a[_i];
                             if (mem.kind == pxtc.SK.PropertyDeclaration) {
                                 var pdecl = mem;
-                                reffields_1.push(pdecl);
                                 info.allfields.push(pdecl);
                             }
-                            else if (isClassFunction(mem) && mem.kind != pxtc.SK.Constructor) {
+                            else if (mem.kind == pxtc.SK.Constructor) {
+                                for (var _b = 0, _c = mem.parameters; _b < _c.length; _b++) {
+                                    var p = _c[_b];
+                                    if (isCtorField(p))
+                                        info.allfields.push(p);
+                                }
+                            }
+                            else if (isClassFunction(mem)) {
                                 var minf = getFunctionInfo(mem);
                                 minf.parentClassInfo = info;
                                 info.methods.push(mem);
@@ -6919,9 +7564,6 @@ var ts;
                         if (info.baseClassInfo) {
                             info.allfields = info.baseClassInfo.allfields.concat(info.allfields);
                             computeVtableInfo(info);
-                        }
-                        else {
-                            info.allfields = reffields_1.slice(0);
                         }
                     });
                 }
@@ -6973,6 +7615,7 @@ var ts;
                 // Pad with a 0 if we have an odd number of pixels
                 if (c % 2 != 0)
                     lit += "0";
+                // this is codal's format!
                 bin.otherLiterals.push("\n.balign 4\n" + lbl + ": .short 0xffff\n        .short " + w + ", " + h + "\n        .byte " + lit + "\n");
                 var jsLit = "new pxsim.Image(" + w + ", [" + lit + "])";
                 return {
@@ -7043,6 +7686,7 @@ var ts;
                 }
                 else {
                     pxtc.assert(!bin.finalPass || info.capturedVars.length == 0, "!bin.finalPass || info.capturedVars.length == 0");
+                    info.usedAsValue = true;
                     return emitFunLitCore(f);
                 }
             }
@@ -7085,7 +7729,7 @@ var ts;
                 }
                 else {
                     var lbl = bin.emitString(str);
-                    r = pxtc.ir.ptrlit(lbl + "meta", JSON.stringify(str), true);
+                    r = pxtc.ir.ptrlit(lbl + "meta", JSON.stringify(str));
                 }
                 r.isStringLiteral = true;
                 return r;
@@ -7169,10 +7813,8 @@ var ts;
                         pxtc.ir.numlit(getIfaceMemberId(keyName)),
                         emitExpr(p.initializer)
                     ];
-                    if (!opts.target.isNative)
-                        args.push(emitStringLiteral(keyName));
                     // internal decr on all args
-                    proc.emitExpr(pxtc.ir.rtcall("pxtrt::mapSetRef", args));
+                    proc.emitExpr(pxtc.ir.rtcall("pxtrt::mapSet", args));
                 });
                 return expr;
             }
@@ -7181,8 +7823,11 @@ var ts;
                     emitVariableDeclaration(node);
                     return;
                 }
-                if (node.initializer)
-                    userError(9209, lf("class field initializers not supported"));
+                if (node.initializer) {
+                    var info = getClassInfo(typeOf(node.parent));
+                    if (bin.finalPass && !info.ctor)
+                        userError(9209, lf("class field initializers currently require an explicit constructor"));
+                }
                 // do nothing
             }
             function emitShorthandPropertyAssignment(node) { }
@@ -7190,11 +7835,9 @@ var ts;
             function emitPropertyAccess(node) {
                 var decl = getDecl(node);
                 // we need to type check node.expression before committing code gen
-                if (!decl || (decl.kind == pxtc.SK.PropertyDeclaration && !isStatic(decl))
+                if ((decl.kind == pxtc.SK.PropertyDeclaration && !isStatic(decl))
                     || decl.kind == pxtc.SK.PropertySignature || decl.kind == pxtc.SK.PropertyAssignment) {
                     emitExpr(node.expression, false);
-                    if (!decl)
-                        return pxtc.ir.numlit(0);
                 }
                 if (decl.kind == pxtc.SK.GetAccessor) {
                     return emitCallCore(node, node, [], null);
@@ -7228,21 +7871,20 @@ var ts;
                 }
                 else if (decl.kind == pxtc.SK.PropertySignature || decl.kind == pxtc.SK.PropertyAssignment) {
                     return emitCallCore(node, node, [], null, decl, node.expression);
-                    /*
-                    if (attrs.shim) {
-                        callInfo.args.push(node.expression)
-                        return emitShim(decl, node, [node.expression])
-                    } else {
-                        throw unhandled(node, lf("no {shim:...}"), 9236);
-                    }*/
                 }
-                else if (decl.kind == pxtc.SK.PropertyDeclaration) {
+                else if (decl.kind == pxtc.SK.PropertyDeclaration || decl.kind == pxtc.SK.Parameter) {
                     if (isStatic(decl)) {
                         return emitLocalLoad(decl);
                     }
-                    var idx = fieldIndex(node);
-                    callInfo.args.push(node.expression);
-                    return pxtc.ir.op(EK.FieldAccess, [emitExpr(node.expression)], idx);
+                    if (pxtc.target.switches.slowFields) {
+                        // treat as interface call
+                        return emitCallCore(node, node, [], null, decl, node.expression);
+                    }
+                    else {
+                        var idx = fieldIndex(node);
+                        callInfo.args.push(node.expression);
+                        return pxtc.ir.op(EK.FieldAccess, [emitExpr(node.expression)], idx);
+                    }
                 }
                 else if (isClassFunction(decl) || decl.kind == pxtc.SK.MethodSignature) {
                     throw userError(9211, lf("cannot use method as lambda; did you forget '()' ?"));
@@ -7265,17 +7907,23 @@ var ts;
                     paramDefl: {},
                 };
                 var indexer = null;
+                var stringOk = false;
                 if (!assign && isStringType(t)) {
                     indexer = "String_::charAt";
                 }
-                else if (isArrayType(t))
+                else if (isArrayType(t)) {
                     indexer = assign ? "Array_::setAt" : "Array_::getAt";
+                }
                 else if (isInterfaceType(t)) {
                     attrs = parseCommentsOnSymbol(t.symbol);
                     indexer = assign ? attrs.indexerSet : attrs.indexerGet;
                 }
+                else if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.StructuredOrTypeVariable)) {
+                    indexer = assign ? "pxtrt::mapSetGeneric" : "pxtrt::mapGetGeneric";
+                    stringOk = true;
+                }
                 if (indexer) {
-                    if (isNumberLike(node.argumentExpression)) {
+                    if (stringOk || isNumberLike(node.argumentExpression)) {
                         var args = [node.expression, node.argumentExpression];
                         return rtcallMask(indexer, args, attrs, assign ? [assign] : []);
                     }
@@ -7300,6 +7948,8 @@ var ts;
             }
             function isOnDemandDecl(decl) {
                 var res = isOnDemandGlobal(decl) || isTopLevelFunctionDecl(decl);
+                if (pxtc.target.switches.noTreeShake)
+                    return false;
                 if (opts.testMode && res) {
                     if (!pxtc.U.startsWith(ts.getSourceFileOfNode(decl).fileName, "pxt_modules"))
                         return false;
@@ -7338,6 +7988,15 @@ var ts;
                     }
                 }
                 markUsed(decl);
+                if (!decl && node.kind == pxtc.SK.PropertyAccessExpression) {
+                    var namedNode = node;
+                    decl = {
+                        kind: pxtc.SK.PropertySignature,
+                        symbol: { isBogusSymbol: true, name: namedNode.name.getText() },
+                        isBogusFunction: true,
+                        name: namedNode.name,
+                    };
+                }
                 return decl;
             }
             function isRefCountedExpr(e) {
@@ -7363,12 +8022,6 @@ var ts;
                 var attrs = parseComments(decl);
                 var hasRet = !(typeOf(node).flags & ts.TypeFlags.Void);
                 var nm = attrs.shim;
-                switch (nm) {
-                    case "Number_::toString":
-                    case "Boolean_::toString":
-                        nm = "numops::toString";
-                        break;
-                }
                 if (nm.indexOf('(') >= 0) {
                     var parse = /(.*)\((.*)\)$/.exec(nm);
                     if (parse) {
@@ -7401,6 +8054,12 @@ var ts;
                 }
                 if (nm == "TD_NOOP") {
                     pxtc.assert(!hasRet, "!hasRet");
+                    if (pxtc.target.switches.profile && attrs.shimArgument == "perfCounter") {
+                        if (args[0] && args[0].kind == pxtc.SK.StringLiteral)
+                            proc.perfCounterName = args[0].text;
+                        if (!proc.perfCounterName)
+                            proc.perfCounterName = proc.getFullName();
+                    }
                     return emitLit(undefined);
                 }
                 if (nm == "TD_ID" || nm === "ENUM_GET") {
@@ -7414,6 +8073,7 @@ var ts;
             }
             function isNumericLiteral(node) {
                 switch (node.kind) {
+                    case pxtc.SK.UndefinedKeyword:
                     case pxtc.SK.NullKeyword:
                     case pxtc.SK.TrueKeyword:
                     case pxtc.SK.FalseKeyword:
@@ -7441,10 +8101,7 @@ var ts;
                                 var defl = attrs.paramDefl[getName(prm)];
                                 var expr = defl ? emitLit(parseInt(defl)) : null;
                                 if (expr == null) {
-                                    if (typeOf(prm).flags & ts.TypeFlags.NumberLike)
-                                        expr = emitLit(0);
-                                    else
-                                        expr = emitLit(undefined);
+                                    expr = emitLit(undefined);
                                 }
                                 args.push(irToNode(expr));
                             }
@@ -7486,18 +8143,35 @@ var ts;
                 if (!decl)
                     decl = getDecl(funcExpr);
                 var isMethod = false;
+                var isProperty = false;
                 if (decl) {
                     switch (decl.kind) {
                         // we treat properties via calls
                         // so we say they are "methods"
                         case pxtc.SK.PropertySignature:
                         case pxtc.SK.PropertyAssignment:
+                        case pxtc.SK.PropertyDeclaration:
+                            if (!isStatic(decl)) {
+                                isMethod = true;
+                                isProperty = true;
+                            }
+                            break;
+                        case pxtc.SK.Parameter:
+                            if (isCtorField(decl)) {
+                                isMethod = true;
+                                isProperty = true;
+                            }
+                            break;
                         // TOTO case: case SK.ShorthandPropertyAssignment
                         // these are the real methods
-                        case pxtc.SK.MethodDeclaration:
-                        case pxtc.SK.MethodSignature:
                         case pxtc.SK.GetAccessor:
                         case pxtc.SK.SetAccessor:
+                            isMethod = true;
+                            if (pxtc.target.switches.slowMethods)
+                                isProperty = true;
+                            break;
+                        case pxtc.SK.MethodDeclaration:
+                        case pxtc.SK.MethodSignature:
                             isMethod = true;
                             break;
                         case pxtc.SK.ModuleDeclaration:
@@ -7543,7 +8217,11 @@ var ts;
                         lst.push(tracked);
                 }
                 function emitPlain() {
-                    return mkProcCall(decl, args.map(function (x) { return emitExpr(x); }));
+                    var r = mkProcCall(decl, args.map(function (x) { return emitExpr(x); }));
+                    var pp = r.data;
+                    if (args[0] && pp.proc && pp.proc.classInfo)
+                        pp.isThis = args[0].kind == pxtc.SK.ThisKeyword;
+                    return r;
                 }
                 scope(function () {
                     addDefaultParametersAndTypeCheck(sig, args, attrs);
@@ -7584,6 +8262,8 @@ var ts;
                     else
                         unhandled(node, lf("strange method call"), 9241);
                     var info = getFunctionInfo(decl);
+                    if (info.parentClassInfo)
+                        markClassUsed(info.parentClassInfo);
                     // if we call a method and it overrides then
                     // mark the virtual root class and all its overrides as used,
                     // if their classes are used
@@ -7596,13 +8276,16 @@ var ts;
                             if (vinst.parentClassInfo.isUsed)
                                 markFunctionUsed(vinst.decl);
                         }
-                        // we need to mark the parent as used, otherwise vtable layout faile, see #3740
+                        // we need to mark the parent as used, otherwise vtable layout fails, see #3740
                         if (info.decl.kind == pxtc.SK.MethodDeclaration)
                             markFunctionUsed(info.decl);
                     }
-                    if (info.virtualParent && !isSuper) {
+                    if (info.virtualParent && !isSuper && !pxtc.target.switches.slowMethods) {
                         pxtc.U.assert(!bin.finalPass || info.virtualIndex != null, "!bin.finalPass || info.virtualIndex != null");
-                        return mkProcCallCore(null, info.virtualIndex, args.map(function (x) { return emitExpr(x); }));
+                        var r = mkMethodCall(info.parentClassInfo, info.virtualIndex, null, args.map(function (x) { return emitExpr(x); }));
+                        if (args[0].kind == pxtc.SK.ThisKeyword)
+                            r.data.isThis = true;
+                        return r;
                     }
                     if (attrs.shim && !hasShimDummy(decl)) {
                         return emitShim(decl, node, args);
@@ -7636,26 +8319,18 @@ var ts;
                         markFunctionUsed(decl);
                         return emitPlain();
                     }
-                    else if (decl.kind == pxtc.SK.MethodSignature) {
-                        var name_6 = getName(decl);
-                        return mkProcCallCore(null, null, args.map(function (x) { return emitExpr(x); }), getIfaceMemberId(name_6));
-                    }
-                    else if (decl.kind == pxtc.SK.PropertySignature || decl.kind == pxtc.SK.PropertyAssignment) {
+                    else if (isProperty) {
                         if (node == funcExpr) {
                             // in this special base case, we have property access recv.foo
                             // where recv is a map obejct
-                            var name_7 = getName(decl);
-                            var res_2 = mkProcCallCore(null, null, args.map(function (x) { return emitExpr(x); }), getIfaceMemberId(name_7));
-                            if (decl.kind == pxtc.SK.PropertySignature || decl.kind == pxtc.SK.PropertyAssignment) {
-                                var pid = res_2.data;
-                                pid.mapIdx = pid.ifaceIndex;
-                                if (args.length == 2) {
-                                    pid.ifaceIndex = getIfaceMemberId("set/" + name_7);
-                                    pid.mapMethod = "pxtrt::mapSetRef";
-                                }
-                                else {
-                                    pid.mapMethod = "pxtrt::mapGetRef";
-                                }
+                            var name_6 = getName(decl);
+                            var res_2 = mkMethodCall(null, null, getIfaceMemberId(name_6, true), args.map(function (x) { return emitExpr(x); }));
+                            var pid = res_2.data;
+                            if (args.length == 2) {
+                                pid.mapMethod = "pxtrt::mapSet";
+                            }
+                            else {
+                                pid.mapMethod = "pxtrt::mapGet";
                             }
                             return res_2;
                         }
@@ -7666,6 +8341,10 @@ var ts;
                             args.shift();
                             callInfo.args.shift();
                         }
+                    }
+                    else if (decl.kind == pxtc.SK.MethodSignature || (pxtc.target.switches.slowMethods && !isStatic(decl) && !isSuper)) {
+                        var name_7 = getName(decl);
+                        return mkMethodCall(null, null, getIfaceMemberId(name_7, true), args.map(function (x) { return emitExpr(x); }));
                     }
                     else {
                         markFunctionUsed(decl);
@@ -7678,15 +8357,10 @@ var ts;
                     else
                         userError(9220, lf("namespaces cannot be called directly"));
                 }
-                // otherwise we assume a lambda
-                if (args.length > 3)
-                    userError(9217, lf("lambda functions with more than 3 arguments not supported"));
-                var suff = args.length + "";
                 // here's where we will recurse to generate funcExpr
                 args.unshift(funcExpr);
                 callInfo.args.unshift(funcExpr);
-                // lambdas do not decr() arguments themselves; do it normally with getMask()
-                return pxtc.ir.rtcallMask("pxt::runAction" + suff, getMask(args), pxtc.ir.CallingConvention.Async, args.map(function (x) { return emitExpr(x); }));
+                return mkMethodCall(null, -1, null, args.map(function (x) { return emitExpr(x); }));
             }
             function mkProcCallCore(proc, vidx, args, ifaceIdx) {
                 if (ifaceIdx === void 0) { ifaceIdx = null; }
@@ -7694,6 +8368,15 @@ var ts;
                     proc: proc,
                     virtualIndex: vidx,
                     ifaceIndex: ifaceIdx
+                };
+                return pxtc.ir.op(EK.ProcCall, args, data);
+            }
+            function mkMethodCall(ci, vidx, ifaceIdx, args) {
+                var data = {
+                    proc: proc,
+                    virtualIndex: vidx,
+                    ifaceIndex: ifaceIdx,
+                    classInfo: ci
                 };
                 return pxtc.ir.op(EK.ProcCall, args, data);
             }
@@ -7710,33 +8393,72 @@ var ts;
                 var globals = bin.globals.slice(0);
                 // stable-sort globals, with smallest first, because "strh/b" have
                 // smaller immediate range than plain "str" (and same for "ldr")
+                // All the pointers go at the end, for GC
                 globals.forEach(function (g, i) { return g.index = i; });
+                var sz = function (b) { return b == 0 /* None */ ? 10 : sizeOfBitSize(b); };
                 globals.sort(function (a, b) {
-                    return sizeOfBitSize(a.bitSize) - sizeOfBitSize(b.bitSize) ||
+                    return sz(a.bitSize) - sz(b.bitSize) ||
                         a.index - b.index;
                 });
                 var currOff = pxtc.numReservedGlobals * 4;
+                var firstPointer = 0;
                 for (var _i = 0, globals_1 = globals; _i < globals_1.length; _i++) {
                     var g = globals_1[_i];
-                    var sz = sizeOfBitSize(g.bitSize);
-                    while (currOff & (sz - 1))
+                    var sz_1 = sizeOfBitSize(g.bitSize);
+                    while (currOff & (sz_1 - 1))
                         currOff++; // align
+                    if (!firstPointer && g.bitSize == 0 /* None */)
+                        firstPointer = currOff;
                     g.index = currOff;
-                    currOff += sz;
+                    currOff += sz_1;
                 }
                 bin.globalsWords = (currOff + 3) >> 2;
+                bin.nonPtrGlobals = firstPointer ? (firstPointer >> 2) : bin.globalsWords;
             }
             function emitVTables() {
                 for (var _i = 0, _a = bin.usedClassInfos; _i < _a.length; _i++) {
                     var info = _a[_i];
                     getVTable(info); // gets cached
                 }
+                var keys = Object.keys(ifaceMembers);
+                keys.sort(pxtc.U.strcmp);
+                keys.unshift(""); // make sure idx=0 is invalid
+                bin.emitString("");
+                bin.ifaceMembers = keys;
+                ifaceMembers = {};
+                var idx = 0;
+                for (var _b = 0, keys_1 = keys; _b < keys_1.length; _b++) {
+                    var k = keys_1[_b];
+                    ifaceMembers[k] = idx++;
+                }
+                for (var _c = 0, _d = bin.usedClassInfos; _c < _d.length; _c++) {
+                    var info = _d[_c];
+                    for (var _e = 0, _f = info.itable; _e < _f.length; _e++) {
+                        var e = _f[_e];
+                        e.idx = getIfaceMemberId(e.name);
+                    }
+                }
+                var classNo = pxt.BuiltInType.User0;
+                var numberClasses = function (i) {
+                    pxtc.U.assert(!i.classNo);
+                    i.classNo = classNo++;
+                    i.derivedClasses.forEach(numberClasses);
+                    i.lastSubtypeNo = classNo - 1;
+                };
+                for (var _g = 0, _h = bin.usedClassInfos; _g < _h.length; _g++) {
+                    var info = _h[_g];
+                    var par = info;
+                    while (par.baseClassInfo)
+                        par = par.baseClassInfo;
+                    if (!par.classNo)
+                        numberClasses(par);
+                }
             }
             function getCtor(decl) {
                 return decl.members.filter(function (m) { return m.kind == pxtc.SK.Constructor; })[0];
             }
             function isIfaceMemberUsed(name) {
-                return pxtc.U.lookup(ifaceMembers, name) != null;
+                return pxtc.U.lookup(explicitlyUsedIfaceMembers, name) != null;
             }
             function markClassUsed(info) {
                 if (info.isUsed)
@@ -7897,7 +8619,7 @@ var ts;
                             throw unhandled(node, lf("invalid character in hex literal '{0}'", c), 9265);
                     }
                     var lbl = bin.emitHexLiteral(res.toLowerCase());
-                    return pxtc.ir.ptrlit(lbl, lbl, true);
+                    return pxtc.ir.ptrlit(lbl, lbl);
                 }
                 var decl = getDecl(node.tag);
                 if (!decl)
@@ -7961,7 +8683,7 @@ var ts;
             function emitFunLitCore(node, raw) {
                 if (raw === void 0) { raw = false; }
                 var lbl = getFunctionLabel(node);
-                return pxtc.ir.ptrlit(lbl + "_Lit", lbl, !raw);
+                return pxtc.ir.ptrlit(lbl + "_Lit", lbl);
             }
             function emitFuncCore(node) {
                 var info = getFunctionInfo(node);
@@ -7981,7 +8703,8 @@ var ts;
                 // if no captured variables, then we can get away with a plain pointer to code
                 if (caps.length > 0) {
                     pxtc.assert(getEnclosingFunction(node) != null, "getEnclosingFunction(node) != null)");
-                    lit = pxtc.ir.sharedNoIncr(pxtc.ir.rtcall("pxt::mkAction", [pxtc.ir.numlit(caps.length), pxtc.ir.numlit(caps.length), emitFunLitCore(node, true)]));
+                    lit = pxtc.ir.sharedNoIncr(pxtc.ir.rtcall("pxt::mkAction", [pxtc.ir.numlit(caps.length), emitFunLitCore(node, true)]));
+                    info.usedAsValue = true;
                     caps.forEach(function (l, i) {
                         var loc = proc.localIndex(l);
                         if (!loc)
@@ -7999,6 +8722,7 @@ var ts;
                 else {
                     if (isExpression) {
                         lit = emitFunLitCore(node);
+                        info.usedAsValue = true;
                     }
                 }
                 pxtc.assert(!!lit == isExpression, "!!lit == isExpression");
@@ -8017,25 +8741,44 @@ var ts;
                     bin.addProc(proc);
                 }
                 proc.captured = locals;
+                var initalizedFields = [];
                 if (node.parent.kind == pxtc.SK.ClassDeclaration) {
                     var parClass = node.parent;
-                    var numTP = parClass.typeParameters ? parClass.typeParameters.length : 0;
                     var classInfo = getClassInfo(null, parClass);
                     if (proc.classInfo)
                         pxtc.assert(proc.classInfo == classInfo, "proc.classInfo == classInfo");
                     else
                         proc.classInfo = classInfo;
                     if (node.kind == pxtc.SK.Constructor) {
+                        if (classInfo.baseClassInfo) {
+                            for (var _i = 0, _a = classInfo.baseClassInfo.decl.members; _i < _a.length; _i++) {
+                                var m = _a[_i];
+                                if (m.kind == pxtc.SK.Constructor)
+                                    markFunctionUsed(m);
+                            }
+                        }
                         if (classInfo.ctor)
                             pxtc.assert(classInfo.ctor == proc, "classInfo.ctor == proc");
                         else
                             classInfo.ctor = proc;
+                        for (var _b = 0, _c = classInfo.allfields; _b < _c.length; _b++) {
+                            var f = _c[_b];
+                            if (f.kind == pxtc.SK.PropertyDeclaration) {
+                                var fi = f;
+                                if (fi.initializer)
+                                    initalizedFields.push(fi);
+                            }
+                        }
                     }
                 }
                 var destructuredParameters = [];
+                var fieldAssignmentParameters = [];
                 proc.args = getParameters(node).map(function (p, i) {
                     if (p.name.kind === pxtc.SK.ObjectBindingPattern) {
                         destructuredParameters.push(p);
+                    }
+                    if (node.kind == pxtc.SK.Constructor && isCtorField(p)) {
+                        fieldAssignmentParameters.push(p);
                     }
                     var l = new pxtc.ir.Cell(i, p, getVarInfo(p));
                     l.isarg = true;
@@ -8051,6 +8794,19 @@ var ts;
                     }
                 });
                 destructuredParameters.forEach(function (dp) { return emitVariableDeclaration(dp); });
+                // for constructor(public foo:number) generate this.foo = foo;
+                for (var _d = 0, fieldAssignmentParameters_1 = fieldAssignmentParameters; _d < fieldAssignmentParameters_1.length; _d++) {
+                    var p = fieldAssignmentParameters_1[_d];
+                    var idx = fieldIndexCore(proc.classInfo, getFieldInfo(proc.classInfo, getName(p)), false);
+                    var trg2 = pxtc.ir.op(EK.FieldAccess, [emitLocalLoad(info.thisParameter)], idx);
+                    proc.emitExpr(pxtc.ir.op(EK.Store, [trg2, emitLocalLoad(p)]));
+                }
+                for (var _e = 0, initalizedFields_1 = initalizedFields; _e < initalizedFields_1.length; _e++) {
+                    var f = initalizedFields_1[_e];
+                    var idx = fieldIndexCore(proc.classInfo, getFieldInfo(proc.classInfo, getName(f)), false);
+                    var trg2 = pxtc.ir.op(EK.FieldAccess, [emitLocalLoad(info.thisParameter)], idx);
+                    proc.emitExpr(pxtc.ir.op(EK.Store, [trg2, emitExpr(f.initializer)]));
+                }
                 if (node.body.kind == pxtc.SK.Block) {
                     emit(node.body);
                 }
@@ -8114,7 +8870,6 @@ var ts;
                     return undefined;
                 if (!node.body)
                     return undefined;
-                var info = getFunctionInfo(node);
                 var lit = null;
                 scope(function () {
                     lit = emitFuncCore(node);
@@ -8122,7 +8877,9 @@ var ts;
                 return lit;
             }
             function emitDeleteExpression(node) { }
-            function emitTypeOfExpression(node) { }
+            function emitTypeOfExpression(node) {
+                return rtcallMask("pxt::typeOf", [node.expression], null);
+            }
             function emitVoidExpression(node) { }
             function emitAwaitExpression(node) { }
             function emitPrefixUnaryExpression(node) {
@@ -8215,20 +8972,26 @@ var ts;
                 }
                 throw unhandled(node, lf("unsupported postfix unary operation"), 9246);
             }
-            function fieldIndexCore(info, fld, t) {
+            function fieldIndexCore(info, fld, needsCheck) {
+                if (needsCheck === void 0) { needsCheck = true; }
                 var attrs = parseComments(fld);
                 return {
                     idx: info.allfields.indexOf(fld),
                     name: getName(fld),
                     isRef: true,
-                    shimName: attrs.shim
+                    shimName: attrs.shim,
+                    classInfo: info,
+                    needsCheck: needsCheck
                 };
             }
             function fieldIndex(pacc) {
                 var tp = typeOf(pacc.expression);
                 if (isPossiblyGenericClassType(tp)) {
                     var info = getClassInfo(tp);
-                    return fieldIndexCore(info, getFieldInfo(info, pacc.name.text), typeOf(pacc));
+                    var noCheck = pacc.expression.kind == pxtc.SK.ThisKeyword;
+                    if (pxtc.target.switches.noThisCheckOpt)
+                        noCheck = false;
+                    return fieldIndexCore(info, getFieldInfo(info, pacc.name.text), !noCheck);
                 }
                 else {
                     throw unhandled(pacc, lf("bad field access"), 9247);
@@ -8267,11 +9030,12 @@ var ts;
                         }
                         proc.emitExpr(emitCallCore(trg, trg, [src], null, decl_1));
                     }
-                    else if (decl_1 && (decl_1.kind == pxtc.SK.PropertySignature || decl_1.kind == pxtc.SK.PropertyAssignment)) {
+                    else if (decl_1 && (decl_1.kind == pxtc.SK.PropertySignature || decl_1.kind == pxtc.SK.PropertyAssignment || pxtc.target.switches.slowFields)) {
                         proc.emitExpr(emitCallCore(trg, trg, [src], null, decl_1));
                     }
                     else {
-                        proc.emitExpr(pxtc.ir.op(EK.Store, [emitExpr(trg), emitExpr(src)]));
+                        var trg2 = emitExpr(trg);
+                        proc.emitExpr(pxtc.ir.op(EK.Store, [trg2, emitExpr(src)]));
                     }
                 }
                 else if (trg.kind == pxtc.SK.ElementAccessExpression) {
@@ -8305,15 +9069,15 @@ var ts;
                 return rtcallMaskDirect(mapIntOpName(op), [left, right]);
             }
             function emitAsInt(e) {
-                var prev = pxtc.target.boxDebug;
+                var prev = pxtc.target.switches.boxDebug;
                 var expr = null;
                 if (prev) {
                     try {
-                        pxtc.target.boxDebug = false;
+                        pxtc.target.switches.boxDebug = false;
                         expr = emitExpr(e);
                     }
                     finally {
-                        pxtc.target.boxDebug = prev;
+                        pxtc.target.switches.boxDebug = prev;
                     }
                 }
                 else {
@@ -8389,11 +9153,15 @@ var ts;
                     else if (v === true)
                         return pxtc.ir.numlit(pxtc.taggedTrue);
                     else if (typeof v == "number") {
-                        if (fitsTaggedInt(v))
+                        if (fitsTaggedInt(v)) {
                             return pxtc.ir.numlit((v << 1) | 1);
+                        }
+                        else if (v != v) {
+                            return pxtc.ir.numlit(pxtc.taggedNaN);
+                        }
                         else {
                             var lbl = bin.emitDouble(v);
-                            return pxtc.ir.ptrlit(lbl, JSON.stringify(v), true);
+                            return pxtc.ir.ptrlit(lbl, JSON.stringify(v));
                         }
                     }
                     else {
@@ -8435,8 +9203,15 @@ var ts;
             }
             function rtcallMask(name, args, attrs, append) {
                 if (append === void 0) { append = null; }
-                var fmt = "";
+                var fmt = [];
                 var inf = pxtc.hex.lookupFunc(name);
+                if (isThumb()) {
+                    var inf2 = pxtc.U.lookup(thumbFuns, name);
+                    if (inf2) {
+                        inf = inf2;
+                        name = inf2.name;
+                    }
+                }
                 if (inf)
                     fmt = inf.argsFmt;
                 if (append)
@@ -8447,7 +9222,7 @@ var ts;
                     var r = emitExpr(a);
                     if (!opts.target.isNative)
                         return r;
-                    var f = fmt.charAt(i + 1);
+                    var f = fmt[i + 1];
                     var isNumber = isNumberLike(a);
                     if (!f && name.indexOf("::") < 0) {
                         // for assembly functions, make up the format string - pass numbers as ints and everything else as is
@@ -8456,12 +9231,21 @@ var ts;
                     if (!f) {
                         throw pxtc.U.userError("not enough args for " + name);
                     }
-                    else if (f == "_" || f == "T" || f == "N") {
+                    else if (f[0] == "_" || f == "T" || f == "N") {
+                        var t = getRefTagToValidate(f);
+                        if (t) {
+                            convInfos.push({
+                                argIdx: i,
+                                method: "_validate",
+                                refTag: t
+                            });
+                        }
                         return r;
                     }
                     else if (f == "I") {
-                        if (!isNumber)
-                            pxtc.U.userError("argsFmt=...I... but argument not a number in " + name);
+                        //toInt can handle non-number values as well
+                        //if (!isNumber)
+                        //    U.userError("argsFmt=...I... but argument not a number in " + name)
                         if (r.exprKind == EK.NumberLiteral && typeof r.data == "number") {
                             return pxtc.ir.numlit(r.data >> 1);
                         }
@@ -8480,7 +9264,7 @@ var ts;
                         if (!r.isStringLiteral) {
                             convInfos.push({
                                 argIdx: i,
-                                method: "numops::stringConv",
+                                method: "_pxt_stringConv",
                                 returnsRef: true
                             });
                             // set the mask - the result of conversion is a ref
@@ -8508,13 +9292,14 @@ var ts;
                     r.mask = { refMask: 0 };
                 r.mask.conversions = convInfos;
                 if (opts.target.isNative) {
-                    if (fmt.charAt(0) == "I")
+                    var f0 = fmt[0];
+                    if (f0 == "I")
                         r = fromInt(r);
-                    else if (fmt.charAt(0) == "B")
+                    else if (f0 == "B")
                         r = fromBool(r);
-                    else if (fmt.charAt(0) == "F")
+                    else if (f0 == "F")
                         r = fromFloat(r);
-                    else if (fmt.charAt(0) == "D") {
+                    else if (f0 == "D") {
                         pxtc.U.oops("double returns not yet supported"); // take two words
                         r = fromDouble(r);
                     }
@@ -8525,6 +9310,18 @@ var ts;
                 var lbl = proc.mkLabel("ldjmp");
                 proc.emitJmp(lbl, expr, pxtc.ir.JmpMode.Always);
                 proc.emitLbl(lbl);
+            }
+            function emitInstanceOfExpression(node) {
+                var tp = typeOf(node.right);
+                var classDecl = isPossiblyGenericClassType(tp) ? getDecl(node.right) : null;
+                if (!classDecl || classDecl.kind != pxtc.SK.ClassDeclaration) {
+                    userError(9275, lf("unsupported instanceof expression"));
+                }
+                var info = getClassInfo(tp, classDecl);
+                markClassUsed(info);
+                var r = pxtc.ir.op(pxtc.ir.EK.InstanceOf, [emitExpr(node.left)], info);
+                r.jsInfo = "bool";
+                return r;
             }
             function emitLazyBinaryExpression(node) {
                 var left = emitExpr(node.left);
@@ -8609,7 +9406,6 @@ var ts;
                     case pxtc.SK.LessThanLessThanToken: return "numops::lsls";
                     case pxtc.SK.GreaterThanGreaterThanToken: return "numops::asrs";
                     case pxtc.SK.GreaterThanGreaterThanGreaterThanToken: return "numops::lsrs";
-                    // these could be compiled to branches but this is more code-size efficient
                     case pxtc.SK.LessThanEqualsToken: return "numops::le";
                     case pxtc.SK.LessThanToken: return "numops::lt";
                     case pxtc.SK.GreaterThanEqualsToken: return "numops::ge";
@@ -8649,15 +9445,8 @@ var ts;
                     case pxtc.SK.BarBarToken:
                     case pxtc.SK.AmpersandAmpersandToken:
                         return emitLazyBinaryExpression(node);
-                }
-                if (isNumericalType(lt) && isNumericalType(rt)) {
-                    var noEq = stripEquals(node.operatorToken.kind);
-                    var shimName = simpleInstruction(node, noEq || node.operatorToken.kind);
-                    if (!shimName)
-                        unhandled(node.operatorToken, lf("unsupported numeric operator"), 9250);
-                    if (noEq)
-                        return emitIncrement(node.left, shimName, false, node.right);
-                    return shim(shimName);
+                    case pxtc.SK.InstanceOfKeyword:
+                        return emitInstanceOfExpression(node);
                 }
                 if (node.operatorToken.kind == pxtc.SK.PlusToken) {
                     if (isStringType(lt) || isStringType(rt)) {
@@ -8671,34 +9460,14 @@ var ts;
                     cleanup();
                     return post;
                 }
-                if (isStringType(lt) && isStringType(rt)) {
-                    switch (node.operatorToken.kind) {
-                        case pxtc.SK.EqualsEqualsToken:
-                        case pxtc.SK.EqualsEqualsEqualsToken:
-                        case pxtc.SK.ExclamationEqualsEqualsToken:
-                        case pxtc.SK.ExclamationEqualsToken:
-                            break; // let the generic case handle this
-                        case pxtc.SK.LessThanEqualsToken:
-                        case pxtc.SK.LessThanToken:
-                        case pxtc.SK.GreaterThanEqualsToken:
-                        case pxtc.SK.GreaterThanToken:
-                            return pxtc.ir.rtcallMask(mapIntOpName(simpleInstruction(node, node.operatorToken.kind)), opts.target.boxDebug ? 1 : 0, pxtc.ir.CallingConvention.Plain, [fromInt(shim("String_::compare")), emitLit(0)]);
-                        default:
-                            unhandled(node.operatorToken, lf("unknown string operator"), 9251);
-                    }
-                }
-                switch (node.operatorToken.kind) {
-                    case pxtc.SK.EqualsEqualsToken:
-                        return shim("langsupp::ptreq");
-                    case pxtc.SK.EqualsEqualsEqualsToken:
-                        return shim("langsupp::ptreqq");
-                    case pxtc.SK.ExclamationEqualsEqualsToken:
-                        return shim("langsupp::ptrneqq");
-                    case pxtc.SK.ExclamationEqualsToken:
-                        return shim("langsupp::ptrneq");
-                    default:
-                        throw unhandled(node.operatorToken, lf("unknown generic operator"), 9252);
-                }
+                // fallback to numeric operation if none of the argument is string and some are numbers
+                var noEq = stripEquals(node.operatorToken.kind);
+                var shimName = simpleInstruction(node, noEq || node.operatorToken.kind);
+                if (!shimName)
+                    unhandled(node.operatorToken, lf("unsupported operator"), 9250);
+                if (noEq)
+                    return emitIncrement(node.left, shimName, false, node.right);
+                return shim(shimName);
             }
             function emitConditionalExpression(node) {
                 var els = proc.mkLabel("condexprz");
@@ -8761,13 +9530,9 @@ var ts;
                 if (inner === void 0) { inner = null; }
                 if (!inner && isThumb() && expr.kind == pxtc.SK.BinaryExpression) {
                     var be = expr;
-                    var lt = typeOf(be.left);
-                    var rt = typeOf(be.right);
-                    if ((lt.flags & ts.TypeFlags.NumberLike) && (rt.flags & ts.TypeFlags.NumberLike)) {
-                        var mapped = pxtc.U.lookup(pxtc.thumbCmpMap, simpleInstruction(be, be.operatorToken.kind));
-                        if (mapped) {
-                            return pxtc.ir.rtcall(mapped, [emitExpr(be.left), emitExpr(be.right)]);
-                        }
+                    var mapped = pxtc.U.lookup(pxtc.thumbCmpMap, simpleInstruction(be, be.operatorToken.kind));
+                    if (mapped) {
+                        return pxtc.ir.rtcall(mapped, [emitExpr(be.left), emitExpr(be.right)]);
                     }
                 }
                 if (!inner)
@@ -9107,7 +9872,7 @@ var ts;
                     parentAccess = parentAccess || emitLocalLoad(target);
                     var myType = checker.getTypeOfSymbolAtLocation(checker.getPropertyOfType(parentType, propertyName.text), bindingElement);
                     return [
-                        pxtc.ir.op(EK.FieldAccess, [parentAccess], fieldIndexCore(info, getFieldInfo(info, propertyName.text), myType)),
+                        pxtc.ir.op(EK.FieldAccess, [parentAccess], fieldIndexCore(info, getFieldInfo(info, propertyName.text))),
                         myType
                     ];
                 }
@@ -9246,6 +10011,8 @@ var ts;
                         return emitImportEqualsDeclaration(node);
                     case pxtc.SK.EmptyStatement:
                         return;
+                    case pxtc.SK.SemicolonClassElement:
+                        return;
                     default:
                         unhandled(node);
                 }
@@ -9307,6 +10074,8 @@ var ts;
                         return emitTemplateExpression(node);
                     case pxtc.SK.ObjectLiteralExpression:
                         return emitObjectLiteral(node);
+                    case pxtc.SK.TypeOfExpression:
+                        return emitTypeOfExpression(node);
                     default:
                         unhandled(node);
                         return null;
@@ -9316,6 +10085,11 @@ var ts;
         pxtc.compileBinary = compileBinary;
         function doubleToBits(v) {
             var a = new Float64Array(1);
+            a[0] = v;
+            return pxtc.U.toHex(new Uint8Array(a.buffer));
+        }
+        function floatToBits(v) {
+            var a = new Float32Array(1);
             a[0] = v;
             return pxtc.U.toHex(new Uint8Array(a.buffer));
         }
@@ -9350,6 +10124,10 @@ var ts;
                 this.sourceHash = "";
                 this.numStmts = 1;
                 this.commSize = 0;
+                this.itEntries = 0;
+                this.itFullEntries = 0;
+                this.numMethods = 0;
+                this.numVirtMethods = 0;
                 this.strings = {};
                 this.hexlits = {};
                 this.doubles = {};
@@ -9380,13 +10158,26 @@ var ts;
                 return lbl;
             };
             Binary.prototype.emitDouble = function (v) {
-                return this.emitLabelled(doubleToBits(v), this.doubles, "_dbl");
+                return this.emitLabelled(pxtc.target.switches.numFloat ? floatToBits(v) : doubleToBits(v), this.doubles, "_dbl");
             };
             Binary.prototype.emitString = function (s) {
                 return this.emitLabelled(s, this.strings, "_str");
             };
             Binary.prototype.emitHexLiteral = function (s) {
                 return this.emitLabelled(s, this.hexlits, "_hexlit");
+            };
+            Binary.prototype.setPerfCounters = function (systemPerfCounters) {
+                if (!pxtc.target.switches.profile)
+                    return [];
+                var perfCounters = systemPerfCounters.slice();
+                this.procs.forEach(function (p) {
+                    if (p.perfCounterName) {
+                        pxtc.U.assert(pxtc.target.switches.profile);
+                        p.perfCounterNo = perfCounters.length;
+                        perfCounters.push(p.perfCounterName);
+                    }
+                });
+                return perfCounters;
             };
             return Binary;
         }());
@@ -10689,11 +11480,22 @@ var ts;
                 bytes = bytes.replace(/^[\s:]/, "");
                 if (!bytes)
                     return [];
-                var m = /^([a-f0-9][a-f0-9])/i.exec(bytes);
-                if (m)
-                    return [parseInt(m[1], 16)].concat(parseHexBytes(bytes.slice(2)));
-                else
+                var outp = [];
+                var bytes2 = bytes.replace(/([a-f0-9][a-f0-9])/ig, function (m) {
+                    outp.push(parseInt(m, 16));
+                    return "";
+                });
+                if (bytes2)
                     throw pxtc.oops("bad bytes " + bytes);
+                return outp;
+            }
+            function parseHexRecord(bytes) {
+                var b = parseHexBytes(bytes);
+                return {
+                    len: b[0],
+                    addr: (b[1] << 8) | b[2],
+                    type: b[3],
+                };
             }
             // setup for a particular .hex template file (which corresponds to the C++ source in included packages and the board)
             function flashCodeAlign(opts) {
@@ -10836,8 +11638,13 @@ var ts;
                         if (!value) {
                             pxtc.U.oops("No value for " + inf.name + " / " + hexb);
                         }
-                        if (!opts.runtimeIsARM && opts.nativeType == pxtc.NATIVE_TYPE_THUMB && !(value & 1)) {
-                            pxtc.U.oops("Non-thumb addr for " + inf.name + " / " + hexb);
+                        if (inf.argsFmt.length == 0) {
+                            value ^= 1;
+                        }
+                        else {
+                            if (!opts.runtimeIsARM && opts.nativeType == pxtc.NATIVE_TYPE_THUMB && !(value & 1)) {
+                                pxtc.U.oops("Non-thumb addr for " + inf.name + " / " + hexb);
+                            }
                         }
                         inf.value = value;
                     }
@@ -10868,19 +11675,9 @@ var ts;
                         var spec = inf.argsFmt[i + 1];
                         if (!spec)
                             pxtc.U.userError("excessive parameters passed to " + nm);
-                        if (pxtc.target.isNative) {
-                            var needNum = spec == "I" || spec == "N" || spec == "F" || spec == "B";
-                            if (spec == "T") {
-                                // OK, both number and non-number allowed
-                            }
-                            else if (needNum && !argIsNumber[i])
-                                pxtc.U.userError("expecting number at parameter " + (i + 1) + " of " + nm);
-                            else if (!needNum && argIsNumber[i])
-                                pxtc.U.userError("expecting non-number at parameter " + (i + 1) + " of " + nm + " / " + inf.argsFmt);
-                        }
                     }
                     if (argIsNumber.length != inf.argsFmt.length - 1)
-                        pxtc.U.userError("not enough arguments for " + nm + " (got " + argIsNumber.length + "; fmt=" + inf.argsFmt + ")");
+                        pxtc.U.userError("not enough arguments for " + nm + " (got " + argIsNumber.length + "; fmt=" + inf.argsFmt.join(",") + ")");
                 }
                 else {
                     pxtc.U.userError("function not found: " + nm);
@@ -10919,31 +11716,61 @@ var ts;
                 bytes.forEach(function (b) { return r += ("0" + b.toString(16)).slice(-2); });
                 return r.toUpperCase();
             }
+            // constant strings in the binary are 4-byte aligned, and marked
+            // with "@PXT@:" at the beginning - this 6 byte string needs to be
+            // replaced with proper reference count (0xfffe to indicate read-only
+            // flash location), string virtual table, and the length of the string
+            function patchString(bytes) {
+                var stringVT = [0xfe, 0xff, 0x01, 0x00];
+                pxtc.assert(stringVT.length == 4);
+                // @PXT
+                if (!(bytes[0] == 0x40 && bytes[1] == 0x50 && bytes[2] == 0x58 && bytes[3] == 0x54))
+                    pxtc.oops();
+                // @:
+                if (bytes[5] == 0x3a) {
+                    var isString = false;
+                    var isBuffer = false;
+                    if (bytes[4] == 0x40)
+                        isString = true;
+                    else if (bytes[4] == 0x23)
+                        isBuffer = true;
+                    else
+                        return null;
+                    var vt = lookupFunctionAddr(isString ? "pxt::string_vt" : "pxt::buffer_vt");
+                    var headerBytes = new Uint8Array(6);
+                    if (!vt)
+                        pxtc.oops("missing vt: " + isString);
+                    vt ^= 1;
+                    if (vt & 3)
+                        pxtc.oops("Unaligned vt: " + vt);
+                    if (pxtc.target.gc) {
+                        pxt.HF2.write32(headerBytes, 0, vt);
+                    }
+                    else {
+                        pxt.HF2.write16(headerBytes, 0, parseInt(pxt.REFCNT_FLASH));
+                        pxt.HF2.write16(headerBytes, 2, vt >> pxtc.target.vtableShift);
+                    }
+                    var len = 0;
+                    if (isString)
+                        while (6 + len < bytes.length) {
+                            if (bytes[6 + len] == 0)
+                                break;
+                            len++;
+                        }
+                    if (6 + len >= bytes.length)
+                        pxtc.U.oops("constant string too long!");
+                    pxt.HF2.write16(headerBytes, 4, len);
+                    return headerBytes;
+                    //console.log("patch file: @" + addr + ": " + U.toHex(patchV))
+                }
+                return null;
+            }
             function applyPatches(f, binfile) {
                 if (binfile === void 0) { binfile = null; }
-                // constant strings in the binary are 4-byte aligned, and marked
-                // with "@PXT@:" at the beginning - this 6 byte string needs to be
-                // replaced with proper reference count (0xffff to indicate read-only
-                // flash location), string virtual table, and the length of the string
-                var stringVT = [0xff, 0xff, 0x01, 0x00];
-                pxtc.assert(stringVT.length == 4);
                 var patchAt = function (b, i, readMore) {
                     // @PXT
                     if (b[i] == 0x40 && b[i + 1] == 0x50 && b[i + 2] == 0x58 && b[i + 3] == 0x54) {
-                        var bytes = readMore();
-                        // @:
-                        if (bytes[4] == 0x40 && bytes[5] == 0x3a) {
-                            var len = 0;
-                            while (6 + len < bytes.length) {
-                                if (bytes[6 + len] == 0)
-                                    break;
-                                len++;
-                            }
-                            if (6 + len >= bytes.length)
-                                pxtc.U.oops("constant string too long!");
-                            return stringVT.concat([len & 0xff, len >> 8]);
-                            //console.log("patch file: @" + addr + ": " + U.toHex(patchV))
-                        }
+                        return patchString(readMore());
                     }
                     return null;
                 };
@@ -10973,11 +11800,58 @@ var ts;
                     }
                 }
             }
+            function applyHexPatches(myhex) {
+                var marker = "40505854"; // @PXT
+                for (var i = 0; i < myhex.length; ++i) {
+                    var idx = myhex[i].indexOf(marker);
+                    if (idx > 0) {
+                        var off = (idx - 9) >> 1;
+                        var bytes = readHex(myhex, i, off, 200);
+                        var patch = patchString(bytes);
+                        if (patch)
+                            writeHex(myhex, i, off, patch);
+                    }
+                }
+            }
+            function writeHex(myhex, lineNo, offsetInLine, patch) {
+                var src = 0;
+                while (src < patch.length) {
+                    var parsedLine = parseHexBytes(myhex[lineNo]);
+                    parsedLine.pop(); // pop the checksum
+                    if (parsedLine[3] == 0x00) {
+                        // if data
+                        var pos = 4 + offsetInLine;
+                        var len = parsedLine.length - pos;
+                        for (var i = 0; i < len; ++i)
+                            if (src < patch.length)
+                                parsedLine[pos++] = patch[src++];
+                        myhex[lineNo] = hexBytes(parsedLine);
+                    }
+                    lineNo++;
+                    offsetInLine = 0;
+                }
+            }
+            function readHex(myhex, lineNo, offsetInLine, len) {
+                var outp = [];
+                while (outp.length < len) {
+                    var b = parseHexBytes(myhex[lineNo]);
+                    b.pop(); // pop the checksum
+                    if (b[3] == 0x00) {
+                        // if data
+                        var data = b.slice(4 + offsetInLine);
+                        pxtc.U.pushRange(outp, data);
+                    }
+                    lineNo++;
+                    offsetInLine = 0;
+                }
+                return outp;
+            }
             function patchHex(bin, buf, shortForm, useuf2) {
                 var myhex = hex.slice(0, bytecodeStartIdx);
-                pxtc.assert(buf.length < 64000, "program too large, words: " + buf.length);
-                // store the size of the program (in 16 bit words)
-                buf[17] = buf.length;
+                var sizeEntry = (buf.length * 2 + 7) >> 3;
+                pxtc.assert(sizeEntry < 64000, "program too large, bytes: " + buf.length * 2);
+                // store the size of the program (in 64 bit words)
+                buf[17] = sizeEntry;
                 // store commSize
                 buf[20] = bin.commSize;
                 var zeros = [];
@@ -10994,8 +11868,8 @@ var ts;
                     }
                     return bytes;
                 }
-                // 0x4209 is the version number matching pxt-microbit-core
-                var hd = [0x4209, 0, hex_1.bytecodeStartAddrPadded & 0xffff, hex_1.bytecodeStartAddrPadded >>> 16];
+                // 0x4210 is the version number matching pxt-microbit-core
+                var hd = [0x4210, 0, hex_1.bytecodeStartAddrPadded & 0xffff, hex_1.bytecodeStartAddrPadded >>> 16];
                 var tmp = hexTemplateHash();
                 for (var i = 0; i < 4; ++i)
                     hd.push(parseInt(swapBytes(tmp.slice(i * 4, i * 4 + 4)), 16));
@@ -11032,6 +11906,7 @@ var ts;
                     }
                 }
                 else {
+                    applyHexPatches(myhex);
                     myhex[jmpStartIdx] = hexBytes(nextLine(hd, jmpStartAddr));
                     if (bin.checksumBlock) {
                         pxtc.U.oops("checksum block in HEX not implemented yet");
@@ -11095,92 +11970,230 @@ var ts;
             hex_1.patchHex = patchHex;
         })(hex = pxtc.hex || (pxtc.hex = {}));
         function asmline(s) {
-            if (!/(^[\s;])|(:$)/.test(s))
-                s = "    " + s;
-            return s + "\n";
+            if (s.indexOf("\n") >= 0) {
+                s = s.replace(/^\s*/mg, "")
+                    .replace(/^(.*)$/mg, function (l, x) {
+                    if ((x[0] == ";" && x[1] == " ") || /:\*$/.test(x))
+                        return x;
+                    else
+                        return "    " + x;
+                });
+                return s + "\n";
+            }
+            else {
+                if (!/(^[\s;])|(:$)/.test(s))
+                    s = "    " + s;
+                return s + "\n";
+            }
         }
         pxtc.asmline = asmline;
         function emitStrings(snippets, bin) {
-            for (var _i = 0, _a = Object.keys(bin.strings); _i < _a.length; _i++) {
-                var s = _a[_i];
-                // string representation of DAL - 0xffff in general for ref-counted objects means it's static and shouldn't be incr/decred
+            // ifaceMembers are already sorted alphabetically
+            // here we make sure that the pointers to them are also sorted alphabetically
+            // by emitting them in order and before everything else
+            var keys = pxtc.U.unique(bin.ifaceMembers.concat(Object.keys(bin.strings)), function (s) { return s; });
+            for (var _i = 0, keys_2 = keys; _i < keys_2.length; _i++) {
+                var s = keys_2[_i];
                 bin.otherLiterals.push(snippets.string_literal(bin.strings[s], s));
             }
-            for (var _b = 0, _c = Object.keys(bin.doubles); _b < _c.length; _b++) {
-                var data = _c[_b];
+            for (var _a = 0, _b = Object.keys(bin.doubles); _a < _b.length; _a++) {
+                var data = _b[_a];
                 var lbl = bin.doubles[data];
-                bin.otherLiterals.push("\n.balign 4\n" + lbl + ": .short 0xffff, " + pxt.REF_TAG_NUMBER + "\n        .hex " + data + "\n");
+                bin.otherLiterals.push("\n.balign 4\n" + lbl + ": " + snippets.obj_header("pxt::number_vt") + "\n        .hex " + data + "\n");
             }
-            for (var _d = 0, _e = Object.keys(bin.hexlits); _d < _e.length; _d++) {
-                var data = _e[_d];
+            for (var _c = 0, _d = Object.keys(bin.hexlits); _c < _d.length; _c++) {
+                var data = _d[_c];
                 bin.otherLiterals.push(snippets.hex_literal(bin.hexlits[data], data));
                 bin.otherLiterals.push();
             }
         }
-        pxtc.numSpecialMethods = 3;
-        function vtableToAsm(info, opts) {
-            var s = "\n        .balign " + (1 << opts.target.vtableShift) + "\n" + info.id + "_VT:\n        .short " + (info.allfields.length * 4 + 4) + "  ; size in bytes\n        .byte " + (info.vtable.length + pxtc.numSpecialMethods) + ", 0  ; num. methods\n";
+        function firstMethodOffset() {
+            // 4 words header
+            // 4 or 2 mem mgmt methods
+            // 1 toString
+            return 4 + (pxtc.target.gc ? 4 : 2) + 1;
+        }
+        pxtc.firstMethodOffset = firstMethodOffset;
+        var primes = [
+            21078089, 22513679, 15655169, 18636881, 19658081, 21486649, 21919277, 20041213, 20548751,
+            16180187, 18361627, 19338023, 19772677, 16506547, 23530697, 22998697, 21225203, 19815283,
+            23679599, 19822889, 21136133, 19540043, 21837031, 18095489, 23924267, 23434627, 22582379,
+            21584111, 22615171, 23403001, 19640683, 19998031, 18460439, 20105387, 17595791, 16482043,
+            23199959, 18881641, 21578371, 22765747, 20170273, 16547639, 16434589, 21435019, 20226751,
+            19506731, 21454393, 23224541, 23431973, 23745511,
+        ];
+        pxtc.vtLookups = 3;
+        function computeHashMultiplier(nums) {
+            var shift = 32;
+            pxtc.U.assert(pxtc.U.unique(nums, function (v) { return "" + v; }).length == nums.length, "non unique");
+            for (var sz = 2;; sz = sz << 1) {
+                shift--;
+                if (sz < nums.length)
+                    continue;
+                var minColl = -1;
+                var minMult = -1;
+                var minArr = void 0;
+                for (var _i = 0, primes_1 = primes; _i < primes_1.length; _i++) {
+                    var mult0 = primes_1[_i];
+                    var mult = (mult0 << 8) | shift;
+                    var arr = new Uint16Array(sz + pxtc.vtLookups + 1);
+                    pxtc.U.assert((arr.length & 1) == 0);
+                    var numColl = 0;
+                    var vals = [];
+                    for (var _a = 0, nums_1 = nums; _a < nums_1.length; _a++) {
+                        var n = nums_1[_a];
+                        pxtc.U.assert(n > 0);
+                        var k = Math.imul(n, mult) >>> shift;
+                        vals.push(k);
+                        var found = false;
+                        for (var l = 0; l < pxtc.vtLookups; l++) {
+                            if (!arr[k + l]) {
+                                found = true;
+                                arr[k + l] = n;
+                                break;
+                            }
+                            numColl++;
+                        }
+                        if (!found) {
+                            numColl = -1;
+                            break;
+                        }
+                    }
+                    if (minColl == -1 || minColl > numColl) {
+                        minColl = numColl;
+                        minMult = mult;
+                        minArr = arr;
+                    }
+                }
+                if (minColl >= 0) {
+                    return {
+                        mult: minMult,
+                        mapping: minArr,
+                        size: sz
+                    };
+                }
+            }
+        }
+        function vtableToAsm(info, opts, bin) {
+            /*
+            uint16_t numbytes;
+            ValType objectType;
+            uint8_t magic;
+            PVoid *ifaceTable;
+            BuiltInType classNo;
+            uint16_t reserved;
+            uint32_t ifaceHashMult;
+            PVoid methods[2 or 4];
+            */
+            var ifaceInfo = computeHashMultiplier(info.itable.map(function (e) { return e.idx; }));
+            //if (info.itable.length == 0)
+            //    ifaceInfo.mult = 0
             var ptrSz = pxtc.target.shortPointers ? ".short" : ".word";
+            var s = "\n        .balign " + (1 << opts.target.vtableShift) + "\n" + info.id + "_VT:\n        .short " + (info.allfields.length * 4 + 4) + "  ; size in bytes\n        .byte " + pxt.ValTypeObject + ", " + pxt.VTABLE_MAGIC + " ; magic\n        " + ptrSz + " " + info.id + "_IfaceVT\n        .short " + info.classNo + " ; class-id\n        .short 0 ; reserved\n        .word " + ifaceInfo.mult + " ; hash-mult\n";
             var addPtr = function (n) {
                 if (n != "0")
                     n += "@fn";
                 s += "        " + ptrSz + " " + n + "\n";
             };
-            s += "        " + ptrSz + " " + info.id + "_IfaceVT\n";
             addPtr("pxt::RefRecord_destroy");
             addPtr("pxt::RefRecord_print");
-            if (info.toStringMethod)
-                s += "        " + ptrSz + " " + info.toStringMethod.label() + "_Lit\n";
-            else
-                addPtr("0");
+            if (pxtc.target.gc) {
+                addPtr("pxt::RefRecord_scan");
+                addPtr("pxt::RefRecord_gcsize");
+            }
+            var toStr = info.toStringMethod;
+            addPtr(toStr ? toStr.vtLabel() : "0");
             for (var _i = 0, _a = info.vtable; _i < _a.length; _i++) {
                 var m = _a[_i];
-                addPtr(m.label());
+                addPtr(m.label() + "_nochk");
             }
-            // TODO remove refmask once the runtimes are patched
-            var refmask = info.allfields.map(function (v) { return "1"; });
-            while (refmask.length < 2 || refmask.length % 2 != 0)
-                refmask.push("0");
-            s += "        .byte " + refmask.join(",") + "\n";
-            // VTable for interface method is just linear. If we ever have lots of interface
-            // methods and lots of classes this could become a problem. We could use a table
-            // of (iface-member-id, function-addr) pairs and binary search.
             // See https://makecode.microbit.org/15593-01779-41046-40599 for Thumb binary search.
             s += "\n        .balign " + (pxtc.target.shortPointers ? 2 : 4) + "\n" + info.id + "_IfaceVT:\n";
+            var descSize = 8;
+            var zeroOffset = ifaceInfo.mapping.length * 2;
+            var descs = "";
+            var offset = zeroOffset;
+            var offsets = {};
             for (var _b = 0, _c = info.itable; _b < _c.length; _b++) {
-                var m = _c[_b];
-                addPtr(m ? m.label() : "0");
+                var e = _c[_b];
+                offsets[e.idx + ""] = offset;
+                descs += "  .short " + e.idx + ", " + e.info + " ; " + e.name + "\n";
+                descs += "  .word " + (e.proc ? e.proc.vtLabel() + "@fn" : e.info) + "\n";
+                offset += descSize;
+                if (e.setProc) {
+                    descs += "  .short " + e.idx + ", 0 ; set " + e.name + "\n";
+                    descs += "  .word " + e.setProc.vtLabel() + "@fn\n";
+                    offset += descSize;
+                }
             }
+            descs += "  .word 0, 0 ; the end\n";
+            offset += descSize;
+            var map = ifaceInfo.mapping;
+            for (var i = 0; i < map.length; ++i) {
+                bin.itEntries++;
+                if (map[i])
+                    bin.itFullEntries++;
+            }
+            // offsets are relative to the position in the array
+            s += "  .short " + pxtc.U.toArray(map).map(function (e, i) { return (offsets[e + ""] || zeroOffset) - (i * 2); }).join(", ") + "\n";
+            s += descs;
             s += "\n";
             return s;
         }
         pxtc.vtableToAsm = vtableToAsm;
+        var systemPerfCounters = [
+            "GC"
+        ];
         function serialize(bin, opts) {
-            var asmsource = "; start\n" + hex.hexPrelude() + "\n    .hex 708E3B92C615A841C49866C975EE5197 ; magic number\n    .hex " + hex.hexTemplateHash() + " ; hex template hash\n    .hex 0000000000000000 ; @SRCHASH@\n    .short " + bin.globalsWords + "   ; num. globals\n    .short 0 ; patched with number of words resulting from assembly\n    .word _pxt_config_data\n    .short 0 ; patched with comm section size\n    .short 0 ; reserved\n    .word 0 ; reserved\n";
+            var asmsource = "; start\n" + hex.hexPrelude() + "\n    .hex 708E3B92C615A841C49866C975EE5197 ; magic number\n    .hex " + hex.hexTemplateHash() + " ; hex template hash\n    .hex 0000000000000000 ; @SRCHASH@\n    .short " + bin.globalsWords + "   ; num. globals\n    .short 0 ; patched with number of 64 bit words resulting from assembly\n    .word _pxt_config_data\n    .short 0 ; patched with comm section size\n    .short " + bin.nonPtrGlobals + " ; number of globals that are not pointers (they come first)\n    .word _pxt_iface_member_names\n    .word _pxt_lambda_trampoline@fn\n    .word _pxt_perf_counters\n    .word 0 ; reserved\n    .word 0 ; reserved\n";
             var snippets = null;
             snippets = new pxtc.ThumbSnippets();
+            var perfCounters = bin.setPerfCounters(systemPerfCounters);
             bin.procs.forEach(function (p) {
                 var p2a = new pxtc.ProctoAssembler(snippets, bin, p);
                 asmsource += "\n" + p2a.getAssembly() + "\n";
             });
-            bin.usedClassInfos.forEach(function (info) {
-                asmsource += vtableToAsm(info, opts);
-            });
+            var helpers = new pxtc.ProctoAssembler(snippets, bin, null);
+            helpers.emitHelpers();
+            asmsource += "\n" + helpers.getAssembly() + "\n";
+            asmsource += hex.asmTotalSource; // user-supplied asm
+            asmsource += "_code_end:\n\n";
             pxtc.U.iterMap(bin.codeHelpers, function (code, lbl) {
                 asmsource += "    .section code\n" + lbl + ":\n" + code + "\n";
             });
             asmsource += snippets.arithmetic();
-            asmsource += "\n.balign 4\n_pxt_config_data:\n";
-            for (var _i = 0, _a = bin.res.configData || []; _i < _a.length; _i++) {
+            asmsource += "_helpers_end:\n\n";
+            bin.usedClassInfos.forEach(function (info) {
+                asmsource += vtableToAsm(info, opts, bin);
+            });
+            asmsource += "\n.balign 4\n_pxt_iface_member_names:\n";
+            asmsource += "    .word " + bin.ifaceMembers.length + "\n";
+            var idx = 0;
+            for (var _i = 0, _a = bin.ifaceMembers; _i < _a.length; _i++) {
                 var d = _a[_i];
+                var lbl = bin.emitString(d);
+                asmsource += "    .word " + lbl + "meta  ; " + idx++ + " ." + d + "\n";
+            }
+            asmsource += "    .word 0\n";
+            asmsource += "_vtables_end:\n\n";
+            asmsource += "\n.balign 4\n_pxt_config_data:\n";
+            for (var _b = 0, _c = bin.res.configData || []; _b < _c.length; _b++) {
+                var d = _c[_b];
                 asmsource += "    .word " + d.key + ", " + d.value + "  ; " + d.name + "=" + d.value + "\n";
             }
             asmsource += "    .word 0\n\n";
-            asmsource += hex.asmTotalSource;
-            asmsource += "_js_end:\n";
             emitStrings(snippets, bin);
             asmsource += bin.otherLiterals.join("");
-            asmsource += "_program_end:\n";
+            asmsource += "\n.balign 4\n.section code\n_pxt_perf_counters:\n";
+            asmsource += "    .word " + perfCounters.length + "\n";
+            var strs = "";
+            for (var i = 0; i < perfCounters.length; ++i) {
+                var lbl = ".perf" + i;
+                asmsource += "    .word " + lbl + "\n";
+                strs += lbl + ": .string " + JSON.stringify(perfCounters[i]) + "\n";
+            }
+            asmsource += strs;
+            asmsource += "_literals_end:\n";
             return asmsource;
         }
         function patchSrcHash(bin, src) {
@@ -11204,6 +12217,8 @@ var ts;
             var b;
             b = new pxtc.assembler.File(new pxtc.thumb.ThumbProcessor());
             b.ei.testAssembler(); // just in case
+            if (target.switches.noPeepHole)
+                b.disablePeepHole = true;
             b.lookupExternalLabel = hex.lookupFunctionAddr;
             b.normalizeExternalLabel = function (s) {
                 var inf = hex.lookupFunc(s);
@@ -11242,7 +12257,9 @@ var ts;
         function assemble(target, bin, src) {
             var b = mkProcessorFile(target);
             b.emit(src);
-            src = b.getSource(!peepDbg, bin.numStmts, target.flashEnd);
+            src = "; Interface tables: " + bin.itFullEntries + "/" + bin.itEntries + " (" + Math.round(100 * bin.itFullEntries / bin.itEntries) + "%)\n" +
+                ("; Virtual methods: " + bin.numVirtMethods + " / " + bin.numMethods + "\n") +
+                b.getSource(!peepDbg, bin.numStmts, target.flashEnd);
             throwAssemblerErrors(b);
             return {
                 src: src,
@@ -11885,6 +12902,8 @@ var ts;
         }
         pxtc.getApiInfo = getApiInfo;
         function getFullName(typechecker, symbol) {
+            if (symbol.isBogusSymbol)
+                return symbol.name;
             return typechecker.getFullyQualifiedName(symbol);
         }
         pxtc.getFullName = getFullName;
@@ -11920,7 +12939,7 @@ var ts;
             var emptyOptions = {
                 fileSystem: {},
                 sourceFiles: [],
-                target: { isNative: false, hasHex: false },
+                target: { isNative: false, hasHex: false, switches: {} },
                 hexinfo: null
             };
             var Host = /** @class */ (function () {
@@ -11982,6 +13001,7 @@ var ts;
             var lastBlocksInfo;
             var lastLocBlocksInfo;
             var lastFuse;
+            var lastProjectFuse;
             var builtinItems;
             var blockDefinitions;
             var tbSubset;
@@ -12210,6 +13230,28 @@ var ts;
                     }
                     var fns = lastFuse.search(search.term);
                     return fns.slice(0, SEARCH_RESULT_COUNT);
+                },
+                projectSearch: function (v) {
+                    var search = v.projectSearch;
+                    var searchSet = search.headers;
+                    if (!lastProjectFuse) {
+                        var fuseOptions = {
+                            shouldSort: true,
+                            threshold: 0.6,
+                            location: 0,
+                            distance: 100,
+                            maxPatternLength: 16,
+                            minMatchCharLength: 2,
+                            findAllMatches: false,
+                            caseSensitive: false,
+                            keys: [
+                                { name: 'name', weight: 0.3 }
+                            ]
+                        };
+                        lastProjectFuse = new Fuse(searchSet, fuseOptions);
+                    }
+                    var fns = lastProjectFuse.search(search.term);
+                    return fns;
                 }
             };
             function performOperation(op, arg) {
@@ -12335,174 +13377,5 @@ var ts;
                 return "0";
             }
         })(service = pxtc.service || (pxtc.service = {}));
-    })(pxtc = ts.pxtc || (ts.pxtc = {}));
-})(ts || (ts = {}));
-var ts;
-(function (ts) {
-    var pxtc;
-    (function (pxtc) {
-        var vm;
-        (function (vm) {
-            var emitErr = pxtc.assembler.emitErr;
-            var badNameError = emitErr("opcode name doesn't match", "<name>");
-            var VmInstruction = /** @class */ (function (_super) {
-                __extends(VmInstruction, _super);
-                function VmInstruction(ei, format, opcode) {
-                    return _super.call(this, ei, format, opcode, opcode, false) || this;
-                }
-                VmInstruction.prototype.emit = function (ln) {
-                    var tokens = ln.words;
-                    if (tokens[0] != this.name)
-                        return badNameError;
-                    var opcode = this.opcode;
-                    var j = 1;
-                    var stack = 0;
-                    var numArgs = [];
-                    var labelName = null;
-                    var opcode2 = null;
-                    var opcode3 = null;
-                    for (var i = 0; i < this.args.length; ++i) {
-                        var formal = this.args[i];
-                        var actual = tokens[j++];
-                        if (formal[0] == "$") {
-                            var enc = this.ei.encoders[formal];
-                            var v = null;
-                            if (enc.isImmediate) {
-                                if (!actual)
-                                    return emitErr("expecting number", actual);
-                                actual = actual.replace(/^#/, "");
-                                v = ln.bin.parseOneInt(actual);
-                                if (v == null)
-                                    return emitErr("expecting number", actual);
-                            }
-                            else {
-                                pxtc.oops();
-                            }
-                            if (v == null)
-                                return emitErr("didn't understand it", actual);
-                            numArgs.push(v);
-                            v = enc.encode(v);
-                            if (v == null)
-                                return emitErr("argument out of range or mis-aligned", actual);
-                            if (formal == "$i1") {
-                                pxtc.assert(0 <= v && v <= 255);
-                                opcode2 = v;
-                            }
-                            else if (formal == "$i2") {
-                                opcode2 = v & 0xff;
-                                opcode3 = (v >> 8) & 0xff;
-                            }
-                            else {
-                                pxtc.oops();
-                            }
-                        }
-                        else if (formal == actual) {
-                            // skip
-                        }
-                        else {
-                            return emitErr("expecting " + formal, actual);
-                        }
-                    }
-                    if (tokens[j])
-                        return emitErr("trailing tokens", tokens[j]);
-                    if (this.name == "call") {
-                        opcode += numArgs[0];
-                    }
-                    return {
-                        stack: stack,
-                        opcode: opcode,
-                        opcode2: opcode2,
-                        opcode3: opcode3,
-                        numArgs: numArgs,
-                        labelName: ln.bin.normalizeExternalLabel(labelName)
-                    };
-                };
-                return VmInstruction;
-            }(pxtc.assembler.Instruction));
-            vm.VmInstruction = VmInstruction;
-            var VmProcessor = /** @class */ (function (_super) {
-                __extends(VmProcessor, _super);
-                function VmProcessor(target) {
-                    var _this = _super.call(this) || this;
-                    _this.addEnc("$i1", "#0-255", function (v) { return _this.inrange(255, v, v); });
-                    _this.addEnc("$i2", "#0-65535", function (v) { return _this.inrange(65535, v, v); });
-                    pxtc.U.iterMap(target.vmOpCodes, function (opnamefull, opcode) {
-                        var m = /(.*)_(\d+)/.exec(opnamefull);
-                        var fmt = "";
-                        if (m[1] == "call")
-                            fmt = "call $i1, $i2";
-                        else if (m[2] == "0")
-                            fmt = m[1];
-                        else if (m[2] == "1")
-                            fmt = m[1] + " $i1";
-                        else if (m[2] == "2")
-                            fmt = m[1] + " $i2";
-                        else
-                            pxtc.oops();
-                        var ins = new VmInstruction(_this, fmt, opcode);
-                        if (!_this.instructions.hasOwnProperty(ins.name))
-                            _this.instructions[ins.name] = [];
-                        _this.instructions[ins.name].push(ins);
-                    });
-                    return _this;
-                }
-                VmProcessor.prototype.testAssembler = function () {
-                };
-                VmProcessor.prototype.postProcessRelAddress = function (f, v) {
-                    return v + f.baseOffset;
-                };
-                // absolute addresses come in divide by two
-                VmProcessor.prototype.postProcessAbsAddress = function (f, v) {
-                    return v;
-                };
-                VmProcessor.prototype.getAddressFromLabel = function (f, i, s, wordAligned) {
-                    if (wordAligned === void 0) { wordAligned = false; }
-                    // lookup absolute, relative, dependeing
-                    var l = f.lookupLabel(s);
-                    if (l == null)
-                        return null;
-                    if (i.is32bit)
-                        // absolute address
-                        return l;
-                    // relative address
-                    return l - (f.pc() + 2);
-                };
-                VmProcessor.prototype.toFnPtr = function (v, baseOff) {
-                    return v;
-                };
-                VmProcessor.prototype.wordSize = function () {
-                    return 2;
-                };
-                VmProcessor.prototype.peephole = function (ln, lnNext, lnNext2) {
-                    var lnop = ln.getOp();
-                    var lnop2 = "";
-                    if (lnNext) {
-                        lnop2 = lnNext.getOp();
-                        var key = lnop + ";" + lnop2;
-                        var pc = this.file.peepCounts;
-                        pc[key] = (pc[key] || 0) + 1;
-                    }
-                    if (lnop == "jmp" && ln.numArgs[0] == this.file.baseOffset + lnNext.location) {
-                        // RULE: jmp .somewhere; .somewhere: -> .somewhere:
-                        ln.update("");
-                    }
-                    else if (lnop == "push" && (lnop2 == "callproc" || lnop2 == "ldconst" ||
-                        lnop2 == "stringlit" || lnop2 == "ldtmp")) {
-                        ln.update("");
-                        lnNext.update("push_" + lnop2 + " " + lnNext.words[1]);
-                    }
-                    else if (lnop == "push" && (lnop2 == "ldzero" || lnop2 == "ldone")) {
-                        ln.update("");
-                        lnNext.update("push_" + lnop2);
-                    }
-                    else if (lnop == "ldtmp" && (lnop2 == "incr" || lnop2 == "decr")) {
-                        ln.update("ldtmp_" + lnop2 + " " + ln.words[1]);
-                        lnNext.update("");
-                    }
-                };
-                return VmProcessor;
-            }(pxtc.assembler.AbstractProcessor));
-            vm.VmProcessor = VmProcessor;
-        })(vm = pxtc.vm || (pxtc.vm = {}));
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));

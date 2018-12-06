@@ -236,6 +236,22 @@ if (!Array.prototype.find) {
         },
     });
 }
+// Inject Math imul polyfill
+if (!Math.imul) {
+    // for explanations see:
+    // http://stackoverflow.com/questions/3428136/javascript-integer-math-incorrect-results (second answer)
+    // (but the code below doesn't come from there; I wrote it myself)
+    // TODO use Math.imul if available
+    Math.imul = function (a, b) {
+        var ah = (a >>> 16) & 0xffff;
+        var al = a & 0xffff;
+        var bh = (b >>> 16) & 0xffff;
+        var bl = b & 0xffff;
+        // the shift by 0 fixes the sign on the high part
+        // the final |0 converts the unsigned value into a signed value
+        return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0) | 0);
+    };
+}
 onmessage = function (ev) {
     var res = pxtc.service.performOperation(ev.data.op, ev.data.arg);
     pm({

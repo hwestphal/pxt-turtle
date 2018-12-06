@@ -52,6 +52,7 @@ var pxt;
     (function (analytics) {
         var defaultProps = {};
         var defaultMeasures = {};
+        var enabled = false;
         function addDefaultProperties(props) {
             Object.keys(props).forEach(function (k) {
                 if (typeof props[k] == "string") {
@@ -64,8 +65,9 @@ var pxt;
         }
         analytics.addDefaultProperties = addDefaultProperties;
         function enable() {
-            if (!pxt.aiTrackException || !pxt.aiTrackEvent)
+            if (!pxt.aiTrackException || !pxt.aiTrackEvent || enabled)
                 return;
+            enabled = true;
             pxt.debug('setting up app insights');
             var te = pxt.tickEvent;
             pxt.tickEvent = function (id, data, opts) {
@@ -198,105 +200,6 @@ var pxtc = ts.pxtc;
                 return "\"" + jsStringQuote(s) + "\"";
             }
             Util.jsStringLiteral = jsStringLiteral;
-            var IDBWrapper = /** @class */ (function () {
-                function IDBWrapper(name, version, upgradeHandler) {
-                    this.name = name;
-                    this.version = version;
-                    if (upgradeHandler) {
-                        this.upgradeHandler = upgradeHandler;
-                    }
-                }
-                IDBWrapper.prototype.throwIfNotOpened = function () {
-                    if (!this._db) {
-                        throw new Error("Database not opened; call IDBWrapper.openAsync() first");
-                    }
-                };
-                IDBWrapper.prototype.errorHandler = function (err, op, reject) {
-                    console.error(new Error(this.name + " IDBWrapper error for " + op + ": " + err.message));
-                    reject(err);
-                };
-                IDBWrapper.prototype.getObjectStore = function (name, mode) {
-                    if (mode === void 0) { mode = "readonly"; }
-                    this.throwIfNotOpened();
-                    var transaction = this._db.transaction([name], mode);
-                    return transaction.objectStore(name);
-                };
-                IDBWrapper.prototype.openAsync = function () {
-                    var _this = this;
-                    return new Promise(function (resolve, reject) {
-                        var idbFactory = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
-                        var request = idbFactory.open(_this.name, _this.version);
-                        request.onsuccess = function () {
-                            _this._db = request.result;
-                            resolve();
-                        };
-                        request.onerror = function () { return _this.errorHandler(request.error, "open", reject); };
-                        request.onupgradeneeded = function (ev) { return _this.upgradeHandler(ev, request); };
-                    });
-                };
-                IDBWrapper.prototype.getAsync = function (storeName, id) {
-                    var _this = this;
-                    return new Promise(function (resolve, reject) {
-                        var store = _this.getObjectStore(storeName);
-                        var request = store.get(id);
-                        request.onsuccess = function () { return resolve(request.result); };
-                        request.onerror = function () { return _this.errorHandler(request.error, "get", reject); };
-                    });
-                };
-                IDBWrapper.prototype.getAllAsync = function (storeName) {
-                    var _this = this;
-                    return new Promise(function (resolve, reject) {
-                        var store = _this.getObjectStore(storeName);
-                        var cursor = store.openCursor();
-                        var data = [];
-                        cursor.onsuccess = function () {
-                            if (cursor.result) {
-                                data.push(cursor.result.value);
-                                cursor.result.continue();
-                            }
-                            else {
-                                resolve(data);
-                            }
-                        };
-                        cursor.onerror = function () { return _this.errorHandler(cursor.error, "getAll", reject); };
-                    });
-                };
-                IDBWrapper.prototype.setAsync = function (storeName, data) {
-                    var _this = this;
-                    return new Promise(function (resolve, reject) {
-                        var store = _this.getObjectStore(storeName, "readwrite");
-                        var request;
-                        if (typeof data.id !== "undefined" && data.id !== null) {
-                            request = store.put(data);
-                        }
-                        else {
-                            request = store.add(data);
-                        }
-                        request.onsuccess = function () { return resolve(); };
-                        request.onerror = function () { return _this.errorHandler(request.error, "set", reject); };
-                    });
-                };
-                IDBWrapper.prototype.deleteAsync = function (storeName, id) {
-                    var _this = this;
-                    return new Promise(function (resolve, reject) {
-                        var store = _this.getObjectStore(storeName, "readwrite");
-                        var request = store.delete(id);
-                        request.onsuccess = function () { return resolve(); };
-                        request.onerror = function () { return _this.errorHandler(request.error, "delete", reject); };
-                    });
-                };
-                IDBWrapper.prototype.deleteAllAsync = function (storeName) {
-                    var _this = this;
-                    return new Promise(function (resolve, reject) {
-                        var store = _this.getObjectStore(storeName, "readwrite");
-                        var request = store.clear();
-                        request.onsuccess = function () { return resolve(); };
-                        request.onerror = function () { return _this.errorHandler(request.error, "deleteAll", reject); };
-                    });
-                };
-                return IDBWrapper;
-            }());
-            Util.IDBWrapper = IDBWrapper;
             // Localization functions. Please port any modifications over to pxtsim/localization.ts
             var _localizeLang = "en";
             var _localizeStrings = {};
@@ -304,100 +207,6 @@ var pxtc = ts.pxtc;
             var _didSetlocalizations = false;
             var _didReportLocalizationsNotSet = false;
             Util.localizeLive = false;
-            var MemTranslationDb = /** @class */ (function () {
-                function MemTranslationDb() {
-                    this.translations = {};
-                }
-                MemTranslationDb.prototype.key = function (lang, filename, branch) {
-                    return lang + "|" + filename + "|" + (branch || "master");
-                };
-                MemTranslationDb.prototype.get = function (lang, filename, branch) {
-                    return this.translations[this.key(lang, filename, branch)];
-                };
-                MemTranslationDb.prototype.getAsync = function (lang, filename, branch) {
-                    return Promise.resolve(this.get(lang, filename, branch));
-                };
-                MemTranslationDb.prototype.set = function (lang, filename, branch, etag, strings, md) {
-                    this.translations[this.key(lang, filename, branch)] = {
-                        etag: etag,
-                        time: Date.now() + 24 * 60 * 60 * 1000,
-                        strings: strings,
-                        md: md
-                    };
-                };
-                MemTranslationDb.prototype.setAsync = function (lang, filename, branch, etag, strings, md) {
-                    this.set(lang, filename, branch, etag, strings);
-                    return Promise.resolve();
-                };
-                return MemTranslationDb;
-            }());
-            var IndexedDbTranslationDb = /** @class */ (function () {
-                function IndexedDbTranslationDb(db) {
-                    this.db = db;
-                    this.mem = new MemTranslationDb();
-                }
-                IndexedDbTranslationDb.createAsync = function () {
-                    var idbWrapper = new IDBWrapper("__pxt_translations_" + (pxt.appTarget.id || ""), 2, function (ev, r) {
-                        var db = r.result;
-                        db.createObjectStore(IndexedDbTranslationDb.TABLE, { keyPath: IndexedDbTranslationDb.KEYPATH });
-                    });
-                    return idbWrapper.openAsync()
-                        .then(function () {
-                        return Promise.resolve(new IndexedDbTranslationDb(idbWrapper));
-                    });
-                };
-                IndexedDbTranslationDb.prototype.getAsync = function (lang, filename, branch) {
-                    var _this = this;
-                    lang = (lang || "en-US").toLowerCase(); // normalize locale
-                    var id = this.mem.key(lang, filename, branch);
-                    var r = this.mem.get(lang, filename, branch);
-                    if (r)
-                        return Promise.resolve(r);
-                    return this.db.getAsync(IndexedDbTranslationDb.TABLE, id)
-                        .then(function (res) {
-                        if (res) {
-                            // store in-memory so that we don't try to download again
-                            _this.mem.set(lang, filename, branch, res.etag, res.strings);
-                            return Promise.resolve(res);
-                        }
-                        return Promise.resolve(undefined);
-                    })
-                        .catch(function (e) {
-                        return Promise.resolve(undefined);
-                    });
-                };
-                IndexedDbTranslationDb.prototype.setAsync = function (lang, filename, branch, etag, strings, md) {
-                    lang = (lang || "en-US").toLowerCase(); // normalize locale
-                    var id = this.mem.key(lang, filename, branch);
-                    this.mem.set(lang, filename, branch, etag, strings, md);
-                    if (strings)
-                        Object.keys(strings).filter(function (k) { return !strings[k]; }).forEach(function (k) { return delete strings[k]; });
-                    var entry = {
-                        id: id,
-                        etag: etag,
-                        time: Date.now(),
-                        strings: strings,
-                        md: md
-                    };
-                    return this.db.setAsync(IndexedDbTranslationDb.TABLE, entry)
-                        .catch(function (e) {
-                        // ignore set errors
-                    });
-                };
-                IndexedDbTranslationDb.TABLE = "files";
-                IndexedDbTranslationDb.KEYPATH = "id";
-                return IndexedDbTranslationDb;
-            }());
-            // wired up in the app to store translations in pouchdb. MAY BE UNDEFINED!
-            var _translationDbPromise;
-            function translationDbAsync() {
-                // try indexed db
-                if (!_translationDbPromise)
-                    _translationDbPromise = IndexedDbTranslationDb.createAsync()
-                        .catch(function () { return new MemTranslationDb(); });
-                return _translationDbPromise;
-            }
-            Util.translationDbAsync = translationDbAsync;
             /**
              * Returns the current user language, prepended by "live-" if in live mode
              */
@@ -595,6 +404,7 @@ var pxtc = ts.pxtc;
                 };
                 CancellationToken.prototype.cancel = function () {
                     this.cancelled = true;
+                    this.pending = false;
                 };
                 CancellationToken.prototype.cancelAsync = function () {
                     var _this = this;
@@ -957,6 +767,8 @@ var ts;
                     return a;
                 }
                 var r = [];
+                if (!a)
+                    return r;
                 for (var i = 0; i < a.length; ++i)
                     r.push(a[i]);
                 return r;
@@ -1388,7 +1200,7 @@ var ts;
                         if (resp.statusCode == 304 || resp.statusCode == 200) {
                             // store etag and translations
                             etag = resp.headers["etag"] || "";
-                            return Util.translationDbAsync()
+                            return pxt.BrowserUtils.translationDbAsync()
                                 .then(function (db) { return db.setAsync(lang, filename, branch, etag, resp.json || strings); })
                                 .then(function () { return resp.json || strings; });
                         }
@@ -1399,7 +1211,7 @@ var ts;
                     });
                 }
                 // check for cache
-                return Util.translationDbAsync()
+                return pxt.BrowserUtils.translationDbAsync()
                     .then(function (db) { return db.getAsync(lang, filename, branch); })
                     .then(function (entry) {
                     // if cached, return immediately
@@ -1773,6 +1585,7 @@ var pxt;
     pxt.U = pxtc.Util;
     pxt.Util = pxtc.Util;
     var savedAppTarget;
+    var savedSwitches = {};
     function setAppTarget(trg) {
         pxt.appTarget = trg || {};
         patchAppTarget();
@@ -1783,15 +1596,36 @@ var pxt;
         return savedAppTarget ? savedAppTarget.appTheme : undefined;
     }
     pxt.savedAppTheme = savedAppTheme;
+    function setCompileSwitch(name, value) {
+        savedSwitches[name] = value;
+        if (pxt.appTarget) {
+            pxt.U.jsonCopyFrom(pxt.appTarget.compile.switches, savedSwitches);
+            pxt.U.jsonCopyFrom(savedAppTarget.compile.switches, savedSwitches);
+        }
+    }
+    pxt.setCompileSwitch = setCompileSwitch;
+    function setCompileSwitches(names) {
+        if (!names)
+            return;
+        for (var _i = 0, _a = names.split(/[\s,;:]+/); _i < _a.length; _i++) {
+            var s = _a[_i];
+            if (s)
+                setCompileSwitch(s, true);
+        }
+    }
+    pxt.setCompileSwitches = setCompileSwitches;
     function patchAppTarget() {
         // patch-up the target
         var comp = pxt.appTarget.compile;
         if (!comp)
-            comp = pxt.appTarget.compile = { isNative: false, hasHex: false };
+            comp = pxt.appTarget.compile = { isNative: false, hasHex: false, switches: {} };
         if (comp.hasHex) {
             if (!comp.nativeType)
                 comp.nativeType = pxtc.NATIVE_TYPE_THUMB;
         }
+        if (!comp.switches)
+            comp.switches = {};
+        pxt.U.jsonCopyFrom(comp.switches, savedSwitches);
         // JS ref counting currently not supported
         comp.jsRefCounting = false;
         if (!comp.vtableShift)
@@ -3165,6 +2999,302 @@ var pxt;
             return result;
         }
         BrowserUtils.joinURLs = joinURLs;
+        function storageEstimateAsync() {
+            var nav = hasNavigator() && window.navigator;
+            if (nav && nav.storage && nav.storage.estimate)
+                return nav.storage.estimate();
+            else
+                return Promise.resolve({});
+        }
+        BrowserUtils.storageEstimateAsync = storageEstimateAsync;
+        BrowserUtils.scheduleStorageCleanup = hasNavigator() && navigator.storage && navigator.storage.estimate // some browser don't support this
+            ? ts.pxtc.Util.throttle(function () {
+                var MIN_QUOTA = 1000000; // 1Mb
+                var MAX_USAGE_RATIO = 0.9; // max 90% 
+                storageEstimateAsync()
+                    .then(function (estimate) {
+                    // quota > 50%
+                    pxt.debug("storage estimate: " + ((estimate.usage / estimate.quota * 100) >> 0) + "%, " + ((estimate.usage / 1000000) >> 0) + "/" + ((estimate.quota / 1000000) >> 0) + "Mb");
+                    if (estimate.quota
+                        && estimate.usage
+                        && estimate.quota > MIN_QUOTA
+                        && (estimate.usage / estimate.quota) > MAX_USAGE_RATIO) {
+                        pxt.log("quota usage exceeded, clearing translations");
+                        pxt.tickEvent('storage.cleanup');
+                        return clearTranslationDbAsync();
+                    }
+                    return Promise.resolve();
+                })
+                    .catch(function (e) {
+                    pxt.reportException(e);
+                });
+            }, 10000, false)
+            : function () { };
+        function stressTranslationsAsync() {
+            var md = "...";
+            for (var i = 0; i < 16; ++i)
+                md += md + Math.random();
+            console.log("adding entry " + md.length * 2 + " bytes");
+            return Promise.delay(1)
+                .then(function () { return translationDbAsync(); })
+                .then(function (db) { return db.setAsync("foobar", Math.random().toString(), "", null, undefined, md); })
+                .then(function () { return pxt.BrowserUtils.storageEstimateAsync(); })
+                .then(function (estimate) { return !estimate.quota || estimate.usage / estimate.quota < 0.8 ? stressTranslationsAsync() : Promise.resolve(); });
+        }
+        BrowserUtils.stressTranslationsAsync = stressTranslationsAsync;
+        var MemTranslationDb = /** @class */ (function () {
+            function MemTranslationDb() {
+                this.translations = {};
+            }
+            MemTranslationDb.prototype.key = function (lang, filename, branch) {
+                return lang + "|" + filename + "|" + (branch || "master");
+            };
+            MemTranslationDb.prototype.get = function (lang, filename, branch) {
+                return this.translations[this.key(lang, filename, branch)];
+            };
+            MemTranslationDb.prototype.getAsync = function (lang, filename, branch) {
+                return Promise.resolve(this.get(lang, filename, branch));
+            };
+            MemTranslationDb.prototype.set = function (lang, filename, branch, etag, strings, md) {
+                this.translations[this.key(lang, filename, branch)] = {
+                    etag: etag,
+                    time: Date.now() + 24 * 60 * 60 * 1000,
+                    strings: strings,
+                    md: md
+                };
+            };
+            MemTranslationDb.prototype.setAsync = function (lang, filename, branch, etag, strings, md) {
+                this.set(lang, filename, branch, etag, strings);
+                return Promise.resolve();
+            };
+            MemTranslationDb.prototype.clearAsync = function () {
+                this.translations = {};
+                return Promise.resolve();
+            };
+            return MemTranslationDb;
+        }());
+        var IDBWrapper = /** @class */ (function () {
+            function IDBWrapper(name, version, upgradeHandler, quotaExceededHandler) {
+                this.name = name;
+                this.version = version;
+                this.upgradeHandler = upgradeHandler;
+                this.quotaExceededHandler = quotaExceededHandler;
+            }
+            IDBWrapper.prototype.throwIfNotOpened = function () {
+                if (!this._db) {
+                    throw new Error("Database not opened; call IDBWrapper.openAsync() first");
+                }
+            };
+            IDBWrapper.prototype.errorHandler = function (err, op, reject) {
+                console.error(new Error(this.name + " IDBWrapper error for " + op + ": " + err.message));
+                reject(err);
+                // special case for quota exceeded
+                if (err.name == "QuotaExceededError") {
+                    // oops, we ran out of space
+                    pxt.log("storage quota exceeded...");
+                    pxt.tickEvent('storage.quotaexceedederror');
+                    if (this.quotaExceededHandler)
+                        this.quotaExceededHandler();
+                }
+            };
+            IDBWrapper.prototype.getObjectStore = function (name, mode) {
+                if (mode === void 0) { mode = "readonly"; }
+                this.throwIfNotOpened();
+                var transaction = this._db.transaction([name], mode);
+                return transaction.objectStore(name);
+            };
+            IDBWrapper.deleteDatabaseAsync = function (name) {
+                return new Promise(function (resolve, reject) {
+                    var idbFactory = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+                    var request = idbFactory.deleteDatabase(name);
+                    request.onsuccess = function () { return resolve(); };
+                    request.onerror = function () { return reject(request.error); };
+                });
+            };
+            IDBWrapper.prototype.openAsync = function () {
+                var _this = this;
+                return new Promise(function (resolve, reject) {
+                    var idbFactory = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+                    var request = idbFactory.open(_this.name, _this.version);
+                    request.onsuccess = function () {
+                        _this._db = request.result;
+                        resolve();
+                    };
+                    request.onerror = function () { return _this.errorHandler(request.error, "open", reject); };
+                    request.onupgradeneeded = function (ev) { return _this.upgradeHandler(ev, request); };
+                });
+            };
+            IDBWrapper.prototype.getAsync = function (storeName, id) {
+                var _this = this;
+                return new Promise(function (resolve, reject) {
+                    var store = _this.getObjectStore(storeName);
+                    var request = store.get(id);
+                    request.onsuccess = function () { return resolve(request.result); };
+                    request.onerror = function () { return _this.errorHandler(request.error, "get", reject); };
+                });
+            };
+            IDBWrapper.prototype.getAllAsync = function (storeName) {
+                var _this = this;
+                return new Promise(function (resolve, reject) {
+                    var store = _this.getObjectStore(storeName);
+                    var cursor = store.openCursor();
+                    var data = [];
+                    cursor.onsuccess = function () {
+                        if (cursor.result) {
+                            data.push(cursor.result.value);
+                            cursor.result.continue();
+                        }
+                        else {
+                            resolve(data);
+                        }
+                    };
+                    cursor.onerror = function () { return _this.errorHandler(cursor.error, "getAll", reject); };
+                });
+            };
+            IDBWrapper.prototype.setAsync = function (storeName, data) {
+                var _this = this;
+                return new Promise(function (resolve, reject) {
+                    var store = _this.getObjectStore(storeName, "readwrite");
+                    var request;
+                    if (typeof data.id !== "undefined" && data.id !== null) {
+                        request = store.put(data);
+                    }
+                    else {
+                        request = store.add(data);
+                    }
+                    request.onsuccess = function () { return resolve(); };
+                    request.onerror = function () { return _this.errorHandler(request.error, "set", reject); };
+                });
+            };
+            IDBWrapper.prototype.deleteAsync = function (storeName, id) {
+                var _this = this;
+                return new Promise(function (resolve, reject) {
+                    var store = _this.getObjectStore(storeName, "readwrite");
+                    var request = store.delete(id);
+                    request.onsuccess = function () { return resolve(); };
+                    request.onerror = function () { return _this.errorHandler(request.error, "delete", reject); };
+                });
+            };
+            IDBWrapper.prototype.deleteAllAsync = function (storeName) {
+                var _this = this;
+                return new Promise(function (resolve, reject) {
+                    var store = _this.getObjectStore(storeName, "readwrite");
+                    var request = store.clear();
+                    request.onsuccess = function () { return resolve(); };
+                    request.onerror = function () { return _this.errorHandler(request.error, "deleteAll", reject); };
+                });
+            };
+            return IDBWrapper;
+        }());
+        BrowserUtils.IDBWrapper = IDBWrapper;
+        var IndexedDbTranslationDb = /** @class */ (function () {
+            function IndexedDbTranslationDb(db) {
+                this.db = db;
+                this.mem = new MemTranslationDb();
+            }
+            IndexedDbTranslationDb.dbName = function () {
+                return "__pxt_translations_" + (pxt.appTarget.id || "");
+            };
+            IndexedDbTranslationDb.createAsync = function () {
+                function openAsync() {
+                    var idbWrapper = new IDBWrapper(IndexedDbTranslationDb.dbName(), 2, function (ev, r) {
+                        var db = r.result;
+                        db.createObjectStore(IndexedDbTranslationDb.TABLE, { keyPath: IndexedDbTranslationDb.KEYPATH });
+                    }, function () {
+                        // quota exceeeded, nuke db
+                        clearTranslationDbAsync().catch(function (e) { });
+                    });
+                    return idbWrapper.openAsync()
+                        .then(function () { return new IndexedDbTranslationDb(idbWrapper); });
+                }
+                return openAsync()
+                    .catch(function (e) {
+                    console.log("db: failed to open database, try delete entire store...");
+                    return IDBWrapper.deleteDatabaseAsync(IndexedDbTranslationDb.dbName())
+                        .then(function () { return openAsync(); });
+                });
+            };
+            IndexedDbTranslationDb.prototype.getAsync = function (lang, filename, branch) {
+                var _this = this;
+                lang = (lang || "en-US").toLowerCase(); // normalize locale
+                var id = this.mem.key(lang, filename, branch);
+                var r = this.mem.get(lang, filename, branch);
+                if (r)
+                    return Promise.resolve(r);
+                return this.db.getAsync(IndexedDbTranslationDb.TABLE, id)
+                    .then(function (res) {
+                    if (res) {
+                        // store in-memory so that we don't try to download again
+                        _this.mem.set(lang, filename, branch, res.etag, res.strings);
+                        return Promise.resolve(res);
+                    }
+                    return Promise.resolve(undefined);
+                })
+                    .catch(function (e) {
+                    return Promise.resolve(undefined);
+                });
+            };
+            IndexedDbTranslationDb.prototype.setAsync = function (lang, filename, branch, etag, strings, md) {
+                var _this = this;
+                lang = (lang || "en-US").toLowerCase(); // normalize locale
+                var id = this.mem.key(lang, filename, branch);
+                this.mem.set(lang, filename, branch, etag, strings, md);
+                if (strings)
+                    Object.keys(strings).filter(function (k) { return !strings[k]; }).forEach(function (k) { return delete strings[k]; });
+                var entry = {
+                    id: id,
+                    etag: etag,
+                    time: Date.now(),
+                    strings: strings,
+                    md: md
+                };
+                return this.db.setAsync(IndexedDbTranslationDb.TABLE, entry)
+                    .finally(function () { return BrowserUtils.scheduleStorageCleanup(); }) // schedule a cleanpu
+                    .catch(function (e) {
+                    console.log("db: set failed (" + e.message + "), recycling...");
+                    return _this.clearAsync();
+                });
+            };
+            IndexedDbTranslationDb.prototype.clearAsync = function () {
+                return this.db.deleteAllAsync(IndexedDbTranslationDb.TABLE)
+                    .then(function () { return console.debug("db: all clean"); })
+                    .catch(function (e) {
+                    console.error('db: failed to delete all');
+                });
+            };
+            IndexedDbTranslationDb.TABLE = "files";
+            IndexedDbTranslationDb.KEYPATH = "id";
+            return IndexedDbTranslationDb;
+        }());
+        // wired up in the app to store translations in pouchdb. MAY BE UNDEFINED!
+        var _translationDbPromise;
+        function translationDbAsync() {
+            // try indexed db
+            if (!_translationDbPromise)
+                _translationDbPromise = IndexedDbTranslationDb.createAsync()
+                    .catch(function () { return new MemTranslationDb(); });
+            return _translationDbPromise;
+        }
+        BrowserUtils.translationDbAsync = translationDbAsync;
+        function clearTranslationDbAsync() {
+            function deleteDbAsync() {
+                var n = IndexedDbTranslationDb.dbName();
+                return IDBWrapper.deleteDatabaseAsync(n)
+                    .then(function () {
+                    _translationDbPromise = undefined;
+                })
+                    .catch(function (e) {
+                    pxt.log("db: failed to delete " + n);
+                    _translationDbPromise = undefined;
+                });
+            }
+            if (!_translationDbPromise)
+                return deleteDbAsync();
+            return _translationDbPromise
+                .then(function (db) { return db.clearAsync(); })
+                .catch(function (e) { return deleteDbAsync().done(); });
+        }
+        BrowserUtils.clearTranslationDbAsync = clearTranslationDbAsync;
     })(BrowserUtils = pxt.BrowserUtils || (pxt.BrowserUtils = {}));
 })(pxt || (pxt = {}));
 var pxt;
@@ -3355,6 +3485,7 @@ var pxt;
                 compile = {
                     isNative: false,
                     hasHex: false,
+                    switches: {}
                 };
             var isPlatformio = !!compileService.platformioIni;
             var isCodal = compileService.buildEngine == "codal" || compileService.buildEngine == "dockercodal";
@@ -3629,7 +3760,7 @@ var pxt;
                         default:
                             if (U.lookup(knownEnums, tp))
                                 return "I";
-                            return "_";
+                            return "_" + tp.replace(/[\*_]+$/, "");
                     }
                 }
                 outp = "";
@@ -3680,7 +3811,7 @@ var pxt;
                         abiInc += "extern \"C\" void " + m[1] + "();\n";
                         res.functions.push({
                             name: m[1],
-                            argsFmt: "",
+                            argsFmt: [],
                             value: 0
                         });
                     }
@@ -3699,10 +3830,10 @@ var pxt;
                         var funName = m[3];
                         var origArgs = m[4];
                         currAttrs = currAttrs.trim().replace(/ \w+\.defl=\w+/g, "");
-                        var argsFmt_1 = mapRunTimeType(retTp);
+                        var argsFmt_1 = [mapRunTimeType(retTp)];
                         var args = origArgs.split(/,/).filter(function (s) { return !!s; }).map(function (s) {
                             var r = parseArg(parsedAttrs_1, s);
-                            argsFmt_1 += mapRunTimeType(r.type);
+                            argsFmt_1.push(mapRunTimeType(r.type));
                             return r.name + ": " + mapType(r.type);
                         });
                         var numArgs = args.length;
@@ -3747,6 +3878,18 @@ var pxt;
                             pointersInc += "(uint32_t)(void*)::" + fi.name + ",\n";
                         else
                             pointersInc += "PXT_FNPTR(::" + fi.name + "),\n";
+                        return;
+                    }
+                    m = /^\s*extern const (\w+) (\w+);/.exec(ln);
+                    if (currAttrs && m) {
+                        var fi = {
+                            name: currNs + "::" + m[2],
+                            argsFmt: [],
+                            value: null
+                        };
+                        res.functions.push(fi);
+                        pointersInc += "PXT_FNPTR(&::" + fi.name + "),\n";
+                        currAttrs = "";
                         return;
                     }
                     m = /^\s*(\w+)\s+(\w+)\s*;/.exec(ln);
@@ -3950,9 +4093,16 @@ var pxt;
                 res.generatedFiles["/module.json"] = JSON.stringify(moduleJson, null, 4) + "\n";
                 pxt.debug("module.json: " + res.generatedFiles["/module.json"]);
             }
-            if (compile.boxDebug) {
+            if (compile.switches.boxDebug)
                 pxtConfig += "#define PXT_BOX_DEBUG 1\n";
-            }
+            if (compile.gc)
+                pxtConfig += "#define PXT_GC 1\n";
+            if (compile.switches.profile)
+                pxtConfig += "#define PXT_PROFILE 1\n";
+            if (compile.switches.gcDebug)
+                pxtConfig += "#define PXT_GC_DEBUG 1\n";
+            if (compile.switches.numFloat)
+                pxtConfig += "#define PXT_USE_FLOAT 1\n";
             if (compile.vtableShift)
                 pxtConfig += "#define PXT_VTABLE_SHIFT " + compile.vtableShift + "\n";
             res.generatedFiles[sourcePath + "pointers.cpp"] = includesInc + protos.finish() + abiInc + pointersInc + "\nPXT_SHIMS_END\n";
@@ -5071,7 +5221,7 @@ var pxt;
             setupRenderer(renderer);
             var linkRenderer = renderer.link;
             renderer.link = function (href, title, text) {
-                var relative = href.indexOf('/') == 0;
+                var relative = new RegExp('^[/#]').test(href);
                 var target = !relative ? '_blank' : '';
                 if (relative && d.versionPath)
                     href = "/" + d.versionPath + href;
@@ -6364,6 +6514,24 @@ var pxt;
 })(pxt || (pxt = {}));
 var pxt;
 (function (pxt) {
+    // keep all of these in sync with pxtbase.h
+    pxt.REFCNT_FLASH = "0xfffe";
+    pxt.VTABLE_MAGIC = 0xF9;
+    pxt.ValTypeObject = 4;
+    var BuiltInType;
+    (function (BuiltInType) {
+        BuiltInType[BuiltInType["BoxedString"] = 1] = "BoxedString";
+        BuiltInType[BuiltInType["BoxedNumber"] = 2] = "BoxedNumber";
+        BuiltInType[BuiltInType["BoxedBuffer"] = 3] = "BoxedBuffer";
+        BuiltInType[BuiltInType["RefAction"] = 4] = "RefAction";
+        BuiltInType[BuiltInType["RefImage"] = 5] = "RefImage";
+        BuiltInType[BuiltInType["RefCollection"] = 6] = "RefCollection";
+        BuiltInType[BuiltInType["RefRefLocal"] = 7] = "RefRefLocal";
+        BuiltInType[BuiltInType["RefMap"] = 8] = "RefMap";
+        BuiltInType[BuiltInType["User0"] = 16] = "User0";
+    })(BuiltInType = pxt.BuiltInType || (pxt.BuiltInType = {}));
+})(pxt || (pxt = {}));
+(function (pxt) {
     var HF2;
     (function (HF2) {
         // see https://github.com/Microsoft/uf2/blob/master/hf2.md for full spec
@@ -6873,14 +7041,6 @@ var pxt;
 })(pxt || (pxt = {}));
 var pxt;
 (function (pxt) {
-    // keep in sync with RefCounted.h in Codal
-    pxt.REF_TAG_STRING = 1;
-    pxt.REF_TAG_BUFFER = 2;
-    pxt.REF_TAG_IMAGE = 3;
-    pxt.REF_TAG_NUMBER = 32;
-    pxt.REF_TAG_ACTION = 33;
-})(pxt || (pxt = {}));
-(function (pxt) {
     var HWDBG;
     (function (HWDBG) {
         var U = pxt.Util;
@@ -6972,15 +7132,13 @@ var pxt;
                 // 56 bytes of data fit in one HID packet (with 5 bytes of header and 3 bytes of padding)
                 return readMemAsync(v.ptr, 56)
                     .then(function (buf) {
+                    // TODO this is wrong, with the new vtable format
                     tag_1 = H.read16(buf, 2);
                     var neededLength = buf.length;
-                    if (tag_1 == pxt.REF_TAG_STRING || tag_1 == pxt.REF_TAG_BUFFER) {
+                    if (tag_1 == pxt.BuiltInType.BoxedString || tag_1 == pxt.BuiltInType.BoxedBuffer) {
                         neededLength = H.read16(buf, 4) + 6;
                     }
-                    else if (tag_1 == pxt.REF_TAG_IMAGE) {
-                        neededLength = H.read16(buf, 4) * H.read16(buf, 8) + 8;
-                    }
-                    else if (tag_1 == pxt.REF_TAG_NUMBER) {
+                    else if (tag_1 == pxt.BuiltInType.BoxedNumber) {
                         neededLength = 8 + 4;
                     }
                     else {
@@ -6998,18 +7156,11 @@ var pxt;
                     }
                 })
                     .then(function (buf) {
-                    if (tag_1 == pxt.REF_TAG_STRING)
+                    if (tag_1 == pxt.BuiltInType.BoxedString)
                         return U.uint8ArrayToString(buf.slice(6));
-                    else if (tag_1 == pxt.REF_TAG_STRING)
+                    else if (tag_1 == pxt.BuiltInType.BoxedBuffer)
                         return { type: "buffer", data: buf.slice(6) };
-                    else if (tag_1 == pxt.REF_TAG_IMAGE)
-                        return {
-                            type: "image",
-                            data: buf.slice(8),
-                            width: H.read16(buf, 4),
-                            height: H.read16(buf, 8),
-                        };
-                    else if (tag_1 == pxt.REF_TAG_NUMBER)
+                    else if (tag_1 == pxt.BuiltInType.BoxedNumber)
                         return new Float64Array(buf.buffer.slice(4))[0];
                     else
                         return {
@@ -7254,7 +7405,7 @@ var pxt;
         ".gitignore": "built\nnode_modules\nyotta_modules\nyotta_targets\npxt_modules\n*.db\n*.tgz\n.header.json\n",
         ".vscode/settings.json": "{\n    \"editor.formatOnType\": true,\n    \"files.autoSave\": \"afterDelay\",\n    \"files.watcherExclude\": {\n        \"**/.git/objects/**\": true,\n        \"**/built/**\": true,\n        \"**/node_modules/**\": true,\n        \"**/yotta_modules/**\": true,\n        \"**/yotta_targets\": true,\n        \"**/pxt_modules/**\": true\n    },\n    \"files.associations\": {\n        \"*.blocks\": \"html\",\n        \"*.jres\": \"json\"\n    },\n    \"search.exclude\": {\n        \"**/built\": true,\n        \"**/node_modules\": true,\n        \"**/yotta_modules\": true,\n        \"**/yotta_targets\": true,\n        \"**/pxt_modules\": true\n    }\n}",
         ".travis.yml": "language: node_js\nnode_js:\n    - \"8.9.4\"\nscript:\n    - \"npm install -g pxt\"\n    - \"pxt target @TARGET@\"\n    - \"pxt install\"\n    - \"pxt build\"\nsudo: false\ncache:\n    directories:\n    - npm_modules\n    - pxt_modules",
-        ".vscode/tasks.json": "\n// A task runner that calls the MakeCode (PXT) compiler\n{\n    \"version\": \"2.0.0\",\n    \"tasks\": [{\n        \"label\": \"pxt deploy\",\n        \"type\": \"shell\",\n        \"command\": \"pxt deploy\",\n        \"group\": \"build\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt build\",\n        \"type\": \"shell\",\n        \"command\": \"pxt build\",\n        \"group\": \"test\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt clean\",\n        \"type\": \"shell\",\n        \"command\": \"pxt clean\",\n        \"group\": \"test\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt serial\",\n        \"type\": \"shell\",\n        \"command\": \"pxt serial\",\n        \"group\": \"test\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }]\n}\n"
+        ".vscode/tasks.json": "\n// A task runner that calls the MakeCode (PXT) compiler\n{\n    \"version\": \"2.0.0\",\n    \"tasks\": [{\n        \"label\": \"pxt deploy\",\n        \"type\": \"shell\",\n        \"command\": \"pxt deploy --local\",\n        \"group\": \"build\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt build\",\n        \"type\": \"shell\",\n        \"command\": \"pxt build --local\",\n        \"group\": \"build\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt install\",\n        \"type\": \"shell\",\n        \"command\": \"pxt install\",\n        \"group\": \"build\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt clean\",\n        \"type\": \"shell\",\n        \"command\": \"pxt clean\",\n        \"group\": \"test\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }, {\n        \"label\": \"pxt serial\",\n        \"type\": \"shell\",\n        \"command\": \"pxt serial\",\n        \"group\": \"test\",\n        \"problemMatcher\": [ \"$tsc\" ]\n    }]\n}\n"
     };
     function packageFiles(name) {
         var prj = pxt.appTarget.tsprj || pxt.appTarget.blocksprj;
@@ -9297,6 +9448,14 @@ var ts;
                     res.groupIcons = undefined;
                 }
             }
+            if (res.groupHelp) {
+                try {
+                    res.groupHelp = JSON.parse(res.groupHelp);
+                }
+                catch (e) {
+                    res.groupHelp = undefined;
+                }
+            }
             updateBlockDef(res);
             return res;
         }
@@ -10724,7 +10883,6 @@ var pxt;
             loops: '#107c10',
             logic: '#006970',
             math: '#712672',
-            images: '#5C2D91',
             variables: '#A80000',
             functions: '#005a9e',
             text: '#996600',
@@ -10797,12 +10955,78 @@ var pxt;
         function convertColor(colour) {
             var hue = parseInt(colour);
             if (!isNaN(hue)) {
-                console.error('hue style color not supported anymore, use #rrggbb');
+                return hueToRgb(hue);
             }
-            // TODO: HSV support
             return colour;
         }
         toolbox.convertColor = convertColor;
+        function hueToRgb(hue) {
+            var HSV_SATURATION = 0.45;
+            var HSV_VALUE = 0.65 * 255;
+            var rgbArray = hsvToRgb(hue, HSV_SATURATION, HSV_VALUE);
+            return "#" + componentToHex(rgbArray[0]) + componentToHex(rgbArray[1]) + componentToHex(rgbArray[2]);
+        }
+        toolbox.hueToRgb = hueToRgb;
+        /**
+         * Converts an HSV triplet to an RGB array.  V is brightness because b is
+         *   reserved for blue in RGB.
+         * Closure's HSV to RGB function: https://github.com/google/closure-library/blob/master/closure/goog/color/color.js#L613
+         */
+        function hsvToRgb(h, s, brightness) {
+            var red = 0;
+            var green = 0;
+            var blue = 0;
+            if (s == 0) {
+                red = brightness;
+                green = brightness;
+                blue = brightness;
+            }
+            else {
+                var sextant = Math.floor(h / 60);
+                var remainder = (h / 60) - sextant;
+                var val1 = brightness * (1 - s);
+                var val2 = brightness * (1 - (s * remainder));
+                var val3 = brightness * (1 - (s * (1 - remainder)));
+                switch (sextant) {
+                    case 1:
+                        red = val2;
+                        green = brightness;
+                        blue = val1;
+                        break;
+                    case 2:
+                        red = val1;
+                        green = brightness;
+                        blue = val3;
+                        break;
+                    case 3:
+                        red = val1;
+                        green = val2;
+                        blue = brightness;
+                        break;
+                    case 4:
+                        red = val3;
+                        green = val1;
+                        blue = brightness;
+                        break;
+                    case 5:
+                        red = brightness;
+                        green = val1;
+                        blue = val2;
+                        break;
+                    case 6:
+                    case 0:
+                        red = brightness;
+                        green = val3;
+                        blue = val1;
+                        break;
+                }
+            }
+            return [Math.floor(red), Math.floor(green), Math.floor(blue)];
+        }
+        function componentToHex(c) {
+            var hex = c.toString(16);
+            return hex.length == 1 ? "0" + hex : hex;
+        }
         function fadeColor(hex, luminosity, lighten) {
             // #ABC => ABC
             hex = hex.replace(/[^0-9a-f]/gi, '');
@@ -12451,6 +12675,13 @@ var ts;
                     if (pxtc.U.endsWith(s, "+1")) {
                         return this.parseOneInt(s.slice(0, s.length - 2)) + 1;
                     }
+                    var shm = /(.*)>>(\d+)$/.exec(s);
+                    if (shm) {
+                        var left = this.parseOneInt(shm[1]);
+                        var mask = this.baseOffset & ~0xffffff;
+                        left &= ~mask;
+                        return left >> parseInt(shm[2]);
+                    }
                     // handle hexadecimal and binary encodings
                     if (s[0] == "0") {
                         if (s[1] == "x" || s[1] == "X") {
@@ -13011,23 +13242,28 @@ var ts;
                     var _this = this;
                     if (numStmts === void 0) { numStmts = 1; }
                     if (flashSize === void 0) { flashSize = 0; }
+                    var lenPrev = 0;
+                    var size = function (lbl) {
+                        var curr = _this.labels[lbl] || lenPrev;
+                        var sz = curr - lenPrev;
+                        lenPrev = curr;
+                        return sz;
+                    };
                     var lenTotal = this.buf ? this.location() : 0;
-                    var lenThumb = this.labels["_program_end"] || lenTotal;
-                    var lenFrag = this.labels["_frag_start"] || 0;
-                    if (lenFrag)
-                        lenFrag = this.labels["_js_end"] - lenFrag;
-                    var lenLit = this.labels["_program_end"];
-                    if (lenLit)
-                        lenLit -= this.labels["_js_end"];
-                    var totalSize = lenTotal + this.baseOffset;
+                    var lenCode = size("_code_end");
+                    var lenHelpers = size("_helpers_end");
+                    var lenVtables = size("_vtables_end");
+                    var lenLiterals = size("_literals_end");
+                    var lenAllCode = lenPrev;
+                    var totalSize = (lenTotal + this.baseOffset) & 0xffffff;
                     if (flashSize && totalSize > flashSize)
                         pxtc.U.userError(lf("program too big by {0} bytes!", totalSize - flashSize));
                     flashSize = flashSize || 128 * 1024;
                     var totalInfo = lf("; total bytes: {0} ({1}% of {2}k flash with {3} free)", totalSize, (100 * totalSize / flashSize).toFixed(1), (flashSize / 1024).toFixed(1), flashSize - totalSize);
                     var res = 
                     // ARM-specific
-                    lf("; code sizes (bytes): {0} (incl. {1} frags, and {2} lits); src size {3}\n", lenThumb, lenFrag, lenLit, lenTotal - lenThumb) +
-                        lf("; assembly: {0} lines; density: {1} bytes/stmt\n", this.lines.length, Math.round(100 * (lenThumb - lenLit) / numStmts) / 100) +
+                    lf("; generated code sizes (bytes): {0} (incl. {1} user, {2} helpers, {3} vtables, {4} lits); src size {5}\n", lenAllCode, lenCode, lenHelpers, lenVtables, lenLiterals, lenTotal - lenAllCode) +
+                        lf("; assembly: {0} lines; density: {1} bytes/stmt; ({2} stmts)\n", this.lines.length, Math.round(100 * lenCode / numStmts) / 100, numStmts) +
                         totalInfo + "\n" +
                         this.stats + "\n\n";
                     var skipOne = false;
@@ -13480,7 +13716,7 @@ var pxt;
         var MARKDOWN_EXPIRATION = 1 * 60 * 60 * 1000;
         function markdownAsync(docid, locale, live) {
             var branch = "";
-            return ts.pxtc.Util.translationDbAsync()
+            return pxt.BrowserUtils.translationDbAsync()
                 .then(function (db) { return db.getAsync(locale, docid, "")
                 .then(function (entry) {
                 if (entry && Date.now() - entry.time > MARKDOWN_EXPIRATION)

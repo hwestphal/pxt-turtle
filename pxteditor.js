@@ -10,6 +10,7 @@ var pxt;
         })(FilterState = editor.FilterState || (editor.FilterState = {}));
         editor.initExtensionsAsync = function (opts) { return Promise.resolve({}); };
         editor.initFieldExtensionsAsync = function (opts) { return Promise.resolve({}); };
+        editor.HELP_IMAGE_URI = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjYiIGhlaWdodD0iMjYiIHZpZXdCb3g9IjAgMCAyNiAyNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTMiIGN5PSIxMyIgcj0iMTMiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xNy45NTIgOS4xODQwMkMxNy45NTIgMTAuMjU2IDE3LjgxNiAxMS4wNzIgMTcuNTQ0IDExLjYzMkMxNy4yODggMTIuMTkyIDE2Ljc1MiAxMi43OTIgMTUuOTM2IDEzLjQzMkMxNS4xMiAxNC4wNzIgMTQuNTc2IDE0LjU4NCAxNC4zMDQgMTQuOTY4QzE0LjA0OCAxNS4zMzYgMTMuOTIgMTUuNzM2IDEzLjkyIDE2LjE2OFYxNi45NkgxMS44MDhDMTEuNDI0IDE2LjQ2NCAxMS4yMzIgMTUuODQgMTEuMjMyIDE1LjA4OEMxMS4yMzIgMTQuNjg4IDExLjM4NCAxNC4yODggMTEuNjg4IDEzLjg4OEMxMS45OTIgMTMuNDg4IDEyLjUzNiAxMi45NjggMTMuMzIgMTIuMzI4QzE0LjEwNCAxMS42NzIgMTQuNjI0IDExLjE2OCAxNC44OCAxMC44MTZDMTUuMTM2IDEwLjQ0OCAxNS4yNjQgOS45NjgwMiAxNS4yNjQgOS4zNzYwMkMxNS4yNjQgOC4yMDgwMiAxNC40MTYgNy42MjQwMiAxMi43MiA3LjYyNDAyQzExLjc2IDcuNjI0MDIgMTAuNzUyIDcuNzM2MDIgOS42OTYgNy45NjAwMkw5LjE0NCA4LjA4MDAyTDkgNi4wODgwMkMxMC40ODggNS41NjAwMiAxMS44NCA1LjI5NjAyIDEzLjA1NiA1LjI5NjAyQzE0LjczNiA1LjI5NjAyIDE1Ljk2OCA1LjYwODAyIDE2Ljc1MiA2LjIzMjAyQzE3LjU1MiA2Ljg0MDAyIDE3Ljk1MiA3LjgyNDAyIDE3Ljk1MiA5LjE4NDAyWk0xMS40IDIyVjE4LjY0SDE0LjE4NFYyMkgxMS40WiIgZmlsbD0iIzU5NUU3NCIvPgo8L3N2Zz4K';
     })(editor = pxt.editor || (pxt.editor = {}));
 })(pxt || (pxt = {}));
 var pxt;
@@ -56,7 +57,7 @@ var pxt;
                 }
                 else if (allowEditorMessages) {
                     // Messages sent to the editor from the parent frame
-                    var p_1 = Promise.resolve();
+                    var p = Promise.resolve();
                     var resp_1 = undefined;
                     if (data.type == "pxthost") {
                         var req_1 = pendingRequests[data.id];
@@ -64,97 +65,88 @@ var pxt;
                             pxt.debug("pxthost: unknown request " + data.id);
                         }
                         else {
-                            p_1 = p_1.then(function () { return req_1.resolve(data); });
+                            p = p.then(function () { return req_1.resolve(data); });
                         }
                     }
                     else if (data.type == "pxteditor") {
-                        getEditorAsync().then(function (projectView) {
-                            var req = data;
-                            pxt.debug("pxteditor: " + req.action);
-                            switch (req.action.toLowerCase()) {
-                                case "switchjavascript":
-                                    p_1 = p_1.then(function () { return projectView.openJavaScript(); });
-                                    break;
-                                case "switchblocks":
-                                    p_1 = p_1.then(function () { return projectView.openBlocks(); });
-                                    break;
-                                case "startsimulator":
-                                    p_1 = p_1.then(function () { return projectView.startSimulator(); });
-                                    break;
-                                case "restartsimulator":
-                                    p_1 = p_1.then(function () { return projectView.restartSimulator(); });
-                                    break;
-                                case "hidesimulator":
-                                    p_1 = p_1.then(function () { return projectView.collapseSimulator(); });
-                                    break;
-                                case "showsimulator":
-                                    p_1 = p_1.then(function () { return projectView.expandSimulator(); });
-                                    break;
-                                case "closeflyout":
-                                    p_1 = p_1.then(function () { return projectView.closeFlyout(); });
-                                    break;
-                                case "redo":
-                                    p_1 = p_1.then(function () {
+                        p = p.then(function () {
+                            return getEditorAsync().then(function (projectView) {
+                                var req = data;
+                                pxt.debug("pxteditor: " + req.action);
+                                switch (req.action.toLowerCase()) {
+                                    case "switchjavascript": return Promise.resolve().then(function () { return projectView.openJavaScript(); });
+                                    case "switchblocks": return Promise.resolve().then(function () { return projectView.openBlocks(); });
+                                    case "startsimulator": return Promise.resolve().then(function () { return projectView.startSimulator(); });
+                                    case "restartsimulator": return Promise.resolve().then(function () { return projectView.restartSimulator(); });
+                                    case "hidesimulator": return Promise.resolve().then(function () { return projectView.collapseSimulator(); });
+                                    case "showsimulator": return Promise.resolve().then(function () { return projectView.expandSimulator(); });
+                                    case "closeflyout": return Promise.resolve().then(function () { return projectView.closeFlyout(); });
+                                    case "redo": return Promise.resolve()
+                                        .then(function () {
                                         var editor = projectView.editor;
                                         if (editor && editor.hasRedo())
                                             editor.redo();
                                     });
-                                    break;
-                                case "undo":
-                                    p_1 = p_1.then(function () {
+                                    case "undo": return Promise.resolve()
+                                        .then(function () {
                                         var editor = projectView.editor;
                                         if (editor && editor.hasUndo())
                                             editor.undo();
                                     });
-                                    break;
-                                case "setscale": {
-                                    var zoommsg_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.editor.setScale(zoommsg_1.scale); });
-                                    break;
+                                    case "setscale": {
+                                        var zoommsg_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.editor.setScale(zoommsg_1.scale); });
+                                    }
+                                    case "stopsimulator": {
+                                        var stop_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.stopSimulator(stop_1.unload); });
+                                    }
+                                    case "newproject": {
+                                        var create_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.newProject(create_1.options); });
+                                    }
+                                    case "importproject": {
+                                        var load_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.importProjectAsync(load_1.project, {
+                                            filters: load_1.filters,
+                                            searchBar: load_1.searchBar
+                                        }); });
+                                    }
+                                    case "proxytosim": {
+                                        var simmsg_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.proxySimulatorMessage(simmsg_1.content); });
+                                    }
+                                    case "renderblocks": {
+                                        var rendermsg_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.renderBlocksAsync(rendermsg_1); })
+                                            .then(function (r) {
+                                            return r.xml.then(function (svg) {
+                                                resp_1 = svg.xml;
+                                            });
+                                        });
+                                    }
+                                    case "toggletrace": {
+                                        var togglemsg_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.toggleTrace(togglemsg_1.intervalSpeed); });
+                                    }
+                                    case "settracestate": {
+                                        var trcmsg_1 = data;
+                                        return Promise.resolve()
+                                            .then(function () { return projectView.setTrace(trcmsg_1.enabled, trcmsg_1.intervalSpeed); });
+                                    }
                                 }
-                                case "stopsimulator": {
-                                    var stop_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.stopSimulator(stop_1.unload); });
-                                    break;
-                                }
-                                case "newproject": {
-                                    var create_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.newProject(create_1.options); });
-                                    break;
-                                }
-                                case "importproject": {
-                                    var load_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.importProjectAsync(load_1.project, {
-                                        filters: load_1.filters,
-                                        searchBar: load_1.searchBar
-                                    }); });
-                                    break;
-                                }
-                                case "proxytosim": {
-                                    var simmsg_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.proxySimulatorMessage(simmsg_1.content); });
-                                    break;
-                                }
-                                case "renderblocks": {
-                                    var rendermsg_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.renderBlocksAsync(rendermsg_1); })
-                                        .then(function (r) { resp_1 = r.xml; });
-                                    break;
-                                }
-                                case "toggletrace": {
-                                    var togglemsg_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.toggleTrace(togglemsg_1.intervalSpeed); });
-                                    break;
-                                }
-                                case "settracestate": {
-                                    var trcmsg_1 = data;
-                                    p_1 = p_1.then(function () { return projectView.setTrace(trcmsg_1.enabled, trcmsg_1.intervalSpeed); });
-                                    break;
-                                }
-                            }
+                                return Promise.resolve();
+                            });
                         });
                     }
-                    p_1.done(function () { return sendResponse(data, resp_1, true, undefined); }, function (err) { return sendResponse(data, resp_1, false, err); });
+                    p.done(function () { return sendResponse(data, resp_1, true, undefined); }, function (err) { return sendResponse(data, resp_1, false, err); });
                 }
                 return true;
             }, false);

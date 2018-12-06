@@ -257,35 +257,24 @@ var pxt;
                 r.push($h);
             // inject container
             $container.replaceWith(r);
-            // download screenshots
-            if (options.downloadScreenshots && woptions.hexname) {
-                pxt.debug("Downloading screenshot for: " + woptions.hexname);
-                var filename_1 = woptions.hexname.substr(0, woptions.hexname.lastIndexOf('.'));
-                var fontSize = window.getComputedStyle($svg.get(0).getElementsByClassName("blocklyText").item(0)).getPropertyValue("font-size");
-                var svgElement = $svg.get(0);
-                var bbox = $svg.get(0).getBoundingClientRect();
-                pxt.blocks.layout.svgToPngAsync(svgElement, 0, 0, bbox.width, bbox.height, 4)
-                    .done(function (uri) {
-                    if (uri)
-                        pxt.BrowserUtils.browserDownloadDataUri(uri, (name || (pxt.appTarget.nickname || pxt.appTarget.id) + "-" + filename_1) + ".png");
-                });
-            }
         }
         var renderQueue = [];
         function consumeRenderQueueAsync() {
             var job = renderQueue.shift();
             if (!job)
                 return Promise.resolve(); // done
-            var el = job.el, options = job.options, render = job.render, cls = job.cls;
+            var el = job.el, options = job.options, render = job.render;
             return pxt.runner.decompileToBlocksAsync(el.text(), options)
                 .then(function (r) {
-                try {
-                    render(el, r);
-                }
-                catch (e) {
-                    console.error('error while rendering ' + el.html());
-                    el.append($('<div/>').addClass("ui segment warning").text(e.message));
-                }
+                var errors = r.compileJS && r.compileJS.diagnostics && r.compileJS.diagnostics.filter(function (d) { return d.category == pxtc.DiagnosticCategory.Error; });
+                if (errors && errors.length)
+                    errors.forEach(function (diag) { return pxt.reportError("docs.decompile", "" + diag.messageText, { "code": diag.code + "" }); });
+                render(el, r);
+                el.removeClass("lang-shadow");
+                return consumeRenderQueueAsync();
+            }).catch(function (e) {
+                pxt.reportException(e);
+                el.append($('<div/>').addClass("ui segment warning").text(e.message));
                 el.removeClass("lang-shadow");
                 return consumeRenderQueueAsync();
             });
@@ -301,7 +290,7 @@ var pxt;
             if (!options.layout)
                 options.layout = pxt.blocks.BlockLayout.Align;
             options.splitSvg = true;
-            renderQueue.push({ el: $el, source: $el.text(), options: options, render: render, cls: cls });
+            renderQueue.push({ el: $el, source: $el.text(), options: options, render: render });
             $el.addClass("lang-shadow");
             $el.removeClass(cls);
             return renderNextSnippetAsync(cls, render, options);
@@ -395,7 +384,7 @@ var pxt;
                         render($el, r);
                     }
                     catch (e) {
-                        console.error('error while rendering ' + $el.html());
+                        pxt.reportException(e);
                         $el.append($('<div/>').addClass("ui segment warning").text(e.message));
                     }
                     $el.removeClass(cls);
@@ -434,7 +423,7 @@ var pxt;
             })
                 .then(function (nsStyleBuffer) {
                 Object.keys(pxt.toolbox.blockColors).forEach(function (ns) {
-                    var color = pxt.toolbox.blockColors[ns];
+                    var color = pxt.toolbox.getNamespaceColor(ns);
                     nsStyleBuffer += "\n                        span.docs." + ns.toLowerCase() + " {\n                            background-color: " + color + " !important;\n                            border-color: " + pxt.toolbox.fadeColor(color, 0.1, false) + " !important;\n                        }\n                    ";
                 });
                 return nsStyleBuffer;
@@ -701,6 +690,7 @@ var pxt;
                             })
                                 .catch(function (e) {
                                 // swallow
+                                pxt.reportException(e);
                                 pxt.debug("failed to load repo " + card.url);
                             });
                         }
@@ -725,7 +715,7 @@ var pxt;
                 cards = js;
             }
             catch (e) {
-                console.error('error while rendering ' + $el.html());
+                pxt.reportException(e);
                 $el.append($('<div/>').addClass("ui segment warning").text(e.messageText));
             }
             if (options.snippetReplaceParent)
@@ -806,6 +796,7 @@ var pxt;
             });
         }
         function renderAsync(options) {
+            pxt.analytics.enable();
             if (!options)
                 options = {};
             if (options.pxtUrl)
@@ -1375,11 +1366,9 @@ var pxt;
                     md += "```" + f.substr(f.indexOf('.')) + "\n" + files[f] + "\n```\n";
                 }
             });
-            if (cfg && cfg.dependencies && pxt.Util.values(cfg.dependencies).some(function (v) { return v != '*'; })) {
-                md += "\n## " + lf("Extensions") + "\n\n" + Object.keys(cfg.dependencies)
-                    .filter(function (k) { return k != pxt.appTarget.corepkg; })
-                    .map(function (k) { return "* " + k + ", " + cfg.dependencies[k]; })
-                    .join('\n') + "\n\n```package\n" + Object.keys(cfg.dependencies).map(function (k) { return k + "=" + cfg.dependencies[k]; }).join('\n') + "\n```\n";
+            var deps = cfg && cfg.dependencies && Object.keys(cfg.dependencies).filter(function (k) { return k != pxt.appTarget.corepkg; });
+            if (deps && deps.length) {
+                md += "\n## " + lf("Extensions") + " #extensions\n\n" + deps.map(function (k) { return "* " + k + ", " + cfg.dependencies[k]; }).join('\n') + "\n\n```package\n" + deps.map(function (k) { return k + "=" + cfg.dependencies[k]; }).join('\n') + "\n```\n";
             }
             if (projectid) {
                 var linkString = (pxt.appTarget.appTheme.shareUrl || "https://makecode.com/") + projectid;
@@ -1389,6 +1378,7 @@ var pxt;
                 }
                 md += "\n" + linkString + "\n\n";
             }
+            console.debug("print md: " + md);
             var options = {
                 print: true
             };

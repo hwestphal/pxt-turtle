@@ -264,7 +264,7 @@ var pxsim;
          * @param text text to print, eg: "Hello World"
          */
         //% weight=20
-        //- blockId=turtlePrintAndMove block="print %text and move forward"
+        //% blockId=turtlePrintAndMove block="print %text and move forward"
         function printAndMoveAsync(text) {
             return __awaiter(this, void 0, void 0, function () {
                 return __generator(this, function (_a) {
@@ -283,7 +283,7 @@ var pxsim;
          * @param text text to print, eg: "Hello World"
          */
         //% weight=25
-        //- blockId=turtlePrint block="print %text"
+        //% blockId=turtlePrint block="print %text"
         function printAsync(text) {
             return __awaiter(this, void 0, void 0, function () {
                 return __generator(this, function (_a) {
@@ -344,7 +344,7 @@ var pxsim;
          * Return the current date and time as seconds since epoch
          */
         //% weight=80
-        //- blockId=timeNow block="current date and time"
+        //% blockId=timeNow block="current date and time"
         function now() {
             return Math.floor(Date.now() / 1000);
         }
@@ -354,7 +354,7 @@ var pxsim;
          * @param ts timestamp
          */
         //% weight=78
-        //- blockId=timeYear block="year of %ts"
+        //% blockId=timeYear block="year of %ts"
         function year(ts) {
             return asDate(ts).getFullYear();
         }
@@ -364,7 +364,7 @@ var pxsim;
          * @param ts timestamp
          */
         //% weight=77
-        //- blockId=timeMonth block="month of %ts"
+        //% blockId=timeMonth block="month of %ts"
         function month(ts) {
             return asDate(ts).getMonth() + 1;
         }
@@ -374,7 +374,7 @@ var pxsim;
          * @param ts timestamp
          */
         //% weight=76
-        //- blockId=timeDay block="day of %ts"
+        //% blockId=timeDay block="day of %ts"
         function day(ts) {
             return asDate(ts).getDate();
         }
@@ -384,7 +384,7 @@ var pxsim;
          * @param ts timestamp
          */
         //% weight=75
-        //- blockId=timeHours block="hours of %ts"
+        //% blockId=timeHours block="hours of %ts"
         function hours(ts) {
             return asDate(ts).getHours();
         }
@@ -394,7 +394,7 @@ var pxsim;
          * @param ts timestamp
          */
         //% weight=74
-        //- blockId=timeMinutes block="minutes of %ts"
+        //% blockId=timeMinutes block="minutes of %ts"
         function minutes(ts) {
             return asDate(ts).getMinutes();
         }
@@ -404,7 +404,7 @@ var pxsim;
          * @param ts timestamp
          */
         //% weight=73
-        //- blockId=timeSeconds block="seconds of %ts"
+        //% blockId=timeSeconds block="seconds of %ts"
         function seconds(ts) {
             return asDate(ts).getSeconds();
         }
