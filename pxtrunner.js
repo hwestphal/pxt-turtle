@@ -46,7 +46,7 @@ var pxt;
             };
             DebugRunner.prototype.initializeWebsocket = function () {
                 var _this = this;
-                if (!pxt.Cloud.isLocalHost() || !pxt.Cloud.localToken)
+                if (!pxt.BrowserUtils.isLocalHost() || !pxt.Cloud.localToken)
                     return;
                 pxt.debug('initializing debug pipe');
                 this.ws = new WebSocket('ws://localhost:3234/' + pxt.Cloud.localToken + '/simdebug');
@@ -165,74 +165,75 @@ var pxt;
 (function (pxt) {
     var runner;
     (function (runner) {
+        var JS_ICON = "icon xicon js";
+        var PY_ICON = "icon xicon python";
+        var BLOCKS_ICON = "icon xicon blocks";
         function appendBlocks($parent, $svg) {
             $parent.append($('<div class="ui content blocks"/>').append($svg));
         }
-        function appendJs($parent, $js, woptions) {
-            $parent.append($('<div class="ui content js"/>').append($js));
-            if (typeof hljs !== "undefined")
-                $js.find('code.highlight').each(function (i, block) {
-                    hljs.highlightBlock(block);
-                });
+        function highlight($js) {
+            if (typeof hljs !== "undefined") {
+                if ($js.hasClass("highlight"))
+                    hljs.highlightBlock($js[0]);
+                else
+                    $js.find('code.highlight').each(function (i, block) {
+                        hljs.highlightBlock(block);
+                    });
+            }
         }
-        function fillWithWidget(options, $container, $js, $svg, decompileResult, woptions) {
+        function appendJs($parent, $js, woptions) {
+            $parent.append($('<div class="ui content js"><div><i class="ui icon xicon js"/>JavaScript</div></div>').append($js));
+            highlight($js);
+        }
+        function appendPy($parent, $py, woptions) {
+            $parent.append($('<div class="ui content py"><div><i class="ui icon xicon python"/>Python</div></div>').append($py));
+            highlight($py);
+        }
+        function snippetBtn(label, icon) {
+            var $btn = $("<a class=\"item\" role=\"button\" tabindex=\"0\"><i role=\"presentation\" aria-hidden=\"true\"></i><span class=\"ui desktop only\"></span></a>");
+            $btn.attr("aria-label", label);
+            $btn.attr("title", label);
+            $btn.find('i').attr("class", icon);
+            $btn.find('span').text(label);
+            return $btn;
+        }
+        function fillWithWidget(options, $container, $js, $py, $svg, decompileResult, woptions) {
             if (woptions === void 0) { woptions = {}; }
-            var cdn = pxt.webConfig.commitCdnUrl;
-            var images = cdn + "images";
             var $h = $('<div class="ui bottom attached tabular icon small compact menu hideprint">'
                 + ' <div class="right icon menu"></div></div>');
             var $c = $('<div class="ui top attached segment codewidget"></div>');
             var $menu = $h.find('.right.menu');
             var theme = pxt.appTarget.appTheme || {};
-            if (woptions.showEdit && !theme.hideDocsEdit) {
-                var $editBtn = $("<a class=\"item\" role=\"button\" tabindex=\"0\" aria-label=\"" + lf("edit") + "\"><i role=\"presentation\" aria-hidden=\"true\" class=\"edit icon\"></i></a>").click(function () {
-                    decompileResult.package.compressToFileAsync(options.showJavaScript ? pxt.JAVASCRIPT_PROJECT_NAME : pxt.BLOCKS_PROJECT_NAME)
+            if (woptions.showEdit && !theme.hideDocsEdit && decompileResult) {
+                var $editBtn = snippetBtn(lf("Edit"), "edit icon").click(function () {
+                    pxt.tickEvent("docs.btn", { button: "edit" });
+                    decompileResult.package.setPreferredEditor(options.showJavaScript ? pxt.JAVASCRIPT_PROJECT_NAME : pxt.BLOCKS_PROJECT_NAME);
+                    decompileResult.package.compressToFileAsync()
                         .done(function (buf) { return window.open(getEditUrl(options) + "/#project:" + ts.pxtc.encodeBase64(pxt.Util.uint8ArrayToString(buf)), 'pxt'); });
                 });
                 $menu.append($editBtn);
             }
-            if (options.showJavaScript || !$svg) {
-                // blocks
+            if (options.showJavaScript || (!$svg && !$py)) {
+                // js
                 $c.append($js);
-                // js menu
-                if ($svg) {
-                    var $svgBtn = $("<a class=\"item blocks\" role=\"button\" tabindex=\"0\" aria-label=\"" + lf("Blocks") + "\"><i role=\"presentation\" aria-hidden=\"true\" class=\"puzzle icon\"></i></a>").click(function () {
-                        if ($c.find('.blocks')[0])
-                            $c.find('.blocks').remove();
-                        else {
-                            if ($js)
-                                appendBlocks($js.parent(), $svg);
-                            else
-                                appendBlocks($c, $svg);
-                        }
-                    });
-                    $menu.append($svgBtn);
-                }
+                appendBlocksButton();
+                appendPyButton();
             }
-            else {
+            else if ($svg) {
                 // blocks
                 $c.append($svg);
-                // js menu
-                if (woptions.showJs) {
-                    appendJs($c, $js, woptions);
-                }
-                else {
-                    var $jsBtn = $("<a class=\"item js\" role=\"button\" tabindex=\"0\" aria-label=\"" + lf("JavaScript") + "\"><i role=\"presentation\" aria-hidden=\"true\" class=\"align left icon\"></i></a>").click(function () {
-                        if ($c.find('.js')[0])
-                            $c.find('.js').remove();
-                        else {
-                            if ($svg)
-                                appendJs($svg.parent(), $js, woptions);
-                            else
-                                appendJs($c, $js, woptions);
-                        }
-                    });
-                    $menu.append($jsBtn);
-                }
+                appendJsButton();
+                appendPyButton();
+            }
+            else if ($py) {
+                $c.append($py);
+                appendBlocksButton();
+                appendJsButton();
             }
             // runner menu
             if (woptions.run && !theme.hideDocsSimulator) {
-                var $runBtn = $("<a class=\"item\" role=\"button\" tabindex=\"0\" aria-label=\"" + lf("run") + "\"><i role=\"presentation\" aria-hidden=\"true\" class=\"play icon\"></i></a>").click(function () {
+                var $runBtn = snippetBtn(lf("Run"), "play icon").click(function () {
+                    pxt.tickEvent("docs.btn", { button: "sim" });
                     if ($c.find('.sim')[0])
                         $c.find('.sim').remove(); // remove previous simulators
                     else {
@@ -246,7 +247,8 @@ var pxt;
                 $menu.append($runBtn);
             }
             if (woptions.hexname && woptions.hex) {
-                var $hexBtn = $("<a class=\"item\" role=\"button\" tabindex=\"0\" aria-label=\"" + lf("download") + "\"><i role=\"presentation\" aria-hidden=\"true\" class=\"download icon\"></i></a>").click(function () {
+                var $hexBtn = snippetBtn(lf("Download"), "download icon").click(function () {
+                    pxt.tickEvent("docs.btn", { button: "hex" });
                     pxt.BrowserUtils.browserDownloadBinText(woptions.hex, woptions.hexname, pxt.appTarget.compile.hexMimeType);
                 });
                 $menu.append($hexBtn);
@@ -257,6 +259,63 @@ var pxt;
                 r.push($h);
             // inject container
             $container.replaceWith(r);
+            function appendBlocksButton() {
+                if (!$svg)
+                    return;
+                var $svgBtn = snippetBtn(lf("Blocks"), BLOCKS_ICON).click(function () {
+                    pxt.tickEvent("docs.btn", { button: "blocks" });
+                    if ($c.find('.blocks')[0])
+                        $c.find('.blocks').remove();
+                    else {
+                        if ($js)
+                            appendBlocks($js.parent(), $svg);
+                        else
+                            appendBlocks($c, $svg);
+                    }
+                });
+                $menu.append($svgBtn);
+            }
+            function appendJsButton() {
+                if (!$js)
+                    return;
+                if (woptions.showJs)
+                    appendJs($c, $js, woptions);
+                else {
+                    var $jsBtn = snippetBtn("JavaScript", JS_ICON).click(function () {
+                        pxt.tickEvent("docs.btn", { button: "js" });
+                        if ($c.find('.js')[0])
+                            $c.find('.js').remove();
+                        else {
+                            if ($svg)
+                                appendJs($svg.parent(), $js, woptions);
+                            else
+                                appendJs($c, $js, woptions);
+                        }
+                    });
+                    $menu.append($jsBtn);
+                }
+            }
+            function appendPyButton() {
+                if (!$py)
+                    return;
+                if (woptions.showPy) {
+                    appendPy($c, $py, woptions);
+                }
+                else {
+                    var $pyBtn = snippetBtn("Python", PY_ICON).click(function () {
+                        pxt.tickEvent("docs.btn", { button: "py" });
+                        if ($c.find('.py')[0])
+                            $c.find('.py').remove();
+                        else {
+                            if ($svg)
+                                appendPy($svg.parent(), $py, woptions);
+                            else
+                                appendPy($c, $py, woptions);
+                        }
+                    });
+                    $menu.append($pyBtn);
+                }
+            }
         }
         var renderQueue = [];
         function consumeRenderQueueAsync() {
@@ -309,7 +368,9 @@ var pxt;
             var snippetCount = 0;
             return renderNextSnippetAsync(options.snippetClass, function (c, r) {
                 var s = r.compileBlocks && r.compileBlocks.success ? $(r.blocksSvg) : undefined;
+                var p = r.compilePython && r.compilePython.success && r.compilePython.outfiles["main.py"];
                 var js = $('<code class="lang-typescript highlight"/>').text(c.text().trim());
+                var py = p ? $('<code class="lang-python highlight"/>').text(p.trim()) : undefined;
                 if (options.snippetReplaceParent)
                     c = c.parent();
                 var compiled = r.compileJS && r.compileJS.success;
@@ -317,9 +378,9 @@ var pxt;
                 var hex = options.hex && compiled && r.compileJS.outfiles[pxtc.BINARY_HEX]
                     ? r.compileJS.outfiles[pxtc.BINARY_HEX] : undefined;
                 var hexname = (pxt.appTarget.nickname || pxt.appTarget.id) + "-" + (options.hexName || '') + "-" + snippetCount++ + ".hex";
-                fillWithWidget(options, c, js, s, r, {
+                fillWithWidget(options, c, js, py, s, r, {
                     showEdit: options.showEdit,
-                    run: options.simulator && compiled,
+                    run: options.simulator,
                     hexname: hexname,
                     hex: hex,
                 });
@@ -337,10 +398,10 @@ var pxt;
         }
         function renderSignaturesAsync(options) {
             return renderNextSnippetAsync(options.signatureClass, function (c, r) {
-                var cjs = r.compileJS;
+                var cjs = r.compileProgram;
                 if (!cjs)
                     return;
-                var file = r.compileJS.ast.getSourceFile("main.ts");
+                var file = cjs.getSourceFile("main.ts");
                 var info = decompileCallInfo(file.statements[0]);
                 if (!info || !r.apiInfo)
                     return;
@@ -353,9 +414,11 @@ var pxt;
                 var sig = info.decl.getText().replace(/^export/, '');
                 sig = sig.slice(0, sig.indexOf('{')).trim() + ';';
                 var js = $('<code class="lang-typescript highlight"/>').text(sig);
+                // TODO python
+                var py = undefined; // $('<code class="lang-python highlight"/>').text(sig);
                 if (options.snippetReplaceParent)
                     c = c.parent();
-                fillWithWidget(options, c, js, s, r, { showJs: true, hideGutter: true });
+                fillWithWidget(options, c, js, py, s, r, { showJs: true, showPy: true, hideGutter: true });
             }, { package: options.package, snippetMode: true, aspectRatio: options.blocksAspectRatio });
         }
         function renderBlocksAsync(options) {
@@ -366,6 +429,20 @@ var pxt;
                 var segment = $('<div class="ui segment codewidget"/>').append(s);
                 c.replaceWith(segment);
             }, { package: options.package, snippetMode: true, aspectRatio: options.blocksAspectRatio });
+        }
+        function renderStaticPythonAsync(options) {
+            var woptions = {
+                showEdit: !!options.showEdit,
+                run: !!options.simulator
+            };
+            return renderNextSnippetAsync(options.staticPythonClass, function (c, r) {
+                var s = r.compilePython;
+                if (s && s.success) {
+                    var $js = c.clone().removeClass('lang-shadow').addClass('lang-typescript');
+                    var $py = c.clone().removeClass('lang-shadow').addClass('lang-python').text(s.outfiles["main.py"]);
+                    fillWithWidget(options, c.parent(), /* js */ $js, /* py */ $py, /* svg */ undefined, r, woptions);
+                }
+            }, { package: options.package, snippetMode: true });
         }
         function renderBlocksXmlAsync(opts) {
             if (!opts.blocksXmlClass)
@@ -466,7 +543,7 @@ var pxt;
                     .then(function (r) {
                     if (r.blocksSvg) {
                         var $newel = $('<span class="block"/>').append(r.blocksSvg);
-                        var file = r.compileJS.ast.getSourceFile("main.ts");
+                        var file = r.compileProgram.getSourceFile("main.ts");
                         var stmt = file.statements[0];
                         var info = decompileCallInfo(stmt);
                         if (info && r.apiInfo) {
@@ -511,10 +588,10 @@ var pxt;
         }
         function renderLinksAsync(options, cls, replaceParent, ns) {
             return renderNextSnippetAsync(cls, function (c, r) {
-                var cjs = r.compileJS;
+                var cjs = r.compileProgram;
                 if (!cjs)
                     return;
-                var file = r.compileJS.ast.getSourceFile("main.ts");
+                var file = cjs.getSourceFile("main.ts");
                 var stmts = file.statements.slice(0);
                 var ul = $('<div />').addClass('ui cards');
                 ul.attr("role", "listbox");
@@ -764,7 +841,7 @@ var pxt;
                     opts.run = false;
                     opts.showEdit = false;
                 }
-                fillWithWidget(options, $(e).parent(), $(e), undefined, undefined, opts);
+                fillWithWidget(options, $(e).parent(), $(e), /* py */ undefined, /* JQuery */ undefined, /* decompileResult */ undefined, opts);
             }
             $('code.lang-typescript').each(function (i, e) {
                 render(e, false);
@@ -830,6 +907,7 @@ var pxt;
                 .then(function () { return renderSnippetsAsync(options); })
                 .then(function () { return renderBlocksAsync(options); })
                 .then(function () { return renderBlocksXmlAsync(options); })
+                .then(function () { return renderStaticPythonAsync(options); })
                 .then(function () { return renderProjectAsync(options); })
                 .then(function () { return consumeRenderQueueAsync(); });
         }
@@ -841,6 +919,7 @@ var pxt;
 /// <reference path="../built/pxteditor.d.ts" />
 /// <reference path="../built/pxtcompiler.d.ts" />
 /// <reference path="../built/pxtblocks.d.ts" />
+/// <reference path="../built/pxteditor.d.ts" />
 /// <reference path="../built/pxtsim.d.ts" />
 var pxt;
 (function (pxt) {
@@ -891,6 +970,27 @@ var pxt;
             Host.prototype.cacheGetAsync = function (id) {
                 return Promise.resolve(null);
             };
+            Host.prototype.patchDependencies = function (cfg, name, repoId) {
+                if (!repoId)
+                    return false;
+                // check that the same package hasn't been added yet
+                var repo = pxt.github.parseRepoId(repoId);
+                if (!repo)
+                    return false;
+                for (var _i = 0, _a = Object.keys(cfg.dependencies); _i < _a.length; _i++) {
+                    var k = _a[_i];
+                    var v = cfg.dependencies[k];
+                    var kv = pxt.github.parseRepoId(v);
+                    if (kv && repo.fullName == kv.fullName) {
+                        if (pxt.semver.strcmp(repo.tag, kv.tag) < 0) {
+                            // we have a later tag, use this one
+                            cfg.dependencies[k] = repoId;
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            };
             Host.prototype.downloadPackageAsync = function (pkg) {
                 var _this = this;
                 var proto = pkg.verProtocol();
@@ -914,10 +1014,14 @@ var pxt;
                     else if (proto == "docs") {
                         var files = emptyPrjFiles();
                         var cfg_1 = JSON.parse(files[pxt.CONFIG_NAME]);
+                        // load all dependencies
                         pkg.verArgument().split(',').forEach(function (d) {
                             var m = /^([a-zA-Z0-9_-]+)(=(.+))?$/.exec(d);
-                            if (m)
+                            if (m) {
+                                if (m[3] && _this.patchDependencies(cfg_1, m[1], m[3]))
+                                    return;
                                 cfg_1.dependencies[m[1]] = m[3] || "*";
+                            }
                             else
                                 console.warn("unknown package syntax " + d);
                         });
@@ -926,6 +1030,10 @@ var pxt;
                         cfg_1.yotta.ignoreConflicts = true;
                         files[pxt.CONFIG_NAME] = JSON.stringify(cfg_1, null, 4);
                         epkg.setFiles(files);
+                        return Promise.resolve();
+                    }
+                    else if (proto == "invalid") {
+                        pxt.log("skipping invalid pkg " + pkg.id);
                         return Promise.resolve();
                     }
                     else {
@@ -1169,23 +1277,6 @@ var pxt;
                     break;
             }
         }
-        function initEditorExtensionsAsync() {
-            var promise = Promise.resolve();
-            if (pxt.appTarget.appTheme && pxt.appTarget.appTheme.extendFieldEditors) {
-                var opts_1 = {};
-                promise = promise
-                    .then(function () { return pxt.BrowserUtils.loadBlocklyAsync(); })
-                    .then(function () { return pxt.BrowserUtils.loadScriptAsync("fieldeditors.js"); })
-                    .then(function () { return pxt.editor.initFieldExtensionsAsync(opts_1); })
-                    .then(function (res) {
-                    if (res.fieldEditors)
-                        res.fieldEditors.forEach(function (fi) {
-                            pxt.blocks.registerFieldEditor(fi.selector, fi.editor, fi.validator);
-                        });
-                });
-            }
-            return promise;
-        }
         function startRenderServer() {
             pxt.tickEvent("renderer.ready");
             var jobQueue = [];
@@ -1219,7 +1310,7 @@ var pxt;
                     consumeQueue();
                 });
             }
-            initEditorExtensionsAsync()
+            pxt.editor.initEditorExtensionsAsync()
                 .done(function () {
                 // notify parent that render engine is loaded
                 window.addEventListener("message", function (ev) {
@@ -1325,7 +1416,7 @@ var pxt;
                     p.then(function () { return render(m[1], decodeURIComponent(m[2])); });
                 }
             }
-            var promise = initEditorExtensionsAsync();
+            var promise = pxt.editor.initEditorExtensionsAsync();
             promise.done(function () {
                 window.addEventListener("message", receiveDocMessage, false);
                 window.addEventListener("hashchange", function () {
@@ -1444,6 +1535,7 @@ var pxt;
                 signatureClass: 'lang-sig',
                 blocksClass: 'lang-block',
                 blocksXmlClass: 'lang-blocksxml',
+                staticPythonClass: 'lang-spy',
                 simulatorClass: 'lang-sim',
                 linksClass: 'lang-cards',
                 namespacesClass: 'lang-namespaces',
@@ -1452,6 +1544,7 @@ var pxt;
                 projectClass: 'lang-project',
                 snippetReplaceParent: true,
                 simulator: true,
+                showEdit: true,
                 hex: true,
                 tutorial: !!options.tutorial,
                 showJavaScript: runner.editorLanguageMode == LanguageMode.TypeScript,
@@ -1471,6 +1564,7 @@ var pxt;
             });
         }
         runner.renderMarkdownAsync = renderMarkdownAsync;
+        var programCache;
         function decompileToBlocksAsync(code, options) {
             // code may be undefined or empty!!!
             var packageid = options && options.packageId ? "pub:" + options.packageId :
@@ -1483,28 +1577,44 @@ var pxt;
                 if (code)
                     opts.fileSystem["main.ts"] = code;
                 opts.ast = true;
-                var resp = pxtc.compile(opts);
-                if (resp.diagnostics && resp.diagnostics.length > 0)
-                    resp.diagnostics.forEach(function (diag) { return console.error(diag.messageText); });
-                if (!resp.success)
-                    return Promise.resolve({ package: runner.mainPkg, compileJS: resp });
+                var compileJS = undefined;
+                var program;
+                if (options && options.forceCompilation) {
+                    compileJS = pxtc.compile(opts);
+                    program = compileJS && compileJS.ast;
+                }
+                else {
+                    program = pxtc.getTSProgram(opts, programCache);
+                }
+                programCache = program;
+                var compilePython = undefined;
+                if (pxt.appTarget.appTheme.python)
+                    compilePython = pxt.py.decompileToPython(program, "main.ts");
                 // decompile to blocks
-                var apis = pxtc.getApiInfo(opts, resp.ast);
+                var apis = pxtc.getApiInfo(opts, program);
                 return ts.pxtc.localizeApisAsync(apis, runner.mainPkg)
                     .then(function () {
                     var blocksInfo = pxtc.getBlocksInfo(apis);
                     pxt.blocks.initializeAndInject(blocksInfo);
-                    var bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, resp.ast.getSourceFile("main.ts"), { snippetMode: options && options.snippetMode });
+                    var bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, program.getSourceFile("main.ts"), { snippetMode: options && options.snippetMode });
                     if (bresp.diagnostics && bresp.diagnostics.length > 0)
                         bresp.diagnostics.forEach(function (diag) { return console.error(diag.messageText); });
                     if (!bresp.success)
-                        return { package: runner.mainPkg, compileJS: resp, compileBlocks: bresp, apiInfo: apis };
+                        return {
+                            package: runner.mainPkg,
+                            compileProgram: program,
+                            compileJS: compileJS,
+                            compileBlocks: bresp,
+                            apiInfo: apis
+                        };
                     pxt.debug(bresp.outfiles["main.blocks"]);
                     var blocksSvg = pxt.blocks.render(bresp.outfiles["main.blocks"], options);
                     return {
                         package: runner.mainPkg,
-                        compileJS: resp,
+                        compileProgram: program,
+                        compileJS: compileJS,
                         compileBlocks: bresp,
+                        compilePython: compilePython,
                         apiInfo: apis,
                         blocksSvg: blocksSvg
                     };

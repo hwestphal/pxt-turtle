@@ -2,6 +2,18 @@ var pxt;
 (function (pxt) {
     var editor;
     (function (editor) {
+        var SimState;
+        (function (SimState) {
+            SimState[SimState["Stopped"] = 0] = "Stopped";
+            // waiting to be started
+            SimState[SimState["Pending"] = 1] = "Pending";
+            SimState[SimState["Starting"] = 2] = "Starting";
+            SimState[SimState["Running"] = 3] = "Running";
+        })(SimState = editor.SimState || (editor.SimState = {}));
+        function isBlocks(f) {
+            return pxt.U.endsWith(f.name, ".blocks");
+        }
+        editor.isBlocks = isBlocks;
         var FilterState;
         (function (FilterState) {
             FilterState[FilterState["Hidden"] = 0] = "Hidden";
@@ -11,6 +23,27 @@ var pxt;
         editor.initExtensionsAsync = function (opts) { return Promise.resolve({}); };
         editor.initFieldExtensionsAsync = function (opts) { return Promise.resolve({}); };
         editor.HELP_IMAGE_URI = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjYiIGhlaWdodD0iMjYiIHZpZXdCb3g9IjAgMCAyNiAyNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTMiIGN5PSIxMyIgcj0iMTMiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xNy45NTIgOS4xODQwMkMxNy45NTIgMTAuMjU2IDE3LjgxNiAxMS4wNzIgMTcuNTQ0IDExLjYzMkMxNy4yODggMTIuMTkyIDE2Ljc1MiAxMi43OTIgMTUuOTM2IDEzLjQzMkMxNS4xMiAxNC4wNzIgMTQuNTc2IDE0LjU4NCAxNC4zMDQgMTQuOTY4QzE0LjA0OCAxNS4zMzYgMTMuOTIgMTUuNzM2IDEzLjkyIDE2LjE2OFYxNi45NkgxMS44MDhDMTEuNDI0IDE2LjQ2NCAxMS4yMzIgMTUuODQgMTEuMjMyIDE1LjA4OEMxMS4yMzIgMTQuNjg4IDExLjM4NCAxNC4yODggMTEuNjg4IDEzLjg4OEMxMS45OTIgMTMuNDg4IDEyLjUzNiAxMi45NjggMTMuMzIgMTIuMzI4QzE0LjEwNCAxMS42NzIgMTQuNjI0IDExLjE2OCAxNC44OCAxMC44MTZDMTUuMTM2IDEwLjQ0OCAxNS4yNjQgOS45NjgwMiAxNS4yNjQgOS4zNzYwMkMxNS4yNjQgOC4yMDgwMiAxNC40MTYgNy42MjQwMiAxMi43MiA3LjYyNDAyQzExLjc2IDcuNjI0MDIgMTAuNzUyIDcuNzM2MDIgOS42OTYgNy45NjAwMkw5LjE0NCA4LjA4MDAyTDkgNi4wODgwMkMxMC40ODggNS41NjAwMiAxMS44NCA1LjI5NjAyIDEzLjA1NiA1LjI5NjAyQzE0LjczNiA1LjI5NjAyIDE1Ljk2OCA1LjYwODAyIDE2Ljc1MiA2LjIzMjAyQzE3LjU1MiA2Ljg0MDAyIDE3Ljk1MiA3LjgyNDAyIDE3Ljk1MiA5LjE4NDAyWk0xMS40IDIyVjE4LjY0SDE0LjE4NFYyMkgxMS40WiIgZmlsbD0iIzU5NUU3NCIvPgo8L3N2Zz4K';
+        var _initEditorExtensionsPromise;
+        function initEditorExtensionsAsync() {
+            if (!_initEditorExtensionsPromise) {
+                _initEditorExtensionsPromise = Promise.resolve();
+                if (pxt.appTarget && pxt.appTarget.appTheme && pxt.appTarget.appTheme.extendFieldEditors) {
+                    var opts_1 = {};
+                    _initEditorExtensionsPromise = _initEditorExtensionsPromise
+                        .then(function () { return pxt.BrowserUtils.loadBlocklyAsync(); })
+                        .then(function () { return pxt.BrowserUtils.loadScriptAsync("fieldeditors.js"); })
+                        .then(function () { return pxt.editor.initFieldExtensionsAsync(opts_1); })
+                        .then(function (res) {
+                        if (res.fieldEditors)
+                            res.fieldEditors.forEach(function (fi) {
+                                pxt.blocks.registerFieldEditor(fi.selector, fi.editor, fi.validator);
+                            });
+                    });
+                }
+            }
+            return _initEditorExtensionsPromise;
+        }
+        editor.initEditorExtensionsAsync = initEditorExtensionsAsync;
     })(editor = pxt.editor || (pxt.editor = {}));
 })(pxt || (pxt = {}));
 var pxt;
@@ -75,6 +108,7 @@ var pxt;
                                 pxt.debug("pxteditor: " + req.action);
                                 switch (req.action.toLowerCase()) {
                                     case "switchjavascript": return Promise.resolve().then(function () { return projectView.openJavaScript(); });
+                                    case "switchpython": return Promise.resolve().then(function () { return projectView.openPython(); });
                                     case "switchblocks": return Promise.resolve().then(function () { return projectView.openBlocks(); });
                                     case "startsimulator": return Promise.resolve().then(function () { return projectView.startSimulator(); });
                                     case "restartsimulator": return Promise.resolve().then(function () { return projectView.restartSimulator(); });
@@ -251,7 +285,7 @@ var pxt;
                 });
                 if (experiments.length && Object.keys(r).length) {
                     pxt.tickEvent("experiments.loaded", r);
-                    pxt.setAppTargetVariant(null);
+                    pxt.reloadAppTargetVariant();
                 }
             }
             experiments_1.syncTheme = syncTheme;
@@ -301,6 +335,36 @@ var pxt;
                         name: "Bluetooth Download",
                         description: lf("Download code via Web Bluetooth"),
                         feedbackUrl: "https://github.com/Microsoft/pxt/issues/4807"
+                    },
+                    {
+                        id: "simScreenshot",
+                        name: lf("Simulator Screenshots"),
+                        description: lf("Download screenshots of the simulator"),
+                        feedbackUrl: "https://github.com/Microsoft/pxt/issues/5232"
+                    },
+                    {
+                        id: "python",
+                        name: lf("Static Python"),
+                        description: lf("Use Static Python to code your device"),
+                        feedbackUrl: "https://github.com/Microsoft/pxt/issues/5390"
+                    },
+                    {
+                        id: "simGif",
+                        name: lf("Simulator Gifs"),
+                        description: lf("Download gifs of the simulator"),
+                        feedbackUrl: "https://github.com/Microsoft/pxt/issues/5297"
+                    },
+                    {
+                        id: "autoWebUSBDownload",
+                        name: lf("WebUSB Download"),
+                        description: lf("Automatically try to download via WebUSB"),
+                        feedbackUrl: "https://github.com/Microsoft/pxt/issues/5344"
+                    },
+                    {
+                        id: "qrCode",
+                        name: lf("Shared QR Code"),
+                        description: lf("Generate a QR Code form the shared project url"),
+                        feedbackUrl: "https://github.com/Microsoft/pxt/issues/5456"
                     }
                 ].filter(function (experiment) { return ids.indexOf(experiment.id) > -1; });
             }
@@ -465,6 +529,7 @@ var pxt;
 })(pxt || (pxt = {}));
 /// <reference path="../localtypings/monaco.d.ts" />
 /// <reference path="../built/pxtlib.d.ts"/>
+/// <reference path="../built/pxtblocks.d.ts"/>
 var pxt;
 (function (pxt) {
     var vs;
@@ -480,7 +545,8 @@ var pxt;
                     var proto = "pkg:" + fp;
                     if (/\.(ts)$/.test(f) && fp != currFile) {
                         if (!monaco.languages.typescript.typescriptDefaults.getExtraLibs()[fp]) {
-                            var content = pkg.readFile(f) || " ";
+                            // inserting a space creates syntax errors in Python
+                            var content = pkg.readFile(f) || "\n";
                             libs[fp] = monaco.languages.typescript.typescriptDefaults.addExtraLib(content, fp);
                         }
                         modelMap[fp] = "1";
@@ -552,6 +618,7 @@ var pxt;
         }
         function createEditor(element) {
             var inverted = pxt.appTarget.appTheme.invertedMonaco;
+            var hasFieldEditors = !!(pxt.appTarget.appTheme.monacoFieldEditors && pxt.appTarget.appTheme.monacoFieldEditors.length);
             var editor = monaco.editor.create(element, {
                 model: null,
                 ariaLabel: pxt.Util.lf("JavaScript editor"),
@@ -562,6 +629,8 @@ var pxt;
                 wordBasedSuggestions: true,
                 lineNumbersMinChars: 3,
                 formatOnPaste: true,
+                folding: hasFieldEditors,
+                glyphMargin: hasFieldEditors,
                 minimap: {
                     enabled: false
                 },
@@ -571,6 +640,7 @@ var pxt;
                 occurrencesHighlight: false,
                 quickSuggestionsDelay: 200,
                 theme: inverted ? 'vs-dark' : 'vs',
+                renderIndentGuides: true,
                 //accessibilitySupport: 'on',
                 accessibilityHelpUrl: "" //TODO: Add help url explaining how to use the editor with a screen reader
             });
@@ -758,4 +828,103 @@ var pxt;
         }
         workspace.freshHeader = freshHeader;
     })(workspace = pxt.workspace || (pxt.workspace = {}));
+})(pxt || (pxt = {}));
+/// <reference path="../../localtypings/monaco.d.ts" />
+var pxt;
+(function (pxt) {
+    var editor;
+    (function (editor) {
+        var definitions = {};
+        function registerMonacoFieldEditor(name, definition) {
+            definitions[name] = definition;
+        }
+        editor.registerMonacoFieldEditor = registerMonacoFieldEditor;
+        function getMonacoFieldEditor(name) {
+            return definitions[name];
+        }
+        editor.getMonacoFieldEditor = getMonacoFieldEditor;
+    })(editor = pxt.editor || (pxt.editor = {}));
+})(pxt || (pxt = {}));
+/// <reference path="./monacoFieldEditor.ts" />
+var pxt;
+(function (pxt) {
+    var editor;
+    (function (editor) {
+        var fieldEditorId = "image-editor";
+        var MonacoSpriteEditor = /** @class */ (function () {
+            function MonacoSpriteEditor() {
+            }
+            MonacoSpriteEditor.prototype.getId = function () {
+                return fieldEditorId;
+            };
+            MonacoSpriteEditor.prototype.showEditorAsync = function (fileType, editrange, host) {
+                var _this = this;
+                this.fileType = fileType;
+                this.editrange = editrange;
+                var contentDiv = host.contentDiv();
+                var state = pxtsprite.imageLiteralToBitmap(host.getText(editrange), "\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n            . . . . . . . . . . . . . . . .\n        ");
+                this.editor = new pxtsprite.SpriteEditor(state, host.blocksInfo(), false);
+                this.editor.render(contentDiv);
+                this.editor.rePaint();
+                this.editor.setActiveColor(1, true);
+                this.editor.setSizePresets([
+                    [8, 8],
+                    [16, 16],
+                    [32, 32],
+                    [10, 8]
+                ]);
+                contentDiv.style.height = (this.editor.outerHeight() + 3) + "px";
+                contentDiv.style.width = (this.editor.outerWidth() + 3) + "px";
+                contentDiv.style.overflow = "hidden";
+                addClass(contentDiv, "sprite-editor-dropdown-bg");
+                addClass(contentDiv.parentElement, "sprite-editor-dropdown");
+                this.editor.addKeyListeners();
+                this.editor.onClose(function () { return _this.onClosed(); });
+                this.editor.layout();
+                return new Promise(function (resolve, reject) {
+                    _this.resolver = resolve;
+                    _this.rejecter = reject;
+                });
+            };
+            MonacoSpriteEditor.prototype.onClosed = function () {
+                if (this.resolver) {
+                    this.resolver({
+                        range: this.editrange,
+                        replacement: pxtsprite.bitmapToImageLiteral(this.editor.bitmap(), this.fileType)
+                    });
+                    this.editor.removeKeyListeners();
+                    this.editor = undefined;
+                    this.editrange = undefined;
+                    this.resolver = undefined;
+                    this.rejecter = undefined;
+                }
+            };
+            MonacoSpriteEditor.prototype.dispose = function () {
+                this.onClosed();
+            };
+            return MonacoSpriteEditor;
+        }());
+        editor.MonacoSpriteEditor = MonacoSpriteEditor;
+        editor.spriteEditorDefinition = {
+            id: fieldEditorId,
+            foldMatches: true,
+            glyphCssClass: "sprite-editor-glyph sprite-focus-hover",
+            heightInPixels: 510,
+            matcher: {
+                // match both JS and python
+                searchString: "img\\s*(?:`|\\(\"\"\")(?:[ a-fA-F0-9\\.]|\\n)*\\s*(?:`|\"\"\"\\))",
+                isRegex: true,
+                matchCase: true,
+                matchWholeWord: false
+            },
+            proto: MonacoSpriteEditor
+        };
+        function addClass(el, className) {
+            if (el.hasAttribute("class"))
+                el.setAttribute("class", el.getAttribute("class") + " " + className);
+            else
+                el.setAttribute("class", className);
+        }
+        editor.registerMonacoFieldEditor(fieldEditorId, editor.spriteEditorDefinition);
+    })(editor = pxt.editor || (pxt.editor = {}));
 })(pxt || (pxt = {}));

@@ -39,7 +39,7 @@
   },
   "versions": {
     "target": "1.0.0",
-    "pxt": "5.2.11"
+    "pxt": "5.9.7"
   },
   "blocksprj": {
     "id": "blocksprj",
@@ -85,6 +85,7 @@
     "switches": {},
     "jsRefCounting": false,
     "vtableShift": 2,
-    "noSourceInFlash": true
+    "noSourceInFlash": true,
+    "utf8": true
   }
 }

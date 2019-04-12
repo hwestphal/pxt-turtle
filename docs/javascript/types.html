@@ -3,7 +3,7 @@
 
 <head>
 	<meta charset="UTF-8">
-	<title>Types - Turtle</title>
+	<title>Types</title>
 	<meta name="Description" content="For programs to be useful, we need to be able to work with some of the simplest units of data:
 numbers, strings, structures, boolean values, and the like." />
 
@@ -19,12 +19,12 @@ numbers, strings, structures, boolean values, and the like." />
 
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:site" content="@msmakecode" />
-<meta name="twitter:title" content="Types - Turtle" />
+<meta name="twitter:title" content="Types" />
 <meta name="twitter:description" content="For programs to be useful, we need to be able to work with some of the simplest units of data:
 numbers, strings, structures, boolean values, and the like." />
 <meta name="twitter:image" content="" />
 
-<meta property="og:title" content="Types - Turtle" />
+<meta property="og:title" content="Types" />
 <meta property="og:site_name" content="Microsoft MakeCode" />
 <meta property="og:type" content="website" />
 <meta property="og:description" content="For programs to be useful, we need to be able to work with some of the simplest units of data:
@@ -51,11 +51,11 @@ numbers, strings, structures, boolean values, and the like." />
 <link rel="stylesheet" href="/pxt-turtle/docfiles/vs.css" />
 <link rel="stylesheet" href="/pxt-turtle/docfiles/target.css" />
 
-<script src="/pxt-turtle/jquery.js"></script>
-
+<script src="/pxt-turtle/jquery.js" type="text/javascript"></script>
+<script src="/pxt-turtle/semantic.js" type="text/javascript"></script>
+<script src="/pxt-turtle/docfiles/target.js" type="text/javascript"></script>
 <script src="/pxt-turtle/embed.js" type="text/javascript"></script>
 <script src="/pxt-turtle/docfiles/docs.js" type="text/javascript"></script>
-<script src="/pxt-turtle/docfiles/target.js" type="text/javascript"></script>
 
 <style>
     
@@ -104,6 +104,9 @@ numbers, strings, structures, boolean values, and the like." />
     <a class="item " href="/pxt-turtle/docs/faq.html" role="menuitem">FAQ</a>
 
 
+    <a class="item " href="/pxt-turtle/docs/projects.html" role="menuitem">Projects</a>
+
+
     <div class="item" title="">
         <a class="header " href="/pxt-turtle/docs/blocks.html" role="menu">Blocks</a>
         <div class="menu">
@@ -125,6 +128,9 @@ numbers, strings, structures, boolean values, and the like." />
 
 
     <a class="item " href="/pxt-turtle/docs/blocks/loops/while.html" role="menuitem">while</a>
+
+
+    <a class="item " href="/pxt-turtle/docs/blocks/loops/for-of.html" role="menuitem">for of</a>
 
         </div>
     </div>
@@ -294,6 +300,9 @@ numbers, strings, structures, boolean values, and the like." />
     <a class="item " href="/pxt-turtle/docs/faq.html" role="menuitem">FAQ</a>
 
 
+    <a class="item " href="/pxt-turtle/docs/projects.html" role="menuitem">Projects</a>
+
+
     <div class="item" title="">
         <a class="header " href="/pxt-turtle/docs/blocks.html" role="menu">Blocks</a>
         <div class="menu">
@@ -315,6 +324,9 @@ numbers, strings, structures, boolean values, and the like." />
 
 
     <a class="item " href="/pxt-turtle/docs/blocks/loops/while.html" role="menuitem">while</a>
+
+
+    <a class="item " href="/pxt-turtle/docs/blocks/loops/for-of.html" role="menuitem">for of</a>
 
         </div>
     </div>
@@ -464,27 +476,31 @@ let y = x + 3</code></pre>
 This kind of inference takes place when initializing variables and members,
 setting parameter default values, and determining function return types.</p>
 <p>All the examples below give an example type annotation, but will work just the same without the annotation.</p>
-<h2 id="boolean">Boolean</h2><p>The most basic datatype is the simple true/false value, which is called a <code>boolean</code> value.</p>
+<h2 id="boolean">Boolean</h2><p>The most basic datatype is the simple <code>true</code> or <code>false</code> value, which is called a <code>boolean</code> value.</p>
 <pre><code class="lang-typescript">let isDone: boolean = false;</code></pre>
-<h2 id="number">Number</h2>
-    <div class="ui info message">
-        <div class="content">
-            <p>In JavaScript, <code>numbers</code> are floating point values.
-However, for the unknown macro, <code>numbers</code> are integer values.</p>
-
-        </div>
-    </div>
-<p>Integer values can be specified via decimal, hexadecimal and octal notation:</p>
+<h2 id="number">Number</h2><p>Both whole numbers and numbers with a fractional part are supported. Sometimes numbers are called <em>numeric literals</em>.</p>
+<h3 id="integers-whole-numbers">Integers: whole numbers</h3><p>Integer values can be specified using decimal, hexadecimal, binary, and octal notation. When the number isn’t expressed in its decimal form, special characters are used for notation to tell which form it is:</p>
+<ul>
+<li>Decimal: no notation is used</li>
+<li>Hexadecimal: prefix the value with <code>0x</code></li>
+<li>Binary: prefix the value with <code>0b</code></li>
+<li>Octal: prefix the value with <code>0o</code></li>
+</ul>
 <pre><code class="lang-typescript">let decimal: number = 42;
 let hexadecimal: number = 0xf00d;
 let binary: number = 0b1010;
 let octal: number = 0o744;</code></pre>
+<h3 id="floating-point-numbers-with-a-fractional-part">Floating point: numbers with a fractional part</h3><p>Numbers can have their fractional part too. The decimal point is between the digits of the number.
+But, <em>floating point</em> numbers have the decimal point at any spot between digits, like: 3.14159 or 651.75.</p>
+<pre><code class="lang-typescript">let num = 0
+num = 6.7
+num = 10.083</code></pre>
 <h2 id="string">String </h2><p>As in other languages, we use the type <code>string</code> to refer to textual data.
 Use double quotes (<code>&quot;</code>) or single quotes (<code>&#39;</code>) to surround string data.</p>
 <pre><code class="lang-typescript">let color: string = &quot;blue&quot;;
 color = &#39;red&#39;;</code></pre>
 <p>You can also use <em>template strings</em>, which can span multiple lines and have embedded expressions.
-These strings are surrounded by the backtick/backquote (<code>`</code>) character, and embedded expressions are of the form <code>${ expr }</code>.</p>
+These strings are surrounded by the backtick/backquote (<code>`</code>) character, and embedded expressions use the form <code>${ expr }</code>.</p>
 <pre><code class="lang-typescript">let fullName: string = `Bob Bobbington`;
 let age: number = 37;
 let sentence: string = `Hello, my name is ${ fullName }.
@@ -521,7 +537,7 @@ let c: Color = Color.Green;</code></pre>
 <pre><code class="lang-typescript">enum Color {Red = 1, Green = 2, Blue = 4}
 let c: Color = Color.Green;</code></pre>
 <h2 id="any">Any</h2><p>The TypeScript type <code>any</code> is not supported in the unknown macro.</p>
-<h2 id="void">Void</h2><p><code>void</code> is the absence of having any type at all.
+<h2 id="void">Void</h2><p><code>void</code> is the absence of any type at all.
 You may commonly see this as the return type of functions that do not return a value:</p>
 <pre><code class="lang-typescript">function warnUser(): void {
     //...
@@ -552,10 +568,6 @@ while (!received) {
 					<div class="hideprint"></div>
 				</div>
 
-				<div class="showmobile hideprint">
-					 
-				</div>
-
 				
 <!-- include footer.html -->
 <footer class="ui vertical footer segment hideprint" aria-hidden="false">
@@ -582,7 +594,7 @@ while (!received) {
             <a class="item" href="https://makecode.com/privacy" target="_blank" rel="noopener">Privacy &amp; Cookies</a>
             <a class="item" href="https://makecode.com/termsofuse" target="_blank" rel="noopener"> Terms Of Use</a>
             <a class="item" href="https://makecode.com/trademarks" target="_blank" rel="noopener">Trademarks</a>
-            <div class="item">© 2018 Microsoft</div>
+            <div class="item">© 2019 Microsoft</div>
         </div>
         <div class="ui container horizontal small divided link list">
             <a class="ui centered item" href="https://makecode.com/" title="Microsoft MakeCode" target="_blank" rel="noopener">Powered by Microsoft MakeCode</a>
@@ -592,10 +604,6 @@ while (!received) {
 
 <!-- end include footer.html -->
 
-			</div>
-
-			<div class="hidemobile hideprint">
-				 
 			</div>
 
 		</div>

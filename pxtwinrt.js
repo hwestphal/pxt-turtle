@@ -213,7 +213,9 @@ var pxt;
             if (pxt.appTarget && pxt.appTarget.compile && pxt.appTarget.compile.hidSelectors) {
                 pxt.appTarget.compile.hidSelectors.forEach(function (s) {
                     var sel = whid.getDeviceSelector(parseInt(s.usagePage), parseInt(s.usageId), parseInt(s.vid), parseInt(s.pid));
-                    hidSelectors.push(sel);
+                    if (hidSelectors.indexOf(sel) < 0) {
+                        hidSelectors.push(sel);
+                    }
                 });
             }
             hidSelectors.forEach(function (s) {
@@ -255,7 +257,7 @@ var pxt;
                 });
                 watchers.push(watcher);
             });
-            watchers.forEach(function (w) { return w.start(); });
+            watchers.filter(function (w) { return !w.status; }).forEach(function (w) { return w.start(); });
         }
         winrt.initWinrtHid = initWinrtHid;
     })(winrt = pxt.winrt || (pxt.winrt = {}));

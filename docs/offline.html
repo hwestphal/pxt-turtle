@@ -3,8 +3,8 @@
 
 <head>
 	<meta charset="UTF-8">
-	<title>Offline editing - Turtle</title>
-	<meta name="Description" content="&lt;strong&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow noopener&quot; href=&quot;unknown macro&quot;&gt;MakeCode&lt;/a&gt;&lt;/strong&gt; is an &lt;strong&gt;HTML5 web application&lt;/strong&gt; that’s automatically cached locally (saved to your computer or device) when first viewed in your browser. After the web app has loaded you will have everything you need to continue working without an internet connection. If you decide to add an &lt;a  rel=&quot;nofollow noopener&quot; href=&quot;/extensions&quot;&gt;extension&lt;/a&gt;, it’s possible that you’ll again need to connect to the internet to allow the code in the new extension to compile." />
+	<title>Using MakeCode offline</title>
+	<meta name="Description" content="MakeCode is typically accessed at unknown macro where create, modify, and run your projects while you’re online. You can can use  MakeCode when you’re offline too. Here are some ways you can work with MakeCode offline:" />
 
 	
 <!-- include meta.html -->
@@ -18,14 +18,14 @@
 
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:site" content="@msmakecode" />
-<meta name="twitter:title" content="Offline editing - Turtle" />
-<meta name="twitter:description" content="&lt;strong&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow noopener&quot; href=&quot;unknown macro&quot;&gt;MakeCode&lt;/a&gt;&lt;/strong&gt; is an &lt;strong&gt;HTML5 web application&lt;/strong&gt; that’s automatically cached locally (saved to your computer or device) when first viewed in your browser. After the web app has loaded you will have everything you need to continue working without an internet connection. If you decide to add an &lt;a  rel=&quot;nofollow noopener&quot; href=&quot;/extensions&quot;&gt;extension&lt;/a&gt;, it’s possible that you’ll again need to connect to the internet to allow the code in the new extension to compile." />
+<meta name="twitter:title" content="Using MakeCode offline" />
+<meta name="twitter:description" content="MakeCode is typically accessed at unknown macro where create, modify, and run your projects while you’re online. You can can use  MakeCode when you’re offline too. Here are some ways you can work with MakeCode offline:" />
 <meta name="twitter:image" content="" />
 
-<meta property="og:title" content="Offline editing - Turtle" />
+<meta property="og:title" content="Using MakeCode offline" />
 <meta property="og:site_name" content="Microsoft MakeCode" />
 <meta property="og:type" content="website" />
-<meta property="og:description" content="&lt;strong&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow noopener&quot; href=&quot;unknown macro&quot;&gt;MakeCode&lt;/a&gt;&lt;/strong&gt; is an &lt;strong&gt;HTML5 web application&lt;/strong&gt; that’s automatically cached locally (saved to your computer or device) when first viewed in your browser. After the web app has loaded you will have everything you need to continue working without an internet connection. If you decide to add an &lt;a  rel=&quot;nofollow noopener&quot; href=&quot;/extensions&quot;&gt;extension&lt;/a&gt;, it’s possible that you’ll again need to connect to the internet to allow the code in the new extension to compile." />
+<meta property="og:description" content="MakeCode is typically accessed at unknown macro where create, modify, and run your projects while you’re online. You can can use  MakeCode when you’re offline too. Here are some ways you can work with MakeCode offline:" />
 <meta property="fb:app_id" content="" />
 <meta property="og:image" content="" />
 
@@ -48,11 +48,11 @@
 <link rel="stylesheet" href="/pxt-turtle/docfiles/vs.css" />
 <link rel="stylesheet" href="/pxt-turtle/docfiles/target.css" />
 
-<script src="/pxt-turtle/jquery.js"></script>
-
+<script src="/pxt-turtle/jquery.js" type="text/javascript"></script>
+<script src="/pxt-turtle/semantic.js" type="text/javascript"></script>
+<script src="/pxt-turtle/docfiles/target.js" type="text/javascript"></script>
 <script src="/pxt-turtle/embed.js" type="text/javascript"></script>
 <script src="/pxt-turtle/docfiles/docs.js" type="text/javascript"></script>
-<script src="/pxt-turtle/docfiles/target.js" type="text/javascript"></script>
 
 <style>
     
@@ -101,6 +101,9 @@
     <a class="item " href="/pxt-turtle/docs/faq.html" role="menuitem">FAQ</a>
 
 
+    <a class="item " href="/pxt-turtle/docs/projects.html" role="menuitem">Projects</a>
+
+
     <div class="item" title="">
         <a class="header " href="/pxt-turtle/docs/blocks.html" role="menu">Blocks</a>
         <div class="menu">
@@ -122,6 +125,9 @@
 
 
     <a class="item " href="/pxt-turtle/docs/blocks/loops/while.html" role="menuitem">while</a>
+
+
+    <a class="item " href="/pxt-turtle/docs/blocks/loops/for-of.html" role="menuitem">for of</a>
 
         </div>
     </div>
@@ -291,6 +297,9 @@
     <a class="item " href="/pxt-turtle/docs/faq.html" role="menuitem">FAQ</a>
 
 
+    <a class="item " href="/pxt-turtle/docs/projects.html" role="menuitem">Projects</a>
+
+
     <div class="item" title="">
         <a class="header " href="/pxt-turtle/docs/blocks.html" role="menu">Blocks</a>
         <div class="menu">
@@ -312,6 +321,9 @@
 
 
     <a class="item " href="/pxt-turtle/docs/blocks/loops/while.html" role="menuitem">while</a>
+
+
+    <a class="item " href="/pxt-turtle/docs/blocks/loops/for-of.html" role="menuitem">for of</a>
 
         </div>
     </div>
@@ -451,19 +463,16 @@
             </button>
          
     <div class="ui text">
-        <h1 id="offline-editing">Offline editing</h1><h2 id="web-application">Web application</h2><p><strong><a target="_blank" rel="nofollow noopener" href="unknown macro">MakeCode</a></strong> is an <strong>HTML5 web application</strong> that’s automatically cached locally (saved to your computer or device) when first viewed in your browser. After the web app has loaded you will have everything you need to continue working without an internet connection. If you decide to add an <a  rel="nofollow noopener" href="/pxt-turtle/docs/extensions.html">extension</a>, it’s possible that you’ll again need to connect to the internet to allow the code in the new extension to compile.</p>
+        <h1 id="using-makecode-offline">Using MakeCode offline</h1><p>MakeCode is typically accessed at unknown macro where create, modify, and run your projects while you’re online. You can can use  MakeCode when you’re offline too. Here are some ways you can work with MakeCode offline:</p>
+<h2 id="target-app"></h2><h2 id="web-application">Web application</h2><p><strong><a target="_blank" rel="nofollow noopener" href="unknown macro">MakeCode</a></strong> is an <strong>HTML5 web application</strong> that’s automatically cached locally (saved to your computer or device) when first viewed in your browser. After the web app has loaded you will have everything you need to continue working without an internet connection. If you decide to add an <a  rel="nofollow noopener" href="/pxt-turtle/docs/extensions.html">extension</a>, it’s possible that you’ll again need to connect to the internet to allow the code in the new extension to compile.</p>
 <h3 id="how-does-it-work-">How does it work?</h3><p>The MakeCode editor, like other web applications, is created using HTML, JavaScript, and some style information. These parts of the editor are all downloaded as various files to your browser. The editor is designed to do as much of work as possible in the browser itself without needing to constantly have contact with the web server. To do this, it asks the browser to download and keep a number of service files which give the editor the same features provided by the <strong><a target="_blank" rel="nofollow noopener" href="unknown macro">MakeCode</a></strong> web site. This allows the editor to fully function even when disconnected from the internet, no longer having contact with the web site.</p>
 <p>When the editor loads in your browser it tells it to keep the MakeCode service files in the browser’s <em>application cache</em>. The cache is data storage area managed by the browser where a web application can keep additional files it needs.</p>
 <h3 id="cloud-compilation">Cloud compilation</h3><p>When running on actual hardware, the code you write in JavaScript is compiled into instructions which are understood by the processor on the board. Some of the files saved in the application cache are compiled code for the features on the board. To use the hardware features on your board, the editor provides blocks for them that you include in your programs. These blocks are available to your program when they’re included as part of an added extension. The code in an extension is in TypeScript and sometimes also in C++. It’s necessary to compile this code at least once on the server and then have the compiled files returned to the browser to get cached. Once cached, the editor can use them together with your code, even when offline. This one time compile process is called cloud compilation.</p>
-<h2 id="target-app"></h2><h2 id="local-serve">Hosting MakeCode locally </h2><p>The open source editions of MakeCode can be served locally on your own computer. More experienced users can download the entire <a target="_blank" rel="nofollow noopener" href="https://github.com/Microsoft/pxt">PXT Toolchain</a> and use the <a  rel="nofollow noopener" href="/pxt-turtle/docs/cli.html">command line interface</a> (CLI) to compile and deploy scripts locally. PXT provides a great out-of-the-box experience when used with <a  rel="nofollow noopener" href="/pxt-turtle/docs/code.html">Visual Studio Code</a>, a lightweight cross-platform code editor. See the unknown macro project page for instructions on setting up a MakeCode local server.</p>
+<h2 id="local-serve">Hosting MakeCode locally </h2><p>The open source editions of MakeCode can be served locally on your own computer. More experienced users can download the entire <a target="_blank" rel="nofollow noopener" href="https://github.com/Microsoft/pxt">PXT Toolchain</a> and use the <a  rel="nofollow noopener" href="/pxt-turtle/docs/cli.html">command line interface</a> (CLI) to compile and deploy scripts locally. PXT provides a great out-of-the-box experience when used with <a  rel="nofollow noopener" href="/pxt-turtle/docs/code.html">Visual Studio Code</a>, a lightweight cross-platform code editor. See the unknown macro project page for instructions on setting up a MakeCode local server.</p>
 
     </div>
 
 					<div class="hideprint"></div>
-				</div>
-
-				<div class="showmobile hideprint">
-					 
 				</div>
 
 				
@@ -492,7 +501,7 @@
             <a class="item" href="https://makecode.com/privacy" target="_blank" rel="noopener">Privacy &amp; Cookies</a>
             <a class="item" href="https://makecode.com/termsofuse" target="_blank" rel="noopener"> Terms Of Use</a>
             <a class="item" href="https://makecode.com/trademarks" target="_blank" rel="noopener">Trademarks</a>
-            <div class="item">© 2018 Microsoft</div>
+            <div class="item">© 2019 Microsoft</div>
         </div>
         <div class="ui container horizontal small divided link list">
             <a class="ui centered item" href="https://makecode.com/" title="Microsoft MakeCode" target="_blank" rel="noopener">Powered by Microsoft MakeCode</a>
@@ -502,10 +511,6 @@
 
 <!-- end include footer.html -->
 
-			</div>
-
-			<div class="hidemobile hideprint">
-				 
 			</div>
 
 		</div>

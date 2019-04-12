@@ -77,6 +77,7 @@ var pxsim;
 (function (pxsim) {
     var GROUND_COLOR = "blue";
     var POWER_COLOR = "red";
+    var POWER5V_COLOR = "orange";
     ;
     ;
     ;
@@ -98,39 +99,52 @@ var pxsim;
         var ends = [wire.start, wire.end];
         var endIsGround = ends.map(function (e) { return e === "ground"; });
         var endIsThreeVolt = ends.map(function (e) { return e === "threeVolt"; });
+        var endIsFiveVolt = ends.map(function (e) { return e === "fiveVolt"; });
         var endIsBot = ends.map(function (e) { return isOnBreadboardBottom(e); });
         var hasGround = arrAny(endIsGround);
         var hasThreeVolt = arrAny(endIsThreeVolt);
+        var hasFiveVolt = arrAny(endIsFiveVolt);
         var hasBot = arrAny(endIsBot);
         return {
             topGround: hasGround && !hasBot,
             topThreeVolt: hasThreeVolt && !hasBot,
+            topFiveVolt: hasFiveVolt && !hasBot,
             bottomGround: hasGround && hasBot,
             bottomThreeVolt: hasThreeVolt && hasBot,
+            bottomFiveVolt: hasFiveVolt && hasBot,
             singleGround: hasGround,
-            singleThreeVolt: hasThreeVolt
+            singleThreeVolt: hasThreeVolt,
+            singleFiveVolt: hasFiveVolt
         };
     }
     function mergePowerUsage(powerUsages) {
         var finalPowerUsage = powerUsages.reduce(function (p, n) { return ({
             topGround: p.topGround || n.topGround,
             topThreeVolt: p.topThreeVolt || n.topThreeVolt,
+            topFiveVolt: p.topFiveVolt || n.topFiveVolt,
             bottomGround: p.bottomGround || n.bottomGround,
             bottomThreeVolt: p.bottomThreeVolt || n.bottomThreeVolt,
+            bottomFiveVolt: p.bottomFiveVolt || n.bottomFiveVolt,
             singleGround: n.singleGround ? p.singleGround === null : p.singleGround,
             singleThreeVolt: n.singleThreeVolt ? p.singleThreeVolt === null : p.singleThreeVolt,
+            singleFiveVolt: n.singleFiveVolt ? p.singleFiveVolt === null : p.singleFiveVolt,
         }); }, {
             topGround: false,
             topThreeVolt: false,
+            topFiveVolt: false,
             bottomGround: false,
             bottomThreeVolt: false,
+            bottomFiveVolt: false,
             singleGround: null,
             singleThreeVolt: null,
+            singleFiveVolt: null
         });
         if (finalPowerUsage.singleGround)
             finalPowerUsage.topGround = finalPowerUsage.bottomGround = false;
         if (finalPowerUsage.singleThreeVolt)
             finalPowerUsage.topThreeVolt = finalPowerUsage.bottomThreeVolt = false;
+        if (finalPowerUsage.singleFiveVolt)
+            finalPowerUsage.topFiveVolt = finalPowerUsage.bottomFiveVolt = false;
         return finalPowerUsage;
     }
     function copyDoubleArray(a) {
@@ -175,10 +189,12 @@ var pxsim;
         function Allocator(opts) {
             this.availablePowerPins = {
                 top: {
+                    fiveVolt: pxsim.mkRange(26, 51).map(function (n) { return ({ type: "breadboard", row: "+", col: "" + n }); }),
                     threeVolt: pxsim.mkRange(26, 51).map(function (n) { return ({ type: "breadboard", row: "+", col: "" + n }); }),
                     ground: pxsim.mkRange(26, 51).map(function (n) { return ({ type: "breadboard", row: "-", col: "" + n }); }),
                 },
                 bottom: {
+                    fiveVolt: pxsim.mkRange(1, 26).map(function (n) { return ({ type: "breadboard", row: "+", col: "" + n }); }),
                     threeVolt: pxsim.mkRange(1, 26).map(function (n) { return ({ type: "breadboard", row: "+", col: "" + n }); }),
                     ground: pxsim.mkRange(1, 26).map(function (n) { return ({ type: "breadboard", row: "-", col: "" + n }); }),
                 },
@@ -402,6 +418,9 @@ var pxsim;
                 else if (end === "threeVolt") {
                     color = POWER_COLOR;
                 }
+                else if (end === "fiveVolt") {
+                    color = POWER5V_COLOR;
+                }
                 else if (typeof pin.def.colorGroup === "number") {
                     if (groupToColor[pin.def.colorGroup]) {
                         color = groupToColor[pin.def.colorGroup];
@@ -424,7 +443,7 @@ var pxsim;
         };
         Allocator.prototype.allocLocation = function (location, opts) {
             var _this = this;
-            if (location === "ground" || location === "threeVolt") {
+            if (location === "ground" || location === "threeVolt" || location == "fiveVolt") {
                 //special case if there is only a single ground or three volt pin in the whole build
                 if (location === "ground" && this.powerUsage.singleGround) {
                     var boardGroundPin = this.getBoardGroundPin();
@@ -433,6 +452,10 @@ var pxsim;
                 else if (location === "threeVolt" && this.powerUsage.singleThreeVolt) {
                     var boardThreeVoltPin = this.getBoardThreeVoltPin();
                     return { type: "dalboard", pin: boardThreeVoltPin };
+                }
+                else if (location === "fiveVolt" && this.powerUsage.singleFiveVolt) {
+                    var boardFiveVoltPin = this.getBoardFiveVoltPin();
+                    return { type: "dalboard", pin: boardFiveVoltPin };
                 }
                 pxsim.U.assert(!!opts.referenceBBPin);
                 var nearestCoord = this.opts.getBBCoord(opts.referenceBBPin);
@@ -455,6 +478,9 @@ var pxsim;
                     else if (location === "threeVolt") {
                         barPins = this.availablePowerPins.top.threeVolt;
                     }
+                    else if (location === "fiveVolt") {
+                        barPins = this.availablePowerPins.top.fiveVolt;
+                    }
                 }
                 else {
                     if (location === "ground") {
@@ -462,6 +488,9 @@ var pxsim;
                     }
                     else if (location === "threeVolt") {
                         barPins = this.availablePowerPins.bottom.threeVolt;
+                    }
+                    else if (location === "fiveVolt") {
+                        barPins = this.availablePowerPins.bottom.fiveVolt;
                     }
                 }
                 var pinCoords = barPins.map(function (rowCol) {
@@ -498,31 +527,42 @@ var pxsim;
                 //it must be a MicrobitPin
                 pxsim.U.assert(typeof location === "string", "Unknown location type: " + location);
                 var mbPin = location;
-                var boardPin = this.opts.boardDef.gpioPinMap[mbPin];
-                if (!boardPin)
+                var boardPin = this.opts.boardDef.gpioPinMap[mbPin] || mbPin;
+                if (!boardPin) {
+                    console.debug("unknown pin location for " + mbPin);
                     return undefined;
+                }
                 return { type: "dalboard", pin: boardPin };
             }
         };
         Allocator.prototype.getBoardGroundPin = function () {
-            var boardGround = this.opts.boardDef.groundPins[0] || null;
-            if (!boardGround) {
+            var pin = this.opts.boardDef.groundPins && this.opts.boardDef.groundPins[0] || null;
+            if (!pin) {
                 console.log("No available ground pin on board!");
                 //TODO
             }
-            return boardGround;
+            return pin;
         };
         Allocator.prototype.getBoardThreeVoltPin = function () {
-            var threeVoltPin = this.opts.boardDef.threeVoltPins[0] || null;
-            if (!threeVoltPin) {
+            var pin = this.opts.boardDef.threeVoltPins && this.opts.boardDef.threeVoltPins[0] || null;
+            if (!pin) {
                 console.log("No available 3.3V pin on board!");
                 //TODO
             }
-            return threeVoltPin;
+            return pin;
+        };
+        Allocator.prototype.getBoardFiveVoltPin = function () {
+            var pin = this.opts.boardDef.fiveVoltPins && this.opts.boardDef.fiveVoltPins[0] || null;
+            if (!pin) {
+                console.log("No available 5V pin on board!");
+                //TODO
+            }
+            return pin;
         };
         Allocator.prototype.allocPowerWires = function (powerUsage) {
             var boardGroundPin = this.getBoardGroundPin();
             var threeVoltPin = this.getBoardThreeVoltPin();
+            var fiveVoltPin = this.getBoardFiveVoltPin();
             var topLeft = { type: "breadboard", row: "-", col: "26" };
             var botLeft = { type: "breadboard", row: "-", col: "1" };
             var topRight = { type: "breadboard", row: "-", col: "50" };
@@ -538,6 +578,7 @@ var pxsim;
             }
             var groundWires = [];
             var threeVoltWires = [];
+            var fiveVoltWires = [];
             if (powerUsage.bottomGround && powerUsage.topGround) {
                 //bb top - <==> bb bot -
                 groundWires.push({
@@ -570,6 +611,14 @@ var pxsim;
                     color: POWER_COLOR,
                 });
             }
+            else if (powerUsage.bottomFiveVolt && powerUsage.bottomGround) {
+                //bb top + <==> bb bot +
+                fiveVoltWires.push({
+                    start: this.allocLocation("fiveVolt", { referenceBBPin: top }),
+                    end: this.allocLocation("fiveVolt", { referenceBBPin: bot }),
+                    color: POWER5V_COLOR,
+                });
+            }
             if (powerUsage.topThreeVolt) {
                 //board + <==> bb top +
                 threeVoltWires.push({
@@ -583,7 +632,23 @@ var pxsim;
                 threeVoltWires.push({
                     start: this.allocLocation("threeVolt", { referenceBBPin: bot }),
                     end: { type: "dalboard", pin: threeVoltPin },
+                    color: POWER5V_COLOR,
+                });
+            }
+            if (powerUsage.topFiveVolt && !powerUsage.topThreeVolt) {
+                //board + <==> bb top +
+                fiveVoltWires.push({
+                    start: this.allocLocation("fiveVolt", { referenceBBPin: top }),
+                    end: { type: "dalboard", pin: fiveVoltPin },
                     color: POWER_COLOR,
+                });
+            }
+            else if (powerUsage.bottomFiveVolt && !powerUsage.bottomThreeVolt) {
+                //board + <==> bb bot +
+                fiveVoltWires.push({
+                    start: this.allocLocation("fiveVolt", { referenceBBPin: bot }),
+                    end: { type: "dalboard", pin: fiveVoltPin },
+                    color: POWER5V_COLOR,
                 });
             }
             var assembly = [];
@@ -591,16 +656,22 @@ var pxsim;
                 assembly.push({ wireIndices: groundWires.map(function (w, i) { return i; }) });
             var numGroundWires = groundWires.length;
             if (threeVoltWires.length > 0)
-                assembly.push({ wireIndices: threeVoltWires.map(function (w, i) { return i + numGroundWires; }) });
+                assembly.push({
+                    wireIndices: threeVoltWires.map(function (w, i) { return i + numGroundWires; })
+                });
+            if (fiveVoltWires.length > 0)
+                assembly.push({
+                    wireIndices: threeVoltWires.map(function (w, i) { return i + numGroundWires + threeVoltWires.length; })
+                });
             return {
-                wires: groundWires.concat(threeVoltWires),
+                wires: groundWires.concat(threeVoltWires).concat(fiveVoltWires),
                 assembly: assembly
             };
         };
         Allocator.prototype.allocWire = function (wireIR) {
             var _this = this;
             var ends = [wireIR.start, wireIR.end];
-            var endIsPower = ends.map(function (e) { return e === "ground" || e === "threeVolt"; });
+            var endIsPower = ends.map(function (e) { return e === "ground" || e === "threeVolt" || e === "fiveVolt"; });
             //allocate non-power first so we know the nearest pin for the power end
             var endInsts = ends.map(function (e, idx) { return !endIsPower[idx] ? _this.allocLocation(e, {}) : undefined; });
             //allocate power pins closest to the other end of the wire
@@ -695,12 +766,16 @@ var pxsim;
                 });
                 return {
                     partsAndWires: all,
+                    wires: [],
+                    parts: [],
                     requiresBreadboard: requiresBreadboard
                 };
             }
             else {
                 return {
-                    partsAndWires: []
+                    partsAndWires: [],
+                    wires: [],
+                    parts: []
                 };
             }
         };
@@ -1497,6 +1572,50 @@ var pxsim;
                     enumerable: true
                 });
             }
+            // https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.some
+            if (!Uint8Array.prototype.some) {
+                Object.defineProperty(Uint8Array.prototype, 'some', {
+                    value: Array.prototype.some,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint16Array.prototype.some) {
+                Object.defineProperty(Uint16Array.prototype, 'some', {
+                    value: Array.prototype.some,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint32Array.prototype.some) {
+                Object.defineProperty(Uint32Array.prototype, 'some', {
+                    value: Array.prototype.some,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            // https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.reverse
+            if (!Uint8Array.prototype.reverse) {
+                Object.defineProperty(Uint8Array.prototype, 'reverse', {
+                    value: Array.prototype.reverse,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint16Array.prototype.reverse) {
+                Object.defineProperty(Uint16Array.prototype, 'reverse', {
+                    value: Array.prototype.reverse,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint32Array.prototype.reverse) {
+                Object.defineProperty(Uint32Array.prototype, 'reverse', {
+                    value: Array.prototype.reverse,
+                    writable: true,
+                    enumerable: true
+                });
+            }
             // Inject Math imul polyfill
             if (!Math.imul) {
                 // for explanations see:
@@ -1676,7 +1795,7 @@ var pxsim;
         return BreakpointMap;
     }());
     pxsim.BreakpointMap = BreakpointMap;
-    function dumpHeap(v, heap) {
+    function dumpHeap(v, heap, fields) {
         function valToJSON(v) {
             switch (typeof v) {
                 case "string":
@@ -1684,7 +1803,10 @@ var pxsim;
                 case "boolean":
                     return v;
                 case "function":
-                    return { text: "(function)" };
+                    return {
+                        text: "(function)",
+                        type: "function",
+                    };
                 case "undefined":
                     return null;
                 case "object":
@@ -1692,17 +1814,30 @@ var pxsim;
                         return null;
                     if (v instanceof pxsim.RefObject) {
                         heap[v.id] = v;
+                        var preview = pxsim.RefObject.toDebugString(v);
+                        var type = preview.startsWith('[') ? "array" : preview;
                         return {
                             id: v.id,
-                            preview: pxsim.RefObject.toDebugString(v)
+                            preview: preview,
+                            hasFields: v.fields !== null || preview.startsWith('['),
+                            type: type,
                         };
                     }
-                    return { text: "(object)" };
+                    if (v._width && v._height) {
+                        return {
+                            text: v._width + 'x' + v._height,
+                            type: "image",
+                        };
+                    }
+                    return {
+                        text: "(object)",
+                        type: "object",
+                    };
                 default:
                     throw new Error();
             }
         }
-        function frameVars(frame) {
+        function frameVars(frame, fields) {
             var r = {};
             for (var _i = 0, _a = Object.keys(frame); _i < _a.length; _i++) {
                 var k = _a[_i];
@@ -1711,11 +1846,47 @@ var pxsim;
                     r[k.replace(/___\d+$/, '')] = valToJSON(frame[k]);
                 }
             }
+            if (frame.fields && fields) {
+                // Fields of an object.
+                for (var _b = 0, fields_1 = fields; _b < fields_1.length; _b++) {
+                    var k = fields_1[_b];
+                    k = k.substring(k.lastIndexOf(".") + 1);
+                    r[k] = valToJSON(evalGetter(frame.vtable.iface[k], frame));
+                }
+            }
+            if (frame.fields) {
+                for (var _c = 0, _d = Object.keys(frame.fields).filter(function (field) { return !field.startsWith('_'); }); _c < _d.length; _c++) {
+                    var k = _d[_c];
+                    r[k.replace(/___\d+$/, '')] = valToJSON(frame.fields[k]);
+                }
+            }
+            else if (Array.isArray(frame.data)) {
+                // This is an Array.
+                frame.data.forEach(function (element, index) {
+                    r[index] = valToJSON(element);
+                });
+            }
             return r;
         }
-        return frameVars(v);
+        return frameVars(v, fields);
     }
     pxsim.dumpHeap = dumpHeap;
+    function evalGetter(fn, target) {
+        // This function evaluates a getter, and we assume it doesn't have any side effects.
+        var parentFrame = {};
+        // We create a dummy stack frame
+        var stackFrame = {
+            pc: 0,
+            arg0: target,
+            fn: fn,
+            parent: parentFrame
+        };
+        // And we evaluate the getter
+        while (stackFrame.fn) {
+            stackFrame = stackFrame.fn(stackFrame);
+        }
+        return stackFrame.retval;
+    }
     function getBreakpointMsg(s, brkId) {
         var heap = {};
         var msg = {
@@ -1884,7 +2055,8 @@ var pxsim;
                 case pxsim.SimulatorState.Stopped:
                     this.sendEvent(new pxsim.protocol.TerminatedEvent());
                     break;
-                case pxsim.SimulatorState.Unloaded:
+                //case SimulatorState.Unloaded:
+                //case SimulatorState.Pending:
                 default:
             }
         };
@@ -2037,9 +2209,9 @@ var pxsim;
     (function (Embed) {
         function start() {
             window.addEventListener("message", receiveMessage, false);
-            var frameid = window.location.hash.slice(1);
+            Embed.frameid = window.location.hash.slice(1);
             initAppcache();
-            pxsim.Runtime.postMessage({ type: 'ready', frameid: frameid });
+            pxsim.Runtime.postMessage({ type: 'ready', frameid: Embed.frameid });
         }
         Embed.start = start;
         function receiveMessage(event) {
@@ -2065,6 +2237,12 @@ var pxsim;
                 case "print":
                     print();
                     break;
+                case 'recorder':
+                    recorder(data);
+                    break;
+                case "screenshot":
+                    pxsim.Runtime.postScreenshotAsync(data).done();
+                    break;
                 case "custom":
                     if (pxsim.handleCustomMessage)
                         pxsim.handleCustomMessage(data);
@@ -2072,9 +2250,8 @@ var pxsim;
                 case 'pxteditor':
                     break; //handled elsewhere
                 case 'debugger':
-                    if (runtime) {
+                    if (runtime)
                         runtime.handleDebuggerMsg(data);
-                    }
                     break;
                 default:
                     queue(data);
@@ -2116,6 +2293,18 @@ var pxsim;
                 return;
             }
             runtime.board.receiveMessage(msg);
+        }
+        function recorder(rec) {
+            if (!runtime)
+                return;
+            switch (rec.action) {
+                case "start":
+                    runtime.startRecording(rec.width);
+                    break;
+                case "stop":
+                    runtime.stopRecording();
+                    break;
+            }
         }
     })(Embed = pxsim.Embed || (pxsim.Embed = {}));
     /**
@@ -2488,6 +2677,8 @@ var pxsim;
                 if (wires) {
                     wires.forEach(function (w) {
                         var wire = board.addWire(w);
+                        if (!wire)
+                            return;
                         //last step
                         if (i === step) {
                             //location highlights
@@ -2498,7 +2689,7 @@ var pxsim;
                                 board.highlightBoardPin(w.start.pin);
                             }
                             if (w.end.type == "breadboard") {
-                                var lbls = board.highlightBreadboardPin(w.end);
+                                board.highlightBreadboardPin(w.end);
                             }
                             else {
                                 board.highlightBoardPin(w.end.pin);
@@ -2743,6 +2934,10 @@ var pxsim;
         return Object.keys(cfgKey);
     }
     pxsim.getAllConfigKeys = getAllConfigKeys;
+    function setConfigKey(key, id) {
+        cfgKey[key] = id;
+    }
+    pxsim.setConfigKey = setConfigKey;
     function setConfig(id, val) {
         cfg[id] = val;
     }
@@ -2787,6 +2982,8 @@ var pxsim;
                 return "null";
             if (o === undefined)
                 return "undefined;";
+            if (o.vtable && o.vtable.name)
+                return o.vtable.name;
             if (o.toDebugString)
                 return o.toDebugString();
             if (typeof o == "string")
@@ -3236,13 +3433,17 @@ var pxsim;
             return false;
         }
         pxtcore.switch_eq = switch_eq;
+        function typeOf(obj) {
+            return typeof obj;
+        }
+        pxtcore.typeOf = typeOf;
     })(pxtcore = pxsim.pxtcore || (pxsim.pxtcore = {}));
     var thread;
     (function (thread) {
         thread.panic = pxtrt.panic;
         function pause(ms) {
             var cb = pxsim.getResume();
-            setTimeout(function () { cb(); }, ms);
+            pxsim.runtime.schedule(function () { cb(); }, ms);
         }
         thread.pause = pause;
         function runInBackground(a) {
@@ -3288,10 +3489,16 @@ var pxsim;
             for (var i = 0; i < this.data.length; ++i) {
                 if (i > 0)
                     s += ",";
-                s += pxsim.RefObject.toDebugString(this.data[i]);
-                if (s.length > 15) {
+                var newElem = pxsim.RefObject.toDebugString(this.data[i]);
+                if (s.length + newElem.length > 100) {
+                    if (i == 0) {
+                        s += newElem.substr(0, 100);
+                    }
                     s += "...";
                     break;
+                }
+                else {
+                    s += newElem;
                 }
             }
             s += "]";
@@ -3462,7 +3669,7 @@ var pxsim;
             return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0) | 0);
         };
         function idiv(x, y) {
-            return (x / y) >> 0;
+            return ((x | 0) / (y | 0)) | 0;
         }
         Math_.idiv = idiv;
         function round(n) { return Math.round(n); }
@@ -3942,6 +4149,10 @@ var pxsim;
             return res;
         }
         BufferMethods.toHex = toHex;
+        function toString(buf) {
+            return pxsim.U.fromUTF8(pxsim.U.uint8ArrayToString(buf.data));
+        }
+        BufferMethods.toString = toString;
         function memmove(dst, dstOff, src, srcOff, len) {
             if (src.buffer === dst.buffer) {
                 memmove(dst, dstOff, src.slice(srcOff, srcOff + len), 0, len);
@@ -4020,6 +4231,15 @@ var pxsim;
         BufferMethods.write = write;
     })(BufferMethods = pxsim.BufferMethods || (pxsim.BufferMethods = {}));
 })(pxsim || (pxsim = {}));
+(function (pxsim) {
+    var control;
+    (function (control) {
+        function createBufferFromUTF8(str) {
+            return new pxsim.RefBuffer(pxsim.U.stringToUint8Array(pxsim.U.toUTF8(str)));
+        }
+        control.createBufferFromUTF8 = createBufferFromUTF8;
+    })(control = pxsim.control || (pxsim.control = {}));
+})(pxsim || (pxsim = {}));
 // Localization functions. Please port any modifications over to pxtlib/util.ts
 var pxsim;
 (function (pxsim) {
@@ -4040,6 +4260,7 @@ var pxsim;
 var pxsim;
 (function (pxsim) {
     var MIN_MESSAGE_WAIT_MS = 200;
+    var tracePauseMs = 0;
     var U;
     (function (U) {
         function addClass(element, classes) {
@@ -4131,6 +4352,67 @@ var pxsim;
             Promise._async._schedule(f);
         }
         U.nextTick = nextTick;
+        // this will take lower 8 bits from each character
+        function stringToUint8Array(input) {
+            var len = input.length;
+            var res = new Uint8Array(len);
+            for (var i = 0; i < len; ++i)
+                res[i] = input.charCodeAt(i) & 0xff;
+            return res;
+        }
+        U.stringToUint8Array = stringToUint8Array;
+        function uint8ArrayToString(input) {
+            var len = input.length;
+            var res = "";
+            for (var i = 0; i < len; ++i)
+                res += String.fromCharCode(input[i]);
+            return res;
+        }
+        U.uint8ArrayToString = uint8ArrayToString;
+        function fromUTF8(binstr) {
+            if (!binstr)
+                return "";
+            // escape function is deprecated
+            var escaped = "";
+            for (var i = 0; i < binstr.length; ++i) {
+                var k = binstr.charCodeAt(i) & 0xff;
+                if (k == 37 || k > 0x7f) {
+                    escaped += "%" + k.toString(16);
+                }
+                else {
+                    escaped += binstr.charAt(i);
+                }
+            }
+            // decodeURIComponent does the actual UTF8 decoding
+            return decodeURIComponent(escaped);
+        }
+        U.fromUTF8 = fromUTF8;
+        function toUTF8(str, cesu8) {
+            var res = "";
+            if (!str)
+                return res;
+            for (var i = 0; i < str.length; ++i) {
+                var code = str.charCodeAt(i);
+                if (code <= 0x7f)
+                    res += str.charAt(i);
+                else if (code <= 0x7ff) {
+                    res += String.fromCharCode(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+                }
+                else {
+                    if (!cesu8 && 0xd800 <= code && code <= 0xdbff) {
+                        var next = str.charCodeAt(++i);
+                        if (!isNaN(next))
+                            code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
+                    }
+                    if (code <= 0xffff)
+                        res += String.fromCharCode(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+                    else
+                        res += String.fromCharCode(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 0x3f), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+                }
+            }
+            return res;
+        }
+        U.toUTF8 = toUTF8;
     })(U = pxsim.U || (pxsim.U = {}));
     function getResume() { return pxsim.runtime.getResume(); }
     pxsim.getResume = getResume;
@@ -4178,6 +4460,10 @@ var pxsim;
         BaseBoard.prototype.initAsync = function (msg) {
             this.runOptions = msg;
             return Promise.resolve();
+        };
+        BaseBoard.prototype.onDebuggerResume = function () { };
+        BaseBoard.prototype.screenshotAsync = function (width) {
+            return Promise.resolve(undefined);
         };
         BaseBoard.prototype.kill = function () { };
         BaseBoard.prototype.writeSerial = function (s) {
@@ -4246,6 +4532,12 @@ var pxsim;
         };
     }
     pxsim.initBareRuntime = initBareRuntime;
+    var LogType;
+    (function (LogType) {
+        LogType[LogType["UserSet"] = 0] = "UserSet";
+        LogType[LogType["BackAdd"] = 1] = "BackAdd";
+        LogType[LogType["BackRemove"] = 2] = "BackRemove";
+    })(LogType || (LogType = {}));
     var EventQueue = /** @class */ (function () {
         function EventQueue(runtime, valueToArgs) {
             this.runtime = runtime;
@@ -4254,6 +4546,7 @@ var pxsim;
             this.events = [];
             this.awaiters = [];
             this._handlers = [];
+            this._addRemoveLog = [];
         }
         EventQueue.prototype.push = function (e, notifyOne) {
             if (this.awaiters.length > 0) {
@@ -4271,8 +4564,8 @@ var pxsim;
             if (this.handlers.length == 0 || this.events.length > this.max)
                 return Promise.resolve();
             this.events.push(e);
-            // if this is the first event pushed - start processing
-            if (this.events.length == 1 && !this.lock)
+            // start processing, if not already processing
+            if (!this.lock)
                 return this.poke();
             else
                 return Promise.resolve();
@@ -4280,26 +4573,37 @@ var pxsim;
         EventQueue.prototype.poke = function () {
             var _this = this;
             this.lock = true;
-            var ret = Promise.each(this.events, function (value) {
+            var events = this.events;
+            // all events will be processed by concurrent promisified code below, so start afresh
+            this.events = [];
+            // in order semantics for events and handlers
+            return Promise.each(events, function (value) {
                 return Promise.each(_this.handlers, function (handler) {
                     return (_a = _this.runtime).runFiberAsync.apply(_a, [handler].concat((_this.valueToArgs ? _this.valueToArgs(value) : [value])));
                     var _a;
                 });
             }).then(function () {
-                // if some events arrived while processing above
-                // then keep processing
+                // if some events arrived while processing above then keep processing
                 if (_this.events.length > 0) {
                     return _this.poke();
                 }
                 else {
                     _this.lock = false;
+                    // process the log (synchronous)
+                    _this._addRemoveLog.forEach(function (l) {
+                        if (l.log === LogType.BackAdd) {
+                            _this.addHandler(l.act);
+                        }
+                        else if (l.log === LogType.BackRemove) {
+                            _this.removeHandler(l.act);
+                        }
+                        else
+                            _this.setHandler(l.act);
+                    });
+                    _this._addRemoveLog = [];
                     return Promise.resolve();
                 }
             });
-            // all events will be processed by above code, so
-            // start afresh
-            this.events = [];
-            return ret;
         };
         Object.defineProperty(EventQueue.prototype, "handlers", {
             get: function () {
@@ -4308,21 +4612,39 @@ var pxsim;
             enumerable: true,
             configurable: true
         });
-        EventQueue.prototype.addHandler = function (a) {
-            this._handlers.push(a);
-            pxsim.pxtcore.incr(a);
-        };
         EventQueue.prototype.setHandler = function (a) {
-            this._handlers.forEach(function (old) { return pxsim.pxtcore.decr(old); });
-            this._handlers = [a];
-            pxsim.pxtcore.incr(a);
+            if (!this.lock) {
+                this._handlers.forEach(function (old) { return pxsim.pxtcore.decr(old); });
+                this._handlers = [a];
+                pxsim.pxtcore.incr(a);
+            }
+            else {
+                this._addRemoveLog.push({ act: a, log: LogType.UserSet });
+            }
+        };
+        EventQueue.prototype.addHandler = function (a) {
+            if (!this.lock) {
+                var index = this._handlers.indexOf(a);
+                // only add if new, just like CODAL
+                if (index == -1) {
+                    this._handlers.push(a);
+                    pxsim.pxtcore.incr(a);
+                }
+            }
+            else {
+                this._addRemoveLog.push({ act: a, log: LogType.BackAdd });
+            }
         };
         EventQueue.prototype.removeHandler = function (a) {
-            var index = this._handlers.indexOf(a);
-            while (index != -1) {
-                this._handlers.splice(index, 1);
-                pxsim.pxtcore.decr(a);
-                index = this._handlers.indexOf(a);
+            if (!this.lock) {
+                var index = this._handlers.indexOf(a);
+                if (index != -1) {
+                    this._handlers.splice(index, 1);
+                    pxsim.pxtcore.decr(a);
+                }
+            }
+            else {
+                this._addRemoveLog.push({ act: a, log: LogType.BackRemove });
             }
         };
         EventQueue.prototype.addAwaiter = function (awaiter) {
@@ -4345,17 +4667,44 @@ var pxsim;
         return pxsim.pxtcore.mkAction(0, function (s) { return _leave(s, f(s)); });
     }
     pxsim.syntheticRefAction = syntheticRefAction;
+    var TimeoutScheduled = /** @class */ (function () {
+        function TimeoutScheduled(id, fn, totalRuntime, timestampCall) {
+            this.id = id;
+            this.fn = fn;
+            this.totalRuntime = totalRuntime;
+            this.timestampCall = timestampCall;
+        }
+        return TimeoutScheduled;
+    }());
+    pxsim.TimeoutScheduled = TimeoutScheduled;
+    var PausedTimeout = /** @class */ (function () {
+        function PausedTimeout(fn, timeRemaining) {
+            this.fn = fn;
+            this.timeRemaining = timeRemaining;
+        }
+        return PausedTimeout;
+    }());
+    pxsim.PausedTimeout = PausedTimeout;
     var Runtime = /** @class */ (function () {
         function Runtime(msg) {
             var _this = this;
             this.numGlobals = 1000;
             this.dead = false;
             this.running = false;
+            this.recording = false;
+            this.recordingTimer = 0;
+            this.recordingLastImageData = undefined;
+            this.recordingWidth = undefined;
             this.startTime = 0;
             this.startTimeUs = 0;
+            this.pausedTime = 0;
+            this.lastPauseTimestamp = 0;
             this.globals = {};
             this.loopLock = null;
             this.loopLockWaitList = [];
+            this.timeoutsScheduled = [];
+            this.timeoutsPausedOnBreakpoint = [];
+            this.pausedOnBreakpoint = false;
             this.perfOffset = 0;
             this.perfElapsed = 0;
             this.perfStack = 0;
@@ -4384,7 +4733,6 @@ var pxsim;
             var breakFrame = null; // for step-over
             var lastYield = Date.now();
             var __this = this;
-            var tracePauseMs = 0;
             function oops(msg) {
                 throw new Error("sim error: " + msg);
             }
@@ -4400,6 +4748,7 @@ var pxsim;
                 }
             }
             function maybeYield(s, pc, r0) {
+                __this.cleanScheduledExpired();
                 yieldSteps = yieldMaxSteps;
                 var now = Date.now();
                 if (now - lastYield >= 20) {
@@ -4438,6 +4787,8 @@ var pxsim;
                 return false;
             }
             function breakpoint(s, retPC, brkId, r0) {
+                var lock = {};
+                __this.loopLock = lock;
                 U.assert(!dbgResume);
                 U.assert(!dbgHeap);
                 s.pc = retPC;
@@ -4445,11 +4796,16 @@ var pxsim;
                 var _a = pxsim.getBreakpointMsg(s, brkId), msg = _a.msg, heap = _a.heap;
                 dbgHeap = heap;
                 Runtime.postMessage(msg);
+                breakAlways = false;
+                breakFrame = null;
+                __this.pauseScheduled();
                 dbgResume = function (m) {
                     dbgResume = null;
                     dbgHeap = null;
                     if (__this.dead)
-                        return;
+                        return null;
+                    __this.resumeAllPausedScheduled();
+                    __this.board.onDebuggerResume();
                     pxsim.runtime = __this;
                     U.assert(s.pc == retPC);
                     breakAlways = false;
@@ -4469,7 +4825,10 @@ var pxsim;
                             breakFrame = s.parent || s;
                             break;
                     }
-                    return loop(s);
+                    U.assert(__this.loopLock == lock);
+                    __this.loopLock = null;
+                    loop(s);
+                    flushLoopLock();
                 };
                 return null;
             }
@@ -4481,7 +4840,7 @@ var pxsim;
                         subtype: "trace",
                         breakpointId: brkId,
                     });
-                    pxsim.thread.pause(tracePauseMs);
+                    pxsim.thread.pause(tracePauseMs || 1);
                 }
                 else {
                     pxsim.thread.pause(0);
@@ -4521,7 +4880,7 @@ var pxsim;
                         if (dbgHeap) {
                             var v = dbgHeap[vmsg.variablesReference];
                             if (v !== undefined)
-                                vars = pxsim.dumpHeap(v, dbgHeap);
+                                vars = pxsim.dumpHeap(v, dbgHeap, vmsg.fields);
                         }
                         Runtime.postMessage({
                             type: "debugger",
@@ -4630,6 +4989,8 @@ var pxsim;
             }
             function failedCast(v) {
                 // TODO generate the right panic codes
+                if (pxsim.control && pxsim.control.dmesgValue)
+                    pxsim.control.dmesgValue(v);
                 oops("failed cast on " + v);
             }
             function buildResume(s, retPC) {
@@ -4711,7 +5072,7 @@ var pxsim;
             delete this.liveRefObjs[object.id + ""];
         };
         Runtime.prototype.runningTime = function () {
-            return U.now() - this.startTime;
+            return U.now() - this.startTime - this.pausedTime;
         };
         Runtime.prototype.runningTimeUs = function () {
             return 0xffffffff & ((U.perfNowUs() - this.startTimeUs) >> 0);
@@ -4738,6 +5099,29 @@ var pxsim;
             if (Runtime.messagePosted)
                 Runtime.messagePosted(data);
         };
+        Runtime.postScreenshotAsync = function (opts) {
+            var b = pxsim.runtime && pxsim.runtime.board;
+            var p = b
+                ? b.screenshotAsync().catch(function (e) {
+                    console.debug("screenshot failed");
+                    return undefined;
+                })
+                : Promise.resolve(undefined);
+            return p.then(function (img) { return Runtime.postMessage({
+                type: "screenshot",
+                data: img,
+                delay: opts && opts.delay
+            }); });
+        };
+        Runtime.requestToggleRecording = function () {
+            var r = pxsim.runtime;
+            if (!r)
+                return;
+            Runtime.postMessage({
+                type: "recorder",
+                action: r.recording ? "stop" : "start"
+            });
+        };
         Runtime.prototype.restart = function () {
             this.kill();
             setTimeout(function () {
@@ -4750,10 +5134,59 @@ var pxsim;
         Runtime.prototype.kill = function () {
             this.dead = true;
             // TODO fix this
+            this.stopRecording();
             this.setRunning(false);
         };
         Runtime.prototype.updateDisplay = function () {
             this.board.updateView();
+            this.postFrame();
+        };
+        Runtime.prototype.startRecording = function (width) {
+            var _this = this;
+            if (this.recording || !this.running)
+                return;
+            this.recording = true;
+            this.recordingTimer = setInterval(function () { return _this.postFrame(); }, 66);
+            this.recordingLastImageData = undefined;
+            this.recordingWidth = width;
+        };
+        Runtime.prototype.stopRecording = function () {
+            if (!this.recording)
+                return;
+            if (this.recordingTimer)
+                clearInterval(this.recordingTimer);
+            this.recording = false;
+            this.recordingTimer = 0;
+            this.recordingLastImageData = undefined;
+            this.recordingWidth = undefined;
+        };
+        Runtime.prototype.postFrame = function () {
+            var _this = this;
+            if (!this.recording || !this.running)
+                return;
+            var time = pxsim.U.now();
+            this.board.screenshotAsync(this.recordingWidth)
+                .then(function (imageData) {
+                // check for duplicate images
+                if (_this.recordingLastImageData && imageData
+                    && _this.recordingLastImageData.data.byteLength == imageData.data.byteLength) {
+                    var d0 = _this.recordingLastImageData.data;
+                    var d1 = imageData.data;
+                    var n = d0.byteLength;
+                    var i = 0;
+                    for (i = 0; i < n; ++i)
+                        if (d0[i] != d1[i])
+                            break;
+                    if (i == n)
+                        return;
+                }
+                _this.recordingLastImageData = imageData;
+                Runtime.postMessage({
+                    type: "screenshot",
+                    data: imageData,
+                    time: time
+                });
+            });
         };
         Runtime.prototype.queueDisplayUpdate = function () {
             this.numDisplayUpdates++;
@@ -4770,10 +5203,21 @@ var pxsim;
                 if (this.running) {
                     this.startTime = U.now();
                     this.startTimeUs = U.perfNowUs();
-                    Runtime.postMessage({ type: 'status', runtimeid: this.id, state: 'running' });
+                    Runtime.postMessage({
+                        type: 'status',
+                        frameid: pxsim.Embed.frameid,
+                        runtimeid: this.id,
+                        state: 'running'
+                    });
                 }
                 else {
-                    Runtime.postMessage({ type: 'status', runtimeid: this.id, state: 'killed' });
+                    this.stopRecording();
+                    Runtime.postMessage({
+                        type: 'status',
+                        frameid: pxsim.Embed.frameid,
+                        runtimeid: this.id,
+                        state: 'killed'
+                    });
                 }
                 if (this.stateChanged)
                     this.stateChanged();
@@ -4837,6 +5281,62 @@ var pxsim;
             c.start = 0;
             c.numstops++;
         };
+        // Wrapper for the setTimeout
+        Runtime.prototype.schedule = function (fn, timeout) {
+            var _this = this;
+            if (this.pausedOnBreakpoint) {
+                this.timeoutsPausedOnBreakpoint.push(new PausedTimeout(fn, timeout));
+                return -1;
+            }
+            // We call the timeout function and add its id to the timeouts scheduled.
+            if (timeout <= 0)
+                return -1;
+            var timestamp = U.now();
+            var removeAndExecute = function () {
+                _this.timeoutsScheduled.filter(function (ts) { return ts.timestampCall !== timestamp; });
+                fn();
+            };
+            var id = setTimeout(removeAndExecute, timeout);
+            this.timeoutsScheduled.push(new TimeoutScheduled(id, fn, timeout, timestamp));
+            return id;
+        };
+        // On breakpoint, pause all timeouts
+        Runtime.prototype.pauseScheduled = function () {
+            var _this = this;
+            this.pausedOnBreakpoint = true;
+            this.timeoutsScheduled.forEach(function (ts) {
+                clearTimeout(ts.id);
+                var elapsed = U.now() - ts.timestampCall;
+                var timeRemaining = ts.totalRuntime - elapsed;
+                if (timeRemaining < 0)
+                    timeRemaining = 0;
+                _this.timeoutsPausedOnBreakpoint.push(new PausedTimeout(ts.fn, timeRemaining));
+            });
+            this.lastPauseTimestamp = U.now();
+            this.timeoutsScheduled = [];
+        };
+        // When resuming after a breakpoint, restart all paused timeouts with their remaining time.
+        Runtime.prototype.resumeAllPausedScheduled = function () {
+            var _this = this;
+            // Takes the list of all fibers paused on a breakpoint and resumes them.
+            this.pausedOnBreakpoint = false;
+            this.timeoutsPausedOnBreakpoint.forEach(function (pt) {
+                _this.schedule(pt.fn, pt.timeRemaining);
+            });
+            if (this.lastPauseTimestamp) {
+                this.pausedTime += U.now() - this.lastPauseTimestamp;
+                this.lastPauseTimestamp = 0;
+            }
+            this.timeoutsPausedOnBreakpoint = [];
+        };
+        // Removes from the timeouts scheduled list all the ones that had been fulfilled.
+        Runtime.prototype.cleanScheduledExpired = function () {
+            var now = U.now();
+            this.timeoutsScheduled = this.timeoutsScheduled.filter(function (ts) {
+                var elapsed = now - ts.timestampCall;
+                return ts.totalRuntime > elapsed;
+            });
+        };
         return Runtime;
     }());
     pxsim.Runtime = Runtime;
@@ -4857,9 +5357,11 @@ var pxsim;
     (function (SimulatorState) {
         SimulatorState[SimulatorState["Unloaded"] = 0] = "Unloaded";
         SimulatorState[SimulatorState["Stopped"] = 1] = "Stopped";
-        SimulatorState[SimulatorState["Running"] = 2] = "Running";
-        SimulatorState[SimulatorState["Paused"] = 3] = "Paused";
-        SimulatorState[SimulatorState["Suspended"] = 4] = "Suspended";
+        SimulatorState[SimulatorState["Pending"] = 2] = "Pending";
+        SimulatorState[SimulatorState["Starting"] = 3] = "Starting";
+        SimulatorState[SimulatorState["Running"] = 4] = "Running";
+        SimulatorState[SimulatorState["Paused"] = 5] = "Paused";
+        SimulatorState[SimulatorState["Suspended"] = 6] = "Suspended";
     })(SimulatorState = pxsim.SimulatorState || (pxsim.SimulatorState = {}));
     var SimulatorDebuggerCommand;
     (function (SimulatorDebuggerCommand) {
@@ -4885,6 +5387,24 @@ var pxsim;
             this.debuggerSeq = 1;
             this.debuggerResolvers = {};
         }
+        SimulatorDriver.prototype.isDebug = function () {
+            return this.runOptions && !!this.runOptions.debug;
+        };
+        SimulatorDriver.prototype.setDirty = function () {
+            // We suspend the simulator here to stop it from running without
+            // interfering with the user's stopped state. We're not doing this check
+            // in the driver because the driver should be able to switch from any state
+            // to the suspend state, but in this codepath we only want to switch to the
+            // suspended state if we're running
+            if (this.state == pxsim.SimulatorState.Running)
+                this.suspend();
+        };
+        SimulatorDriver.prototype.setPending = function () {
+            this.setState(SimulatorState.Pending);
+        };
+        SimulatorDriver.prototype.setStarting = function () {
+            this.setState(SimulatorState.Starting);
+        };
         SimulatorDriver.prototype.setHwDebugger = function (hw) {
             if (hw) {
                 // TODO set some visual on the simulator frame
@@ -4909,10 +5429,57 @@ var pxsim;
             pxsim.U.assert(themes && themes.length > 0);
             this.themes = themes;
         };
+        SimulatorDriver.prototype.startRecording = function (width) {
+            var frame = this.simFrames()[0];
+            if (!frame)
+                return undefined;
+            this.postMessage({
+                type: 'recorder',
+                action: 'start',
+                width: width
+            });
+        };
+        SimulatorDriver.prototype.stopRecording = function () {
+            this.postMessage({ type: 'recorder', action: 'stop' });
+        };
+        SimulatorDriver.prototype.setFrameState = function (frame) {
+            var icon = frame.nextElementSibling;
+            var loader = icon.nextElementSibling;
+            // apply state
+            switch (this.state) {
+                case SimulatorState.Pending:
+                case SimulatorState.Starting:
+                    icon.style.display = '';
+                    icon.className = '';
+                    loader.style.display = '';
+                    break;
+                case SimulatorState.Stopped:
+                case SimulatorState.Suspended:
+                    pxsim.U.addClass(frame, (this.state == SimulatorState.Stopped || this.options.autoRun)
+                        ? this.stoppedClass : this.invalidatedClass);
+                    if (!this.options.autoRun) {
+                        icon.style.display = '';
+                        icon.className = 'videoplay xicon icon';
+                    }
+                    else
+                        icon.style.display = 'none';
+                    loader.style.display = 'none';
+                    this.scheduleFrameCleanup();
+                    break;
+                default:
+                    pxsim.U.removeClass(frame, this.stoppedClass);
+                    pxsim.U.removeClass(frame, this.invalidatedClass);
+                    icon.style.display = 'none';
+                    loader.style.display = 'none';
+                    break;
+            }
+        };
         SimulatorDriver.prototype.setState = function (state) {
+            var _this = this;
             if (this.state != state) {
                 this.state = state;
                 this.freeze(this.state == SimulatorState.Paused); // don't allow interaction when pause
+                this.simFrames().forEach(function (frame) { return _this.setFrameState(frame); });
                 if (this.options.onStateChanged)
                     this.options.onStateChanged(this.state);
             }
@@ -4938,18 +5505,26 @@ var pxsim;
                 });
             }
         };
+        SimulatorDriver.prototype.simFrames = function (skipLoaned) {
+            if (skipLoaned === void 0) { skipLoaned = false; }
+            var frames = pxsim.util.toArray(this.container.getElementsByTagName("iframe"));
+            var loanedFrame = this.loanedIFrame();
+            if (loanedFrame && !skipLoaned)
+                frames.unshift(loanedFrame);
+            return frames;
+        };
         SimulatorDriver.prototype.postMessage = function (msg, source) {
             if (this.hwdbg) {
                 this.hwdbg.postMessage(msg);
                 return;
             }
             // dispatch to all iframe besides self
-            var frames = this.container.getElementsByTagName("iframe");
+            var frames = this.simFrames();
             var broadcastmsg = msg;
             if (source && broadcastmsg && !!broadcastmsg.broadcast) {
                 if (frames.length < 2) {
                     this.container.appendChild(this.createFrame());
-                    frames = this.container.getElementsByTagName("iframe");
+                    frames = this.simFrames();
                 }
                 else if (frames[1].dataset['runid'] != this.runId) {
                     this.startFrame(frames[1]);
@@ -4957,62 +5532,116 @@ var pxsim;
             }
             for (var i = 0; i < frames.length; ++i) {
                 var frame = frames[i];
+                // same frame as source
                 if (source && frame.contentWindow == source)
                     continue;
+                // frame not in DOM
+                if (!frame.contentWindow)
+                    continue;
                 frame.contentWindow.postMessage(msg, "*");
+                // don't start more than 1 recorder
+                if (msg.type == 'recorder'
+                    && msg.action == "start")
+                    break;
             }
         };
         SimulatorDriver.prototype.createFrame = function (light) {
+            var _this = this;
             var wrapper = document.createElement("div");
-            wrapper.className = 'simframe';
+            wrapper.className = "simframe ui embed";
             var frame = document.createElement('iframe');
             frame.id = 'sim-frame-' + this.nextId();
+            frame.title = pxsim.localization.lf("Simulator");
             frame.allowFullscreen = true;
             frame.setAttribute('allow', 'autoplay');
             frame.setAttribute('sandbox', 'allow-same-origin allow-scripts');
             var simUrl = this.options.simUrl || (window.pxtConfig || {}).simUrl || "/sim/simulator.html";
             frame.className = 'no-select';
-            if (this.runOptions.aspectRatio)
-                wrapper.style.paddingBottom = (100 / this.runOptions.aspectRatio) + "%";
             frame.src = simUrl + '#' + frame.id;
             frame.frameBorder = "0";
             frame.dataset['runid'] = this.runId;
             wrapper.appendChild(frame);
+            var i = document.createElement("i");
+            i.className = "videoplay xicon icon";
+            i.style.display = "none";
+            i.onclick = function (ev) {
+                ev.preventDefault();
+                if (_this.state != SimulatorState.Running
+                    && _this.state != SimulatorState.Starting) {
+                    // we need to request to restart the simulator
+                    if (_this.options.restart)
+                        _this.options.restart();
+                    else
+                        _this.start();
+                }
+                return false;
+            };
+            wrapper.appendChild(i);
+            var l = document.createElement("div");
+            l.className = "ui active loader";
+            i.style.display = "none";
+            wrapper.appendChild(l);
+            if (this.runOptions)
+                this.applyAspectRatioToFrame(frame);
             return wrapper;
         };
-        SimulatorDriver.prototype.stop = function (unload) {
+        SimulatorDriver.prototype.preload = function (aspectRatio) {
+            if (!this.simFrames().length) {
+                this.container.appendChild(this.createFrame());
+                this.applyAspectRatio(aspectRatio);
+                this.setStarting();
+            }
+        };
+        SimulatorDriver.prototype.stop = function (unload, starting) {
             if (unload === void 0) { unload = false; }
+            if (starting === void 0) { starting = false; }
             this.clearDebugger();
             this.postMessage({ type: 'stop' });
-            this.setState(SimulatorState.Stopped);
+            this.setState(starting ? SimulatorState.Starting : SimulatorState.Stopped);
             if (unload)
                 this.unload();
-            else {
-                var frames_2 = this.container.getElementsByTagName("iframe");
-                for (var i = 0; i < frames_2.length; ++i) {
-                    var frame = frames_2[i];
-                    pxsim.U.addClass(frame, this.getStoppedClass());
-                }
-                this.scheduleFrameCleanup();
-            }
         };
         SimulatorDriver.prototype.suspend = function () {
             this.postMessage({ type: 'stop' });
             this.setState(SimulatorState.Suspended);
-            var frames = this.container.getElementsByTagName("iframe");
-            for (var i = 0; i < frames.length; ++i) {
-                var frame = frames[i];
-                pxsim.U.addClass(frame, this.getStoppedClass());
-            }
-            this.scheduleFrameCleanup();
         };
         SimulatorDriver.prototype.unload = function () {
             this.cancelFrameCleanup();
             pxsim.U.removeChildren(this.container);
             this.setState(SimulatorState.Unloaded);
+            this.runOptions = undefined; // forget about program
+            this._currentRuntime = undefined;
+            this.runId = undefined;
         };
         SimulatorDriver.prototype.mute = function (mute) {
             this.postMessage({ type: 'mute', mute: mute });
+        };
+        SimulatorDriver.prototype.isLoanedSimulator = function (el) {
+            return !!this.loanedSimulator && this.loanedIFrame() == el;
+        };
+        // returns a simulator iframe that can be hosted anywhere in the page
+        // while a loaned simulator is active, all other iframes are suspended
+        SimulatorDriver.prototype.loanSimulator = function () {
+            if (this.loanedSimulator)
+                return this.loanedSimulator;
+            // reuse first simulator or create new one
+            this.loanedSimulator = this.container.firstElementChild || this.createFrame();
+            if (this.loanedSimulator.parentNode)
+                this.container.removeChild(this.loanedSimulator);
+            return this.loanedSimulator;
+        };
+        SimulatorDriver.prototype.unloanSimulator = function () {
+            if (this.loanedSimulator) {
+                if (this.loanedSimulator.parentNode)
+                    this.loanedSimulator.parentNode.removeChild(this.loanedSimulator);
+                this.container.insertBefore(this.loanedSimulator, this.container.firstElementChild);
+                delete this.loanedSimulator;
+            }
+        };
+        SimulatorDriver.prototype.loanedIFrame = function () {
+            return this.loanedSimulator
+                && this.loanedSimulator.parentNode
+                && this.loanedSimulator.querySelector("iframe");
         };
         SimulatorDriver.prototype.cancelFrameCleanup = function () {
             if (this.frameCleanupTimeout) {
@@ -5028,57 +5657,62 @@ var pxsim;
                 _this.cleanupFrames();
             }, 5000);
         };
-        SimulatorDriver.prototype.applyAspectRatio = function () {
-            var frames = this.container.getElementsByTagName("iframe");
-            for (var i = 0; i < frames.length; ++i) {
-                frames[i].parentElement.style.paddingBottom =
-                    (100 / this.runOptions.aspectRatio) + "%";
-            }
+        SimulatorDriver.prototype.applyAspectRatio = function (ratio) {
+            var _this = this;
+            if (!ratio && !this.runOptions)
+                return;
+            var frames = this.simFrames();
+            frames.forEach(function (frame) { return _this.applyAspectRatioToFrame(frame, ratio); });
+        };
+        SimulatorDriver.prototype.applyAspectRatioToFrame = function (frame, ratio) {
+            var r = ratio || this.runOptions.aspectRatio;
+            frame.parentElement.style.paddingBottom =
+                (100 / r) + "%";
         };
         SimulatorDriver.prototype.cleanupFrames = function () {
+            var _this = this;
             // drop unused extras frames after 5 seconds
-            var frames = this.container.getElementsByTagName("iframe");
-            for (var i = 1; i < frames.length; ++i) {
-                var frame = frames[i];
-                if (this.state == SimulatorState.Stopped
-                    || frame.dataset['runid'] != this.runId) {
-                    if (this.options.removeElement)
-                        this.options.removeElement(frame.parentElement);
+            var frames = this.simFrames(true);
+            frames.shift(); // drop first frame
+            frames.forEach(function (frame) {
+                if (_this.state == SimulatorState.Stopped
+                    || frame.dataset['runid'] != _this.runId) {
+                    if (_this.options.removeElement)
+                        _this.options.removeElement(frame.parentElement);
                     else
                         frame.parentElement.remove();
                 }
-            }
+            });
         };
         SimulatorDriver.prototype.hide = function (completeHandler) {
+            var _this = this;
+            this.suspend();
             if (!this.options.removeElement)
                 return;
-            var frames = this.container.getElementsByTagName("iframe");
-            for (var i = 0; i < frames.length; ++i) {
-                var frame = frames[i];
-                this.options.removeElement(frame.parentElement, completeHandler);
-            }
+            var frames = this.simFrames();
+            frames.forEach(function (frame) {
+                _this.options.removeElement(frame.parentElement, completeHandler);
+            });
             // Execute the complete handler if there are no frames in sim view
             if (frames.length == 0 && completeHandler) {
                 completeHandler();
             }
         };
         SimulatorDriver.prototype.unhide = function () {
+            var _this = this;
             if (!this.options.unhideElement)
                 return;
-            var frames = this.container.getElementsByTagName("iframe");
-            for (var i = 0; i < frames.length; ++i) {
-                var frame = frames[i];
-                this.options.unhideElement(frame.parentElement);
-            }
+            var frames = this.simFrames();
+            frames.forEach(function (frame) {
+                _this.options.unhideElement(frame.parentElement);
+            });
         };
         SimulatorDriver.prototype.run = function (js, opts) {
             if (opts === void 0) { opts = {}; }
-            this.clearDebugger();
             this.runOptions = opts;
             this.runId = this.nextId();
-            this.addEventListeners();
             // store information
-            this.currentRuntime = {
+            this._currentRuntime = {
                 type: "run",
                 boardDefinition: opts.boardDefinition,
                 parts: opts.parts,
@@ -5094,13 +5728,23 @@ var pxsim;
                 version: opts.version,
                 clickTrigger: opts.clickTrigger
             };
+            this.start();
+        };
+        SimulatorDriver.prototype.restart = function () {
+            this.stop();
+            this.start();
+        };
+        SimulatorDriver.prototype.start = function () {
+            this.clearDebugger();
+            this.addEventListeners();
             this.applyAspectRatio();
             this.scheduleFrameCleanup();
+            if (!this._currentRuntime)
+                return; // nothing to do
             // first frame
-            var frame = this.container.getElementsByTagName("iframe").item(0);
-            // lazy allocate iframe
+            var frame = this.simFrames()[0];
             if (!frame) {
-                var wrapper = this.createFrame(opts.light);
+                var wrapper = this.createFrame(this.runOptions && this.runOptions.light);
                 this.container.appendChild(wrapper);
                 frame = wrapper.firstElementChild;
             }
@@ -5109,8 +5753,11 @@ var pxsim;
             this.setState(SimulatorState.Running);
             this.setTraceInterval(this.traceInterval);
         };
+        // ensure _currentRuntime is ready
         SimulatorDriver.prototype.startFrame = function (frame) {
-            var msg = JSON.parse(JSON.stringify(this.currentRuntime));
+            if (!this._currentRuntime || !frame.contentWindow)
+                return false;
+            var msg = JSON.parse(JSON.stringify(this._currentRuntime));
             var mc = '';
             var m = /player=([A-Za-z0-9]+)/i.exec(window.location.href);
             if (m)
@@ -5122,18 +5769,14 @@ var pxsim;
             };
             msg.id = msg.options.theme + "-" + this.nextId();
             frame.dataset['runid'] = this.runId;
+            frame.dataset['runtimeid'] = msg.id;
             frame.contentWindow.postMessage(msg, "*");
-            pxsim.U.removeClass(frame, this.getStoppedClass());
-        };
-        SimulatorDriver.prototype.removeEventListeners = function () {
-            if (this.listener) {
-                window.removeEventListener('message', this.listener, false);
-                this.listener = undefined;
-            }
+            this.setFrameState(frame);
+            return true;
         };
         SimulatorDriver.prototype.handleMessage = function (msg, source) {
             switch (msg.type || '') {
-                case 'ready':
+                case 'ready': {
                     var frameid = msg.frameid;
                     var frame = document.getElementById(frameid);
                     if (frame) {
@@ -5142,12 +5785,29 @@ var pxsim;
                             this.options.revealElement(frame);
                     }
                     break;
+                }
+                case 'status': {
+                    var frameid = msg.frameid;
+                    var frame = document.getElementById(frameid);
+                    if (frame) {
+                        var stmsg = msg;
+                        switch (stmsg.state) {
+                            case "killed":
+                                if (stmsg.runtimeid == frame.dataset['runtimeid'])
+                                    this.setState(SimulatorState.Stopped);
+                                break;
+                        }
+                    }
+                    break;
+                }
                 case 'simulator':
                     this.handleSimulatorCommand(msg);
                     break; //handled elsewhere
-                case 'serial': break; //handled elsewhere
+                case 'serial':
                 case 'pxteditor':
+                case 'screenshot':
                 case 'custom':
+                case 'recorder':
                     break; //handled elsewhere
                 case 'debugger':
                     this.handleDebuggerMessage(msg);
@@ -5170,6 +5830,12 @@ var pxsim;
                     _this.handleMessage(ev.data, ev.source);
                 };
                 window.addEventListener('message', this.listener, false);
+            }
+        };
+        SimulatorDriver.prototype.removeEventListeners = function () {
+            if (this.listener) {
+                window.removeEventListener('message', this.listener, false);
+                this.listener = undefined;
             }
         };
         SimulatorDriver.prototype.resume = function (c) {
@@ -5207,8 +5873,8 @@ var pxsim;
             this.traceInterval = intervalMs;
             this.postDebuggerMessage("traceConfig", { interval: intervalMs });
         };
-        SimulatorDriver.prototype.variablesAsync = function (id) {
-            return this.postDebuggerMessageAsync("variables", { variablesReference: id })
+        SimulatorDriver.prototype.variablesAsync = function (id, fields) {
+            return this.postDebuggerMessageAsync("variables", { variablesReference: id, fields: fields })
                 .then(function (msg) { return msg; }, function (e) { return undefined; });
         };
         SimulatorDriver.prototype.handleSimulatorCommand = function (msg) {
@@ -5256,7 +5922,8 @@ var pxsim;
                             var fi = s.funcInfo;
                             stackTrace += "   at " + fi.functionName + " (" + fi.fileName + ":" + (fi.line + 1) + ":" + (fi.column + 1) + ")\n";
                         }
-                        console.error(stackTrace);
+                        if (brk.exceptionMessage)
+                            console.error(stackTrace);
                     }
                     else {
                         console.error("debugger: trying to pause from " + this.state);
@@ -5300,12 +5967,20 @@ var pxsim;
         SimulatorDriver.prototype.nextId = function () {
             return this.nextFrameId++ + (Math.random() + '' + Math.random()).replace(/[^\d]/, '');
         };
-        SimulatorDriver.prototype.getStoppedClass = function () {
-            if (this.options && this.options.stoppedClass) {
-                return this.options.stoppedClass;
-            }
-            return "grayscale";
-        };
+        Object.defineProperty(SimulatorDriver.prototype, "stoppedClass", {
+            get: function () {
+                return (this.options && this.options.stoppedClass) || "grayscale";
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(SimulatorDriver.prototype, "invalidatedClass", {
+            get: function () {
+                return (this.options && this.options.invalidatedClass) || "sepia";
+            },
+            enumerable: true,
+            configurable: true
+        });
         return SimulatorDriver;
     }());
     pxsim.SimulatorDriver = SimulatorDriver;
@@ -5336,15 +6011,16 @@ var pxsim;
             this.notifyID = notifyID;
             this.notifyOneID = notifyOneID;
         };
-        EventBusGeneric.prototype.start = function (id, evid, create, background) {
-            var k = (background ? "back:" : "") + id + ":" + evid;
-            var queue = this.queues[k];
-            if (!queue)
-                queue = this.queues[k] = new pxsim.EventQueue(this.runtime, this.valueToArgs);
-            return queue;
+        EventBusGeneric.prototype.start = function (id, evid, background, create) {
+            if (create === void 0) { create = false; }
+            var key = (background ? "back" : "fore") + ":" + id + ":" + evid;
+            if (!this.queues[key] && create)
+                this.queues[key] = new pxsim.EventQueue(this.runtime, this.valueToArgs);
+            ;
+            return this.queues[key];
         };
         EventBusGeneric.prototype.listen = function (id, evid, handler) {
-            var q = this.start(id, evid, true, this.backgroundHandlerFlag);
+            var q = this.start(id, evid, this.backgroundHandlerFlag, true);
             if (this.backgroundHandlerFlag)
                 q.addHandler(handler);
             else
@@ -5358,28 +6034,40 @@ var pxsim;
                     _this.queues[k].removeHandler(handler);
             });
         };
+        // this handles ANY (0) semantics for id and evid
+        EventBusGeneric.prototype.getQueues = function (id, evid, bg) {
+            var ret = [this.start(0, 0, bg)];
+            if (id == 0 && evid == 0)
+                return ret;
+            if (id == 0)
+                ret.push(this.start(0, evid, bg));
+            if (evid == 0)
+                ret.push(this.start(id, 0, bg));
+            if (id != 0 && evid != 0)
+                ret.push(this.start(id, evid, bg));
+            return ret;
+        };
         EventBusGeneric.prototype.queue = function (id, evid, value) {
             if (value === void 0) { value = null; }
+            if (pxsim.runtime.pausedOnBreakpoint)
+                return;
             // special handling for notify one
             var notifyOne = this.notifyID && this.notifyOneID && id == this.notifyOneID;
             if (notifyOne)
                 id = this.notifyID;
-            var qBackground = this.start(id, evid, false, true);
-            var qForeground = this.start(id, evid, false, false);
-            if (qBackground || qForeground) {
-                this.lastEventValue = evid;
-                this.lastEventTimestampUs = pxsim.U.perfNowUs();
-                var promise = Promise.resolve();
-                if (qBackground)
-                    promise = qBackground.push(value, notifyOne);
-                // do the foreground handler after the background handlers
-                if (qForeground)
-                    promise.then(function () { qForeground.push(value, notifyOne); });
-            }
+            var queues = this.getQueues(id, evid, true).concat(this.getQueues(id, evid, false));
+            this.lastEventValue = evid;
+            this.lastEventTimestampUs = pxsim.U.perfNowUs();
+            Promise.each(queues, function (q) {
+                if (q)
+                    return q.push(value, notifyOne);
+                else
+                    return Promise.resolve();
+            });
         };
         // only for foreground handlers
         EventBusGeneric.prototype.wait = function (id, evid, cb) {
-            var q = this.start(id, evid, true, false);
+            var q = this.start(id, evid, false, true);
             q.addAwaiter(cb);
         };
         EventBusGeneric.prototype.getLastEventValue = function () {
@@ -5521,28 +6209,42 @@ var pxsim;
         }
         AudioContextManager.frequency = frequency;
         var waveForms = [null, "triangle", "sawtooth", "sine"];
+        var metallicBuffer;
         var noiseBuffer;
         var squareBuffer = [];
-        function getNoiseBuffer() {
-            if (!noiseBuffer) {
-                // normalized to 100Hz
+        function getMetallicBuffer() {
+            if (!metallicBuffer) {
                 var bufferSize = 1024;
-                noiseBuffer = context().createBuffer(1, bufferSize, 100 * bufferSize);
-                var output = noiseBuffer.getChannelData(0);
+                metallicBuffer = context().createBuffer(1, bufferSize, context().sampleRate);
+                var output = metallicBuffer.getChannelData(0);
                 for (var i = 0; i < bufferSize; i++) {
                     output[i] = (((i * 7919) & 1023) / 512.0) - 1.0;
+                }
+            }
+            return metallicBuffer;
+        }
+        function getNoiseBuffer() {
+            if (!noiseBuffer) {
+                var bufferSize = 100000;
+                noiseBuffer = context().createBuffer(1, bufferSize, context().sampleRate);
+                var output = noiseBuffer.getChannelData(0);
+                var x = 0xf01ba80;
+                for (var i = 0; i < bufferSize; i++) {
+                    x ^= x << 13;
+                    x ^= x >> 17;
+                    x ^= x << 5;
+                    output[i] = ((x & 1023) / 512.0) - 1.0;
                 }
             }
             return noiseBuffer;
         }
         function getSquareBuffer(param) {
             if (!squareBuffer[param]) {
-                // normalized to 100Hz
-                var bufferSize = 100;
-                var buf = context().createBuffer(1, bufferSize, 100 * bufferSize);
+                var bufferSize = 1024;
+                var buf = context().createBuffer(1, bufferSize, context().sampleRate);
                 var output = buf.getChannelData(0);
                 for (var i = 0; i < bufferSize; i++) {
-                    output[i] = i < param ? 1 : -1;
+                    output[i] = i < (param / 100 * bufferSize) ? 1 : -1;
                 }
                 squareBuffer[param] = buf;
             }
@@ -5553,6 +6255,7 @@ var pxsim;
         #define SW_SAWTOOTH 2
         #define SW_SINE 3 // TODO remove it? it takes space
         #define SW_NOISE 4
+        #define SW_REAL_NOISE 5
         #define SW_SQUARE_10 11
         #define SW_SQUARE_50 15
         */
@@ -5576,6 +6279,8 @@ var pxsim;
             }
             var buffer;
             if (waveFormIdx == 4)
+                buffer = getMetallicBuffer();
+            else if (waveFormIdx == 5)
                 buffer = getNoiseBuffer();
             else if (11 <= waveFormIdx && waveFormIdx <= 15)
                 buffer = getSquareBuffer((waveFormIdx - 10) * 10);
@@ -5584,7 +6289,8 @@ var pxsim;
             var node = context().createBufferSource();
             node.buffer = buffer;
             node.loop = true;
-            node.playbackRate.value = hz / 100;
+            if (waveFormIdx != 5)
+                node.playbackRate.value = hz / (context().sampleRate / 1024);
             return node;
         }
         var channels = [];
@@ -5661,9 +6367,9 @@ var pxsim;
                     ch.generator.start();
                 }
                 idx += 10;
-                ch.gain.gain.setValueAtTime(scaleVol(startVol), ctx.currentTime + timeOff);
+                ch.gain.gain.setValueAtTime(scaleVol(startVol), ctx.currentTime + (timeOff / 1000));
                 timeOff += duration;
-                ch.gain.gain.linearRampToValueAtTime(scaleVol(endVol), ctx.currentTime + timeOff);
+                ch.gain.gain.linearRampToValueAtTime(scaleVol(endVol), ctx.currentTime + (timeOff / 1000));
                 return loopAsync();
             };
             return loopAsync()
@@ -5973,8 +6679,9 @@ var pxsim;
         svg_1.toDataUri = toDataUri;
         var pt;
         function cursorPoint(pt, svg, evt) {
-            pt.x = evt.clientX;
-            pt.y = evt.clientY;
+            // clientX and clientY are not defined in iOS safari
+            pt.x = evt.clientX != null ? evt.clientX : evt.pageX;
+            pt.y = evt.clientY != null ? evt.clientY : evt.pageY;
             return pt.matrixTransform(svg.getScreenCTM().inverse());
         }
         svg_1.cursorPoint = cursorPoint;
@@ -6337,14 +7044,14 @@ var pxsim;
                         getBBCoord: this.breadboard.getCoord.bind(this.breadboard),
                         partsList: activeComponents,
                     });
-                    if (!allocRes.partsAndWires.length) {
+                    if (!allocRes.partsAndWires.length && !opts.forceBreadboardLayout) {
                         // nothing got allocated, so we rollback the changes.
                         useBreadboardView = false;
                     }
                     else {
                         this.addAll(allocRes);
                         if (!allocRes.requiresBreadboard && !opts.forceBreadboardRender)
-                            this.breadboard.hide();
+                            useBreadboardView = false;
                     }
                 }
                 if (!useBreadboardView) {
@@ -6388,6 +7095,43 @@ var pxsim;
             BoardHost.prototype.getView = function () {
                 return this.view;
             };
+            BoardHost.prototype.screenshotAsync = function (width) {
+                var svg = this.view.cloneNode(true);
+                svg.setAttribute('width', this.view.width.baseVal.value + "");
+                svg.setAttribute('height', this.view.height.baseVal.value + "");
+                var xml = new XMLSerializer().serializeToString(svg);
+                var data = "data:image/svg+xml,"
+                    + encodeURIComponent(xml.replace(/\s+/g, ' ').replace(/"/g, "'"));
+                return new Promise(function (resolve, reject) {
+                    var img = document.createElement("img");
+                    img.onload = function () {
+                        var cvs = document.createElement("canvas");
+                        cvs.width = img.width;
+                        cvs.height = img.height;
+                        // check if a width or a height was specified
+                        if (width > 0) {
+                            cvs.width = width;
+                            cvs.height = (img.height * width / img.width) | 0;
+                        }
+                        else if (cvs.width < 200) {
+                            cvs.width *= 2;
+                            cvs.height *= 2;
+                        }
+                        else if (cvs.width > 480) {
+                            cvs.width /= 2;
+                            cvs.height /= 2;
+                        }
+                        var ctx = cvs.getContext("2d");
+                        ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+                        resolve(ctx.getImageData(0, 0, cvs.width, cvs.height));
+                    };
+                    img.onerror = function (e) {
+                        console.log(e);
+                        resolve(undefined);
+                    };
+                    img.src = data;
+                });
+            };
             BoardHost.prototype.updateState = function () {
                 this.parts.forEach(function (c) { return c.updateState(); });
             };
@@ -6397,7 +7141,10 @@ var pxsim;
             };
             BoardHost.prototype.getPinCoord = function (pin) {
                 var boardCoord = this.boardView.getCoord(pin);
-                pxsim.U.assert(!!boardCoord, "Unable to find coord for pin: " + pin);
+                if (!boardCoord) {
+                    console.error("Unable to find coord for pin: " + pin);
+                    return undefined;
+                }
                 return this.fromMBCoord(boardCoord);
             };
             BoardHost.prototype.getLocCoord = function (loc) {
@@ -6410,10 +7157,8 @@ var pxsim;
                     var pinNm = loc.pin;
                     coord = this.getPinCoord(pinNm);
                 }
-                if (!coord) {
-                    console.error("Unknown location: " + name);
-                    return [0, 0];
-                }
+                if (!coord)
+                    console.debug("Unknown location: " + name);
                 return coord;
             };
             BoardHost.prototype.getPinStyle = function (loc) {
@@ -6425,7 +7170,6 @@ var pxsim;
             BoardHost.prototype.addPart = function (partInst) {
                 var _this = this;
                 var part = null;
-                var colOffset = 0;
                 if (partInst.simulationBehavior) {
                     //TODO: seperate simulation behavior from builtin visual
                     var builtinBehavior = partInst.simulationBehavior;
@@ -6474,13 +7218,17 @@ var pxsim;
             BoardHost.prototype.addAll = function (allocRes) {
                 var _this = this;
                 allocRes.partsAndWires.forEach(function (pAndWs) {
-                    var part = pAndWs.part;
-                    if (part)
-                        _this.addPart(part);
                     var wires = pAndWs.wires;
-                    if (wires)
-                        wires.forEach(function (w) { return _this.addWire(w); });
+                    var wiresOk = wires && wires.every(function (w) { return _this.wireFactory.checkWire(w.start, w.end); });
+                    if (wiresOk)
+                        wires.forEach(function (w) { return allocRes.wires.push(_this.addWire(w)); });
+                    var part = pAndWs.part;
+                    if (part && (!wires || wiresOk))
+                        allocRes.parts.push(_this.addPart(part));
                 });
+                // at least one wire
+                allocRes.requiresBreadboard = !!allocRes.wires.length
+                    || !!allocRes.parts.length;
             };
             return BoardHost;
         }());
@@ -6584,7 +7332,7 @@ var pxsim;
                     var colIdx = j + colIdxOffset;
                     var addEl = function (pin) {
                         pxsim.svg.hydrate(pin.el, pin.el.tagName == "circle"
-                            ? { cx: cx + pin.w * 0.5, cy: cy + pin.h * 0.5 }
+                            ? { cx: cx, cy: cy }
                             : { x: cx - pin.w * 0.5, y: cy - pin.h * 0.5 });
                         grid.appendChild(pin.el);
                         return pin.el;
@@ -7642,10 +8390,19 @@ var pxsim;
                 this.styleEl.textContent += colorCSS;
                 return { endG: endG, end1: end1, end2: end2, wires: wires };
             };
+            WireFactory.prototype.checkWire = function (start, end) {
+                var startLoc = this.getLocCoord(start);
+                var endLoc = this.getLocCoord(end);
+                return !!startLoc && !!endLoc;
+            };
             WireFactory.prototype.addWire = function (start, end, color) {
                 var startLoc = this.getLocCoord(start);
                 var endLoc = this.getLocCoord(end);
-                var startStyle = this.getPinStyle(start);
+                if (!startLoc || !endLoc) {
+                    console.debug("unable to allocate wire for " + start + " or " + end);
+                    return undefined;
+                }
+                //let startStyle = this.getPinStyle(start);
                 var endStyle = this.getPinStyle(end);
                 var wireEls;
                 if (end.type == "dalboard" && endStyle == "croc") {

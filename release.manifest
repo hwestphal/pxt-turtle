@@ -10,6 +10,7 @@ CACHE:
 /pxt-turtle/jquery.js
 /pxt-turtle/pxtlib.js
 /pxt-turtle/pxtcompiler.js
+/pxt-turtle/pxtpy.js
 /pxt-turtle/pxtblockly.js
 /pxt-turtle/pxtwinrt.js
 /pxt-turtle/pxteditor.js
@@ -36,6 +37,8 @@ CACHE:
 /pxt-turtle/vs/base/worker/workerMain.js
 /pxt-turtle/vs/basic-languages/src/bat.js
 /pxt-turtle/vs/basic-languages/src/cpp.js
+/pxt-turtle/vs/basic-languages/src/python.js
+/pxt-turtle/vs/basic-languages/src/markdown.js
 /pxt-turtle/vs/editor/editor.main.css
 /pxt-turtle/vs/editor/editor.main.js
 /pxt-turtle/vs/editor/editor.main.nls.js
@@ -49,13 +52,16 @@ CACHE:
 /pxt-turtle/smoothie/smoothie_compressed.js
 /pxt-turtle/images/Bars_black.gif
 
+# gifjs
+/pxt-turtle/gifjs/gif.js
+
 # ai
 /pxt-turtle/ai.0.js
 
 /pxt-turtle/worker.js
 /pxt-turtle/monacoworker.js
 
-# ver Thu Dec 06 2018 20:06:16 GMT+0100 (Mitteleuropäische Zeit)
+# ver Fri Apr 12 2019 10:15:50 GMT+0200 (Mitteleuropäische Sommerzeit)
 
 # target
 

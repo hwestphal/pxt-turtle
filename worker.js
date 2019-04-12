@@ -1,5 +1,6 @@
 /// <reference path="../../built/pxtlib.d.ts"/>
 /// <reference path="../../built/pxtcompiler.d.ts"/>
+/// <reference path="../../built/pxtpy.d.ts"/>
 importScripts("/pxt-turtle/pxtworker.js");
 var pm = postMessage;
 // work around safari not providing bta
@@ -155,6 +156,64 @@ if (typeof atob === "undefined") {
 if (!Uint8Array.prototype.slice) {
     Object.defineProperty(Uint8Array.prototype, 'slice', {
         value: Array.prototype.slice,
+        writable: true,
+        enumerable: true
+    });
+}
+if (!Uint16Array.prototype.slice) {
+    Object.defineProperty(Uint16Array.prototype, 'slice', {
+        value: Array.prototype.slice,
+        writable: true,
+        enumerable: true
+    });
+}
+if (!Uint32Array.prototype.slice) {
+    Object.defineProperty(Uint32Array.prototype, 'slice', {
+        value: Array.prototype.slice,
+        writable: true,
+        enumerable: true
+    });
+}
+// https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.some
+if (!Uint8Array.prototype.some) {
+    Object.defineProperty(Uint8Array.prototype, 'some', {
+        value: Array.prototype.some,
+        writable: true,
+        enumerable: true
+    });
+}
+if (!Uint16Array.prototype.some) {
+    Object.defineProperty(Uint16Array.prototype, 'some', {
+        value: Array.prototype.some,
+        writable: true,
+        enumerable: true
+    });
+}
+if (!Uint32Array.prototype.some) {
+    Object.defineProperty(Uint32Array.prototype, 'some', {
+        value: Array.prototype.some,
+        writable: true,
+        enumerable: true
+    });
+}
+// https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.reverse
+if (!Uint8Array.prototype.reverse) {
+    Object.defineProperty(Uint8Array.prototype, 'reverse', {
+        value: Array.prototype.reverse,
+        writable: true,
+        enumerable: true
+    });
+}
+if (!Uint16Array.prototype.reverse) {
+    Object.defineProperty(Uint16Array.prototype, 'reverse', {
+        value: Array.prototype.reverse,
+        writable: true,
+        enumerable: true
+    });
+}
+if (!Uint32Array.prototype.reverse) {
+    Object.defineProperty(Uint32Array.prototype, 'reverse', {
+        value: Array.prototype.reverse,
         writable: true,
         enumerable: true
     });

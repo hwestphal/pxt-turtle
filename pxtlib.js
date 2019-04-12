@@ -84,8 +84,10 @@ var pxt;
                     Object.keys(data).forEach(function (k) {
                         if (typeof data[k] == "string")
                             props_1[k] = data[k];
-                        else
+                        else if (typeof data[k] == "number")
                             measures_1[k] = data[k];
+                        else
+                            props_1[k] = JSON.stringify(data[k] || '');
                     });
                     pxt.aiTrackEvent(id, props_1, measures_1);
                 }
@@ -204,8 +206,8 @@ var pxtc = ts.pxtc;
             var _localizeLang = "en";
             var _localizeStrings = {};
             var _translationsCache = {};
-            var _didSetlocalizations = false;
-            var _didReportLocalizationsNotSet = false;
+            //let _didSetlocalizations = false;
+            //let _didReportLocalizationsNotSet = false;
             Util.localizeLive = false;
             /**
              * Returns the current user language, prepended by "live-" if in live mode
@@ -221,8 +223,18 @@ var pxtc = ts.pxtc;
                 return _localizeLang;
             }
             Util.userLanguage = userLanguage;
+            function normalizeLanguageCode(code) {
+                var langParts = /^(\w{2})-(\w{2}$)/i.exec(code);
+                if (langParts && langParts[1] && langParts[2]) {
+                    return [langParts[1].toLowerCase() + "-" + langParts[2].toUpperCase(), langParts[1].toLowerCase()];
+                }
+                else {
+                    return [(code || "en").toLowerCase()];
+                }
+            }
+            Util.normalizeLanguageCode = normalizeLanguageCode;
             function setUserLanguage(localizeLang) {
-                _localizeLang = localizeLang;
+                _localizeLang = normalizeLanguageCode(localizeLang)[0];
             }
             Util.setUserLanguage = setUserLanguage;
             function isUserLanguageRtl() {
@@ -246,7 +258,7 @@ var pxtc = ts.pxtc;
             }
             Util.getLocalizedStrings = getLocalizedStrings;
             function setLocalizedStrings(strs) {
-                _didSetlocalizations = true;
+                //_didSetlocalizations = true;
                 _localizeStrings = strs;
             }
             Util.setLocalizedStrings = setLocalizedStrings;
@@ -383,6 +395,34 @@ var pxtc = ts.pxtc;
                 throw e;
             }
             Util.userError = userError;
+        })(Util = pxtc.Util || (pxtc.Util = {}));
+    })(pxtc = ts.pxtc || (ts.pxtc = {}));
+})(ts || (ts = {}));
+var lf = ts.pxtc.Util.lf;
+/// <reference path="tickEvent.ts" />
+/// <reference path="apptarget.ts"/>
+/// <reference path="commonutil.ts"/>
+var ts;
+(function (ts) {
+    var pxtc;
+    (function (pxtc) {
+        /**
+         * atob replacement
+         * @param s
+         */
+        pxtc.decodeBase64 = function (s) { return atob(s); };
+        /**
+         * bota replacement
+         * @param s
+         */
+        pxtc.encodeBase64 = function (s) { return btoa(s); };
+    })(pxtc = ts.pxtc || (ts.pxtc = {}));
+})(ts || (ts = {}));
+(function (ts) {
+    var pxtc;
+    (function (pxtc) {
+        var Util;
+        (function (Util) {
             var CancellationToken = /** @class */ (function () {
                 function CancellationToken() {
                     this.pending = false;
@@ -437,34 +477,57 @@ var pxtc = ts.pxtc;
                 return CancellationToken;
             }());
             Util.CancellationToken = CancellationToken;
-        })(Util = pxtc.Util || (pxtc.Util = {}));
-    })(pxtc = ts.pxtc || (ts.pxtc = {}));
-})(ts || (ts = {}));
-var lf = ts.pxtc.Util.lf;
-/// <reference path="tickEvent.ts" />
-/// <reference path="apptarget.ts"/>
-/// <reference path="commonutil.ts"/>
-var ts;
-(function (ts) {
-    var pxtc;
-    (function (pxtc) {
-        /**
-         * atob replacement
-         * @param s
-         */
-        pxtc.decodeBase64 = function (s) { return atob(s); };
-        /**
-         * bota replacement
-         * @param s
-         */
-        pxtc.encodeBase64 = function (s) { return btoa(s); };
-    })(pxtc = ts.pxtc || (ts.pxtc = {}));
-})(ts || (ts = {}));
-(function (ts) {
-    var pxtc;
-    (function (pxtc) {
-        var Util;
-        (function (Util) {
+            function codalHash16(s) {
+                // same hashing as https://github.com/lancaster-university/codal-core/blob/c1fe7a4c619683a50d47cb0c19d15b8ff3bd16a1/source/drivers/PearsonHash.cpp#L26
+                var hashTable = [
+                    251, 175, 119, 215, 81, 14, 79, 191, 103, 49, 181, 143, 186, 157, 0,
+                    232, 31, 32, 55, 60, 152, 58, 17, 237, 174, 70, 160, 144, 220, 90, 57,
+                    223, 59, 3, 18, 140, 111, 166, 203, 196, 134, 243, 124, 95, 222, 179,
+                    197, 65, 180, 48, 36, 15, 107, 46, 233, 130, 165, 30, 123, 161, 209, 23,
+                    97, 16, 40, 91, 219, 61, 100, 10, 210, 109, 250, 127, 22, 138, 29, 108,
+                    244, 67, 207, 9, 178, 204, 74, 98, 126, 249, 167, 116, 34, 77, 193,
+                    200, 121, 5, 20, 113, 71, 35, 128, 13, 182, 94, 25, 226, 227, 199, 75,
+                    27, 41, 245, 230, 224, 43, 225, 177, 26, 155, 150, 212, 142, 218, 115,
+                    241, 73, 88, 105, 39, 114, 62, 255, 192, 201, 145, 214, 168, 158, 221,
+                    148, 154, 122, 12, 84, 82, 163, 44, 139, 228, 236, 205, 242, 217, 11,
+                    187, 146, 159, 64, 86, 239, 195, 42, 106, 198, 118, 112, 184, 172, 87,
+                    2, 173, 117, 176, 229, 247, 253, 137, 185, 99, 164, 102, 147, 45, 66,
+                    231, 52, 141, 211, 194, 206, 246, 238, 56, 110, 78, 248, 63, 240, 189,
+                    93, 92, 51, 53, 183, 19, 171, 72, 50, 33, 104, 101, 69, 8, 252, 83, 120,
+                    76, 135, 85, 54, 202, 125, 188, 213, 96, 235, 136, 208, 162, 129, 190,
+                    132, 156, 38, 47, 1, 7, 254, 24, 4, 216, 131, 89, 21, 28, 133, 37, 153,
+                    149, 80, 170, 68, 6, 169, 234, 151
+                ];
+                // REF: https://en.wikipedia.org/wiki/Pearson_hashing
+                function eightBitHash(s) {
+                    var hash = 0;
+                    for (var i = 0; i < s.length; i++) {
+                        var c = s[i];
+                        hash = hashTable[hash ^ c];
+                    }
+                    return hash;
+                }
+                function hashN(s, byteCount) {
+                    // this hash is used by enum.isHash. So any modification should be considered a breaking change.
+                    var hash;
+                    var buffer = new Uint8Array(s.length); // TODO unicode
+                    for (var i = 0; i < s.length; ++i) {
+                        var c = s.charCodeAt(i);
+                        buffer[i] = c & 0xff;
+                    }
+                    var res = 0;
+                    for (var i = 0; i < byteCount; ++i) {
+                        hash = eightBitHash(buffer);
+                        res |= hash << (8 * i);
+                        buffer[0] = (buffer[0] + 1) % 255;
+                    }
+                    return res;
+                }
+                if (!s)
+                    return 0;
+                return hashN(s, 2);
+            }
+            Util.codalHash16 = codalHash16;
             function bufferSerial(buffers, data, source, maxBufLen) {
                 if (data === void 0) { data = ""; }
                 if (source === void 0) { source = "?"; }
@@ -484,6 +547,17 @@ var ts;
                 }
             }
             Util.bufferSerial = bufferSerial;
+            function blobReadAsDataURL(blob) {
+                if (!blob)
+                    return Promise.resolve(undefined);
+                return new Promise(function (resolve, reject) {
+                    var reader = new FileReader();
+                    reader.onload = function () { return resolve(reader.result); };
+                    reader.onerror = function (e) { return reject(e); };
+                    reader.readAsDataURL(blob);
+                });
+            }
+            Util.blobReadAsDataURL = blobReadAsDataURL;
             function fileReadAsBufferAsync(f) {
                 if (!f)
                     return Promise.resolve(null);
@@ -603,6 +677,15 @@ var ts;
                 return r;
             }
             Util.uint8ArrayConcat = uint8ArrayConcat;
+            function jsonTryParse(s) {
+                try {
+                    return JSON.parse(s);
+                }
+                catch (e) {
+                    return undefined;
+                }
+            }
+            Util.jsonTryParse = jsonTryParse;
             function jsonMergeFrom(trg, src) {
                 if (!src)
                     return;
@@ -1008,7 +1091,7 @@ var ts;
                 return decodeURIComponent(escaped);
             }
             Util.fromUTF8 = fromUTF8;
-            function toUTF8(str) {
+            function toUTF8(str, cesu8) {
                 var res = "";
                 if (!str)
                     return res;
@@ -1020,7 +1103,7 @@ var ts;
                         res += String.fromCharCode(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
                     }
                     else {
-                        if (0xd800 <= code && code <= 0xdbff) {
+                        if (!cesu8 && 0xd800 <= code && code <= 0xdbff) {
                             var next = str.charCodeAt(++i);
                             if (!isNaN(next))
                                 code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
@@ -1189,7 +1272,7 @@ var ts;
                 function downloadFromCloudAsync(strings) {
                     pxt.debug("downloading translations for " + lang + " " + filename + " " + (branch || ""));
                     // https://pxt.io/api/translations?filename=strings.json&lang=pl&approved=true&branch=v0
-                    var url = (pxt.Cloud.isLocalHost() || pxt.webConfig.isStatic ? "https://makecode.com" : "") + "/api/translations?lang=" + encodeURIComponent(lang) + "&filename=" + encodeURIComponent(filename) + "&approved=true";
+                    var url = (pxt.BrowserUtils.isLocalHost() || pxt.webConfig.isStatic ? "https://makecode.com" : "") + "/api/translations?lang=" + encodeURIComponent(lang) + "&filename=" + encodeURIComponent(filename) + "&approved=true";
                     if (branch)
                         url += '&branch=' + encodeURIComponent(branch);
                     var headers = {};
@@ -1228,25 +1311,30 @@ var ts;
                 });
             }
             Util.downloadLiveTranslationsAsync = downloadLiveTranslationsAsync;
-            function normalizeLanguageCode(code) {
-                var langParts = /^(\w{2})-(\w{2}$)/i.exec(code);
-                if (langParts && langParts[1] && langParts[2]) {
-                    return langParts[1].toLowerCase() + "-" + langParts[2].toUpperCase();
-                }
-                else {
-                    return code.toLowerCase();
-                }
-            }
-            Util.normalizeLanguageCode = normalizeLanguageCode;
             function isLocaleEnabled(code) {
-                code = normalizeLanguageCode(code);
-                return pxt.appTarget.appTheme && pxt.appTarget.appTheme.availableLocales && pxt.appTarget.appTheme.availableLocales.indexOf(code) > -1;
+                var _a = Util.normalizeLanguageCode(code), lang = _a[0], baseLang = _a[1];
+                var appTheme = pxt.appTarget.appTheme;
+                if (appTheme && appTheme.availableLocales) {
+                    if (appTheme.availableLocales.indexOf(lang) > -1) {
+                        return true;
+                    }
+                    //check for base language if we didn't find the full language. Example: nl for nl-NL
+                    if (baseLang && appTheme.availableLocales.indexOf(baseLang) > -1) {
+                        return true;
+                    }
+                }
+                return false;
             }
             Util.isLocaleEnabled = isLocaleEnabled;
             function updateLocalizationAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live, force) {
-                code = normalizeLanguageCode(code);
-                if (code === Util.userLanguage() || (!isLocaleEnabled(code) && !force))
+                code = Util.normalizeLanguageCode(code)[0];
+                if (code === "en-US")
+                    code = "en"; // special case for built-in language
+                if (code === Util.userLanguage() || (!isLocaleEnabled(code) && !force)) {
+                    pxt.debug("loc: " + code + " (using built-in)");
                     return Promise.resolve();
+                }
+                pxt.debug("loc: " + code);
                 return downloadTranslationsAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live)
                     .then(function (translations) {
                     if (translations) {
@@ -1261,14 +1349,14 @@ var ts;
             }
             Util.updateLocalizationAsync = updateLocalizationAsync;
             function downloadSimulatorLocalizationAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live, force) {
-                code = normalizeLanguageCode(code);
+                code = Util.normalizeLanguageCode(code)[0];
                 if (code === Util.userLanguage() || (!isLocaleEnabled(code) && !force))
                     return Promise.resolve(undefined);
                 return downloadTranslationsAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live);
             }
             Util.downloadSimulatorLocalizationAsync = downloadSimulatorLocalizationAsync;
             function downloadTranslationsAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live) {
-                code = normalizeLanguageCode(code);
+                code = Util.normalizeLanguageCode(code)[0];
                 var translationsCacheId = code + "/" + live;
                 if (Util.translationsCache()[translationsCacheId]) {
                     return Promise.resolve(Util.translationsCache()[translationsCacheId]);
@@ -1584,6 +1672,7 @@ var pxt;
 (function (pxt) {
     pxt.U = pxtc.Util;
     pxt.Util = pxtc.Util;
+    pxt.conversionPasses = [];
     var savedAppTarget;
     var savedSwitches = {};
     function setAppTarget(trg) {
@@ -1614,6 +1703,36 @@ var pxt;
         }
     }
     pxt.setCompileSwitches = setCompileSwitches;
+    var _bundledcoresvgs;
+    function bundledSvg(id) {
+        if (!id)
+            return undefined;
+        var res = _bundledcoresvgs && _bundledcoresvgs[id];
+        if (res)
+            return res; // cache hit
+        // find all core packages images
+        if (!pxt.appTarget.simulator || !pxt.appTarget.simulator.dynamicBoardDefinition)
+            return undefined;
+        if (!_bundledcoresvgs)
+            _bundledcoresvgs = {};
+        var files = pxt.appTarget.bundledpkgs[id];
+        if (!files)
+            return undefined;
+        // builtin packages are guaranteed to parse out
+        var pxtjson = JSON.parse(files["pxt.json"]);
+        if (pxtjson.core && files["board.json"]) {
+            var boardjson = JSON.parse(files["board.json"]);
+            if (boardjson && boardjson.visual && boardjson.visual.image) {
+                var boardimg = boardjson.visual.image;
+                if (/^pkg:\/\//.test(boardimg))
+                    boardimg = files[boardimg.slice(6)];
+                // this call gets expensive when having large number of boards
+                _bundledcoresvgs[id] = "data:image/svg+xml;base64," + ts.pxtc.encodeBase64(pxt.Util.toUTF8(boardimg));
+            }
+        }
+        return _bundledcoresvgs[id];
+    }
+    pxt.bundledSvg = bundledSvg;
     function patchAppTarget() {
         // patch-up the target
         var comp = pxt.appTarget.compile;
@@ -1632,6 +1751,8 @@ var pxt;
             comp.vtableShift = 2;
         if (!comp.useUF2 && !comp.useELF && comp.noSourceInFlash == undefined)
             comp.noSourceInFlash = true; // no point putting sources in hex to be flashed
+        if (comp.utf8 === undefined)
+            comp.utf8 = true;
         if (!pxt.appTarget.appTheme)
             pxt.appTarget.appTheme = {};
         if (!pxt.appTarget.appTheme.embedUrl)
@@ -1669,25 +1790,6 @@ var pxt;
                 config.icon = pxt.BrowserUtils.patchCdn(config.icon);
             res[pxt.CONFIG_NAME] = JSON.stringify(config, null, 4);
         });
-        // find all core packages images
-        if (pxt.appTarget.simulator && pxt.appTarget.simulator.dynamicBoardDefinition) {
-            pxt.appTarget.bundledcoresvgs = {};
-            Object.keys(pxt.appTarget.bundledpkgs)
-                .map(function (id) {
-                var files = pxt.appTarget.bundledpkgs[id];
-                // builtin packages are guaranteed to parse out
-                var pxtjson = JSON.parse(files["pxt.json"]);
-                if (pxtjson.core && files["board.json"]) {
-                    var boardjson = JSON.parse(files["board.json"]);
-                    if (boardjson && boardjson.visual && boardjson.visual.image) {
-                        var boardimg = boardjson.visual.image;
-                        if (/^pkg:\/\//.test(boardimg))
-                            boardimg = files[boardimg.slice(6)];
-                        pxt.appTarget.bundledcoresvgs[id] = "data:image/svg+xml;base64," + ts.pxtc.encodeBase64(pxt.Util.toUTF8(boardimg));
-                    }
-                }
-            });
-        }
         // patch any pre-configured query url appTheme overrides
         if (pxt.appTarget.queryVariants && typeof window !== 'undefined') {
             var href_1 = window.location.href;
@@ -1704,21 +1806,29 @@ var pxt;
             });
         }
     }
-    // this is set by compileServiceVariant in pxt.json
-    function setAppTargetVariant(variant) {
-        pxt.appTargetVariant = variant;
+    function reloadAppTargetVariant() {
+        var curr = JSON.stringify(pxt.appTarget);
         pxt.appTarget = pxt.U.clone(savedAppTarget);
-        if (variant) {
-            if (pxt.appTarget.variants) {
-                var v = pxt.appTarget.variants[variant];
-                if (v) {
-                    pxt.U.jsonMergeFrom(pxt.appTarget, v);
-                    return;
-                }
-            }
-            pxt.U.userError(lf("Variant '{0}' not defined in pxtarget.json", variant));
+        if (pxt.appTargetVariant) {
+            var v = pxt.appTarget.variants && pxt.appTarget.variants[pxt.appTargetVariant];
+            if (v)
+                pxt.U.jsonMergeFrom(pxt.appTarget, v);
+            else
+                pxt.U.userError(lf("Variant '{0}' not defined in pxtarget.json", pxt.appTargetVariant));
         }
         patchAppTarget();
+        // check if apptarget changed
+        if (pxt.onAppTargetChanged && curr != JSON.stringify(pxt.appTarget))
+            pxt.onAppTargetChanged();
+    }
+    pxt.reloadAppTargetVariant = reloadAppTargetVariant;
+    // this is set by compileServiceVariant in pxt.json
+    function setAppTargetVariant(variant, force) {
+        pxt.debug("app variant: " + variant);
+        if (!force && (pxt.appTargetVariant === variant || (!pxt.appTargetVariant && !variant)))
+            return;
+        pxt.appTargetVariant = variant;
+        reloadAppTargetVariant();
     }
     pxt.setAppTargetVariant = setAppTargetVariant;
     // This causes the `hw` package to be replaced with `hw---variant` upon package load
@@ -1726,12 +1836,18 @@ var pxt;
     // This is controlled by ?hw=variant or by configuration created by dragging `config.bin`
     // into editor.
     function setHwVariant(variant) {
+        variant = variant.replace(/.*---/, "");
         if (/^[\w\-]+$/.test(variant))
             pxt.hwVariant = variant;
         else
             pxt.hwVariant = null;
     }
     pxt.setHwVariant = setHwVariant;
+    function hasHwVariants() {
+        return !!pxt.appTarget.variants
+            && Object.keys(pxt.appTarget.bundledpkgs).some(function (pkg) { return /^hw---/.test(pkg); });
+    }
+    pxt.hasHwVariants = hasHwVariants;
     function getHwVariants() {
         if (!pxt.appTarget.variants)
             return [];
@@ -1797,6 +1913,7 @@ var pxt;
             relprefix: "/--",
             workerjs: "/worker.js",
             monacoworkerjs: "/monacoworker.js",
+            gifworkerjs: "/gifjs/gif.worker.js",
             pxtVersion: "local",
             pxtRelId: "",
             pxtCdnUrl: "/cdn/",
@@ -1851,6 +1968,7 @@ var pxt;
     pxt.CLOUD_ID = "pxt/";
     pxt.BLOCKS_PROJECT_NAME = "blocksprj";
     pxt.JAVASCRIPT_PROJECT_NAME = "tsprj";
+    pxt.PYTHON_PROJECT_NAME = "pyprj";
     function outputName(trg) {
         if (trg === void 0) { trg = null; }
         if (!trg)
@@ -1921,7 +2039,7 @@ var pxt;
                 definitionNameToParam: {},
                 handlerArgs: []
             };
-            var instance = (fn.kind == ts.pxtc.SymbolKind.Method || fn.kind == ts.pxtc.SymbolKind.Property) && !fn.attributes.defaultInstance;
+            var instance = (fn.kind == 1 /* Method */ || fn.kind == 2 /* Property */) && !fn.attributes.defaultInstance;
             var hasBlockDef = !!fn.attributes._def;
             var defParameters = hasBlockDef ? fn.attributes._def.parameters.slice(0) : undefined;
             var optionalStart = hasBlockDef ? defParameters.length : (fn.parameters ? fn.parameters.length : 0);
@@ -2014,6 +2132,34 @@ var pxt;
             }
         }
         blocks.compileInfo = compileInfo;
+        /**
+         * Returns which Blockly block type to use for an argument reporter based
+         * on the specified TypeScript type.
+         * @param varType The variable's TypeScript type
+         * @return The Blockly block type of the reporter to be used
+         */
+        function reporterTypeForArgType(varType) {
+            var reporterType = "argument_reporter_custom";
+            if (varType === "boolean" || varType === "number" || varType === "string") {
+                reporterType = "argument_reporter_" + varType;
+            }
+            return reporterType;
+        }
+        blocks.reporterTypeForArgType = reporterTypeForArgType;
+        function defaultIconForArgType(typeName) {
+            if (typeName === void 0) { typeName = ""; }
+            switch (typeName) {
+                case "number":
+                    return "calculator";
+                case "string":
+                    return "text width";
+                case "boolean":
+                    return "random";
+                default:
+                    return "align justify";
+            }
+        }
+        blocks.defaultIconForArgType = defaultIconForArgType;
         function parseFields(b) {
             // normalize and validate common errors
             // made while translating
@@ -2418,6 +2564,24 @@ var pxt;
                     block: {
                         PROCEDURES_CALLNORETURN_TITLE: pxt.Util.lf("call function")
                     }
+                },
+                'function_definition': {
+                    name: pxt.Util.lf("define the function"),
+                    tooltip: pxt.Util.lf("Create a function."),
+                    url: 'types/function/define',
+                    category: 'functions',
+                    block: {
+                        FUNCTIONS_EDIT_OPTION: pxt.Util.lf("Edit Function")
+                    }
+                },
+                'function_call': {
+                    name: pxt.Util.lf("call the function"),
+                    tooltip: pxt.Util.lf("Call the user-defined function."),
+                    url: 'types/function/call',
+                    category: 'functions',
+                    block: {
+                        FUNCTIONS_CALL_TITLE: pxt.Util.lf("call")
+                    }
                 }
             };
             _blockDefinitions[pxtc.ON_START_TYPE] = {
@@ -2557,9 +2721,37 @@ var pxt;
         function isTouchEnabled() {
             return typeof window !== "undefined" &&
                 ('ontouchstart' in window // works on most browsers
-                    || navigator.maxTouchPoints > 0); // works on IE10/11 and Surface);
+                    || (navigator && navigator.maxTouchPoints > 0)); // works on IE10/11 and Surface);
         }
         BrowserUtils.isTouchEnabled = isTouchEnabled;
+        function isPxtElectron() {
+            return typeof window != "undefined" && !!window.pxtElectron;
+        }
+        BrowserUtils.isPxtElectron = isPxtElectron;
+        function isIpcRenderer() {
+            return typeof window != "undefined" && !!window.ipcRenderer;
+        }
+        BrowserUtils.isIpcRenderer = isIpcRenderer;
+        function isElectron() {
+            return isPxtElectron() || isIpcRenderer();
+        }
+        BrowserUtils.isElectron = isElectron;
+        function isLocalHost() {
+            try {
+                return typeof window !== "undefined"
+                    && /^http:\/\/(localhost|127\.0\.0\.1):\d+\//.test(window.location.href)
+                    && !/nolocalhost=1/.test(window.location.href)
+                    && !(pxt.webConfig && pxt.webConfig.isStatic);
+            }
+            catch (e) {
+                return false;
+            }
+        }
+        BrowserUtils.isLocalHost = isLocalHost;
+        function isLocalHostDev() {
+            return isLocalHost() && !isElectron();
+        }
+        BrowserUtils.isLocalHostDev = isLocalHostDev;
         function hasPointerEvents() {
             return typeof window != "undefined" && !!window.PointerEvent;
         }
@@ -2815,6 +3007,29 @@ var pxt;
             });
         }
         BrowserUtils.loadImageAsync = loadImageAsync;
+        function loadCanvasAsync(url) {
+            return loadImageAsync(url)
+                .then(function (img) {
+                var canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                var ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+                return canvas;
+            });
+        }
+        BrowserUtils.loadCanvasAsync = loadCanvasAsync;
+        function imageDataToPNG(img) {
+            if (!img)
+                return undefined;
+            var canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            var ctx = canvas.getContext("2d");
+            ctx.putImageData(img, 0, 0);
+            return canvas.toDataURL("image/png");
+        }
+        BrowserUtils.imageDataToPNG = imageDataToPNG;
         function resolveCdnUrl(path) {
             // don't expand full urls
             if (/^https?:\/\//i.test(path))
@@ -2830,6 +3045,7 @@ var pxt;
             // append CDN
             return pxt.webConfig.commitCdnUrl + path;
         }
+        BrowserUtils.resolveCdnUrl = resolveCdnUrl;
         function loadStyleAsync(path, rtl) {
             if (rtl)
                 path = "rtl" + path;
@@ -2856,18 +3072,27 @@ var pxt;
             });
         }
         BrowserUtils.loadStyleAsync = loadStyleAsync;
+        var loadScriptPromises = {};
         function loadScriptAsync(path) {
             var url = resolveCdnUrl(path);
-            pxt.debug("script: loading " + url);
-            return new Promise(function (resolve, reject) {
-                var script = document.createElement('script');
-                script.type = 'text/javascript';
-                script.src = url;
-                script.async = true;
-                script.addEventListener('load', function () { return resolve(); });
-                script.addEventListener('error', function (e) { return reject(e); });
-                document.body.appendChild(script);
-            });
+            var p = loadScriptPromises[url];
+            if (!p) {
+                p = loadScriptPromises[url] = new Promise(function (resolve, reject) {
+                    pxt.debug("script: loading " + url);
+                    var script = document.createElement('script');
+                    script.type = 'text/javascript';
+                    script.addEventListener('load', function () { return resolve(); });
+                    script.addEventListener('error', function (e) {
+                        // might have had connection issue, allow to try later
+                        delete loadScriptPromises[url];
+                        reject(e);
+                    });
+                    script.src = url;
+                    script.async = true;
+                    document.body.appendChild(script);
+                });
+            }
+            return p;
         }
         BrowserUtils.loadScriptAsync = loadScriptAsync;
         function loadAjaxAsync(url) {
@@ -3010,7 +3235,7 @@ var pxt;
         BrowserUtils.scheduleStorageCleanup = hasNavigator() && navigator.storage && navigator.storage.estimate // some browser don't support this
             ? ts.pxtc.Util.throttle(function () {
                 var MIN_QUOTA = 1000000; // 1Mb
-                var MAX_USAGE_RATIO = 0.9; // max 90% 
+                var MAX_USAGE_RATIO = 0.9; // max 90%
                 storageEstimateAsync()
                     .then(function (estimate) {
                     // quota > 50%
@@ -3295,6 +3520,48 @@ var pxt;
                 .catch(function (e) { return deleteDbAsync().done(); });
         }
         BrowserUtils.clearTranslationDbAsync = clearTranslationDbAsync;
+        BrowserUtils.pointerEvents = hasPointerEvents() ? {
+            up: "pointerup",
+            down: ["pointerdown"],
+            move: "pointermove",
+            enter: "pointerenter",
+            leave: "pointerleave"
+        } : isTouchEnabled() ?
+            {
+                up: "mouseup",
+                down: ["mousedown", "touchstart"],
+                move: "touchmove",
+                enter: "touchenter",
+                leave: "touchend"
+            } :
+            {
+                up: "mouseup",
+                down: ["mousedown"],
+                move: "mousemove",
+                enter: "mouseenter",
+                leave: "mouseleave"
+            };
+        function popupWindow(url, title, popUpWidth, popUpHeight) {
+            try {
+                var winLeft = window.screenLeft ? window.screenLeft : window.screenX;
+                var winTop = window.screenTop ? window.screenTop : window.screenY;
+                var width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+                var height = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
+                var left = ((width / 2) - (popUpWidth / 2)) + winLeft;
+                var top_1 = ((height / 2) - (popUpHeight / 2)) + winTop;
+                var popupWindow_1 = window.open(url, title, "width=" + popUpWidth + ", height=" + popUpHeight + ", top=" + top_1 + ", left=" + left);
+                if (popupWindow_1.focus) {
+                    popupWindow_1.focus();
+                }
+                return popupWindow_1;
+            }
+            catch (e) {
+                // Error opening popup
+                pxt.tickEvent('pxt.popupError', { url: url, msg: e.message });
+                return null;
+            }
+        }
+        BrowserUtils.popupWindow = popupWindow;
     })(BrowserUtils = pxt.BrowserUtils || (pxt.BrowserUtils = {}));
 })(pxt || (pxt = {}));
 var pxt;
@@ -3463,8 +3730,9 @@ var pxt;
             var pkgSnapshot = {};
             var constsName = "dal.d.ts";
             var sourcePath = "/source/";
-            for (var _i = 0, _a = mainPkg.sortedDeps(); _i < _a.length; _i++) {
-                var pkg = _a[_i];
+            var mainDeps = mainPkg.sortedDeps(true);
+            for (var _i = 0, mainDeps_1 = mainDeps; _i < mainDeps_1.length; _i++) {
+                var pkg = mainDeps_1[_i];
                 pkg.addSnapshot(pkgSnapshot, [constsName, ".h", ".cpp"]);
             }
             if (prevSnapshot && U.stringMapEq(pkgSnapshot, prevSnapshot)) {
@@ -3520,8 +3788,8 @@ var pxt;
                 return name.trim().replace(/[\_\*]$/, "");
             }
             var makefile = "";
-            for (var _b = 0, _c = mainPkg.sortedDeps(); _b < _c.length; _b++) {
-                var pkg = _c[_b];
+            for (var _a = 0, mainDeps_2 = mainDeps; _a < mainDeps_2.length; _a++) {
+                var pkg = mainDeps_2[_a];
                 if (pkg.getFiles().indexOf(constsName) >= 0) {
                     var src = pkg.host().readFile(pkg, constsName);
                     pxt.Util.assert(!!src, constsName + " not found in " + pkg.id);
@@ -3536,6 +3804,22 @@ var pxt;
                     makefile = pkg.host().readFile(pkg, "Makefile");
                 }
             }
+            var hash_if_options = ["0", "false", "PXT_UTF8"];
+            var cpp_options = {};
+            if (compile.switches.boxDebug)
+                cpp_options["PXT_BOX_DEBUG"] = 1;
+            if (compile.gc)
+                cpp_options["PXT_GC"] = 1;
+            if (compile.utf8)
+                cpp_options["PXT_UTF8"] = 1;
+            if (compile.switches.profile)
+                cpp_options["PXT_PROFILE"] = 1;
+            if (compile.switches.gcDebug)
+                cpp_options["PXT_GC_DEBUG"] = 1;
+            if (compile.switches.numFloat)
+                cpp_options["PXT_USE_FLOAT"] = 1;
+            if (compile.vtableShift)
+                cpp_options["PXT_VTABLE_SHIFT"] = compile.vtableShift;
             function stripComments(ln) {
                 return ln.replace(/\/\/.*/, "").replace(/\/\*/, "");
             }
@@ -3681,7 +3965,10 @@ var pxt;
                 var indexedInstanceAttrs;
                 var indexedInstanceIdx = -1;
                 // replace #if 0 .... #endif with newlines
-                src = src.replace(/^\s*#\s*if\s+0\s*$[^]*?^\s*#\s*endif\s*$/mg, function (f) { return f.replace(/[^\n]/g, ""); });
+                src = src.replace(/^(\s*#\s*if\s+(\w+)\s*$)([^]*?)(^\s*#\s*(elif|else|endif)\s*$)/mg, function (f, _if, arg, middle, _endif) {
+                    return hash_if_options.indexOf(arg) >= 0 && !cpp_options[arg] ?
+                        _if + middle.replace(/[^\n]/g, "") + _endif : f;
+                });
                 // special handling of C++ namespace that ends with Methods (e.g. FooMethods)
                 // such a namespace will be converted into a TypeScript interface
                 // this enables simple objects with methods to be defined. See, for example:
@@ -3983,9 +4270,8 @@ var pxt;
             }
             if (mainPkg) {
                 var seenMain = false;
-                // TODO computeReachableNodes(pkg, true)
-                for (var _d = 0, _e = mainPkg.sortedDeps(); _d < _e.length; _d++) {
-                    var pkg = _e[_d];
+                for (var _b = 0, mainDeps_3 = mainDeps; _b < mainDeps_3.length; _b++) {
+                    var pkg = mainDeps_3[_b];
                     thisErrors = "";
                     parseJson(pkg);
                     if (pkg == mainPkg) {
@@ -3998,8 +4284,8 @@ var pxt;
                         U.assert(!seenMain);
                     }
                     var ext = ".cpp";
-                    for (var _f = 0, _g = pkg.getFiles(); _f < _g.length; _f++) {
-                        var fn = _g[_f];
+                    for (var _c = 0, _d = pkg.getFiles(); _c < _d.length; _c++) {
+                        var fn = _d[_c];
                         var isHeader = U.endsWith(fn, ".h");
                         if (isHeader || U.endsWith(fn, ext)) {
                             var fullName = pkg.config.name + "/" + fn;
@@ -4093,18 +4379,12 @@ var pxt;
                 res.generatedFiles["/module.json"] = JSON.stringify(moduleJson, null, 4) + "\n";
                 pxt.debug("module.json: " + res.generatedFiles["/module.json"]);
             }
-            if (compile.switches.boxDebug)
-                pxtConfig += "#define PXT_BOX_DEBUG 1\n";
-            if (compile.gc)
-                pxtConfig += "#define PXT_GC 1\n";
-            if (compile.switches.profile)
-                pxtConfig += "#define PXT_PROFILE 1\n";
-            if (compile.switches.gcDebug)
-                pxtConfig += "#define PXT_GC_DEBUG 1\n";
-            if (compile.switches.numFloat)
-                pxtConfig += "#define PXT_USE_FLOAT 1\n";
-            if (compile.vtableShift)
-                pxtConfig += "#define PXT_VTABLE_SHIFT " + compile.vtableShift + "\n";
+            for (var _e = 0, _f = Object.keys(cpp_options); _e < _f.length; _e++) {
+                var k = _f[_e];
+                pxtConfig += "#define " + k + " " + cpp_options[k] + "\n";
+            }
+            if (compile.uf2Family)
+                pxtConfig += "#define PXT_UF2_FAMILY " + compile.uf2Family + "\n";
             res.generatedFiles[sourcePath + "pointers.cpp"] = includesInc + protos.finish() + abiInc + pointersInc + "\nPXT_SHIMS_END\n";
             res.generatedFiles[sourcePath + "pxtconfig.h"] = pxtConfig;
             pxt.debug("pxtconfig.h: " + res.generatedFiles[sourcePath + "pxtconfig.h"]);
@@ -4396,7 +4676,7 @@ var pxt;
                     return Promise.resolve();
                 });
             }
-            if (!pxt.Cloud.localToken || !window || !pxt.Cloud.isLocalHost()) {
+            if (!pxt.Cloud.localToken || !window || !pxt.BrowserUtils.isLocalHost()) {
                 return Promise.resolve(undefined);
             }
             return apiAsync("compile/" + extInfo.sha)
@@ -5043,14 +5323,6 @@ var pxt;
                     .join('<i class="right chevron icon divider"></i>') + "\n            </nav>";
             }
             params["breadcrumb"] = breadcrumbHtml;
-            if (currentTocEntry) {
-                if (currentTocEntry.prevPath) {
-                    params["prev"] = "<a href=\"" + normalizeUrl(currentTocEntry.prevPath) + "\" class=\"navigation navigation-prev \" title=\"" + currentTocEntry.prevName + "\">\n                                    <i class=\"icon angle left\"></i>\n                                </a>";
-                }
-                if (currentTocEntry.nextPath) {
-                    params["next"] = "<a href=\"" + normalizeUrl(currentTocEntry.nextPath) + "\" class=\"navigation navigation-next \" title=\"" + currentTocEntry.nextName + "\">\n                                    <i class=\"icon angle right\"></i>\n                                </a>";
-                }
-            }
             if (theme.boardName)
                 params["boardname"] = html2Quote(theme.boardName);
             if (theme.boardNickname)
@@ -5270,6 +5542,9 @@ var pxt;
             var html = markedInstance(markdown);
             // support for breaks which somehow don't work out of the box
             html = html.replace(/&lt;br\s*\/&gt;/ig, "<br/>");
+            // github will render images if referenced as ![](/docs/static/foo.png)
+            // we require /static/foo.png
+            html = html.replace(/(<img [^>]* src=")\/docs\/static\/([^">]+)"/g, function (f, pref, addr) { return pref + '/static/' + addr + '"'; });
             var endBox = "";
             html = html.replace(/<h\d[^>]+>\s*([~@])\s*(.*?)<\/h\d>/g, function (f, tp, body) {
                 var m = /^(\w+)\s+(.*)/.exec(body);
@@ -5351,7 +5626,8 @@ var pxt;
                 html += injectBody(k + "-container", registers[k]);
             }
             pubinfo["body"] = html;
-            pubinfo["name"] = pubinfo["title"] + " - " + pubinfo["targetname"];
+            // don't mangle target name in title, it is already in the sitename
+            pubinfo["name"] = pubinfo["title"] || "";
             for (var _b = 0, _c = Object.keys(opts.theme); _b < _c.length; _b++) {
                 var k = _c[_b];
                 var v = opts.theme[k];
@@ -5571,25 +5847,6 @@ var pxt;
             var TOC = dummy.subitems;
             if (!TOC || TOC.length == 0)
                 return null;
-            var previousNode;
-            // Scan tree and build next / prev paths
-            var buildPrevNext = function (node) {
-                if (previousNode) {
-                    node.prevName = previousNode.name;
-                    node.prevPath = previousNode.path;
-                    previousNode.nextName = node.name;
-                    previousNode.nextPath = node.path;
-                }
-                if (node.path) {
-                    previousNode = node;
-                }
-                node.subitems.forEach(function (tocItem, tocIndex) {
-                    buildPrevNext(tocItem);
-                });
-            };
-            TOC.forEach(function (tocItem, tocIndex) {
-                buildPrevNext(tocItem);
-            });
             return TOC;
         }
         docs.buildTOC = buildTOC;
@@ -5776,18 +6033,29 @@ var pxt;
     function hex2(n) {
         return ("0" + n.toString(16)).slice(-2);
     }
+    function hex2str(h) {
+        return pxt.U.uint8ArrayToString(pxt.U.fromHex(h));
+    }
+    function str2hex(h) {
+        return pxt.U.toHex(pxt.U.stringToUint8Array(h));
+    }
     var GDBServer = /** @class */ (function () {
         function GDBServer(io) {
             var _this = this;
             this.io = io;
             this.q = new pxt.U.PromiseQueue();
             this.dataBuf = "";
+            this.numSent = 0;
+            this.pktSize = 400;
+            this.trace = false;
+            this.bmpMode = true;
+            this.targetInfo = "";
             this.onEvent = function (s) { };
             this.io.onData = function (b) { return _this.onData(b); };
         }
         GDBServer.prototype.onData = function (buf) {
             this.dataBuf += pxt.U.uint8ArrayToString(buf);
-            while (this.dataBuf) {
+            while (this.dataBuf.length > 0) {
                 var ch = this.dataBuf[0];
                 if (ch == '+')
                     this.dataBuf = this.dataBuf.slice(1);
@@ -5795,11 +6063,15 @@ var pxt;
                     var resp = this.decodeResp(this.dataBuf.slice(1));
                     if (resp != null) {
                         if (ch == '$') {
-                            this.sendCmdAsync("+", false).done();
+                            this.io.sendPacketAsync(this.buildCmd("+")).done();
                             if (this.onResponse)
                                 this.onResponse(resp);
-                            else
-                                pxt.U.userError("unexpected response: " + resp);
+                            else {
+                                // ignore unexpected responses right after connection
+                                // they are likely left-over from a previous session
+                                if (this.numSent > 0)
+                                    this.io.error("unexpected response: " + resp);
+                            }
                         }
                         else {
                             this.onEvent(resp);
@@ -5810,7 +6082,7 @@ var pxt;
                     }
                 }
                 else {
-                    pxt.U.userError("invalid character: " + ch);
+                    this.io.error("invalid character: " + ch);
                 }
             }
         };
@@ -5869,34 +6141,127 @@ var pxt;
             }
             return null;
         };
-        GDBServer.prototype.sendCmdAsync = function (cmd, resp) {
+        GDBServer.prototype.sendCmdOKAsync = function (cmd) {
+            return this.sendCmdAsync(cmd, function (r) { return r == "OK"; });
+        };
+        GDBServer.prototype.error = function (msg) {
+            this.io.error(msg);
+            this.io.disconnectAsync().done();
+        };
+        GDBServer.prototype.sendCmdAsync = function (cmd, respTest) {
             var _this = this;
-            if (resp === void 0) { resp = true; }
+            this.numSent++;
             var cmd2 = this.buildCmd(cmd);
             return this.q.enqueue("one", function () {
-                return !resp ? _this.io.sendPacketAsync(cmd2).then(function () { return null; }) :
+                return respTest === null ? _this.io.sendPacketAsync(cmd2).then(function () { return null; }) :
                     new Promise(function (resolve) {
                         _this.onResponse = function (v) {
                             _this.onResponse = null;
-                            console.log("GDB: '" + cmd + "' -> '" + v + "'");
+                            if (_this.trace)
+                                pxt.log("GDB: '" + cmd + "' -> '" + v + "'");
+                            if (respTest !== undefined && !respTest(v))
+                                _this.error("Invalid GDB command response: '" + cmd + "' -> '" + v + "'");
                             resolve(v);
                         };
-                        _this.io.sendPacketAsync(_this.buildCmd(cmd)).done();
+                        _this.io.sendPacketAsync(cmd2).done();
                     });
             });
         };
-        GDBServer.prototype.initAsync = function () {
+        GDBServer.prototype.sendRCmdAsync = function (cmd) {
+            return this.sendMCmdAsync("qRcmd," + str2hex(cmd));
+        };
+        GDBServer.prototype.sendMCmdAsync = function (cmd) {
             var _this = this;
-            return this.sendCmdAsync("qSupported")
-                .then(function (res) {
-                var caps = res.split(/;/);
-                console.log("GDB-server caps: ", caps);
-                // return this.sendCmdAsync("?") // reason for stop
-            })
-                .then(function (res) {
-                return _this.sendCmdAsync("c", false); // continue; don't expect response
+            this.numSent++;
+            var cmd2 = this.buildCmd(cmd);
+            var r = "";
+            return this.q.enqueue("one", function () {
+                return new Promise(function (resolve) {
+                    _this.onResponse = function (v) {
+                        if (v != "OK" && v[0] == "O")
+                            r += hex2str(v.slice(1));
+                        else {
+                            if (v != "OK")
+                                r += " - " + v;
+                            _this.onResponse = null;
+                            if (_this.trace)
+                                pxt.log("Final GDB: '" + cmd + "' -> '" + r + "'");
+                            resolve(r);
+                        }
+                    };
+                    _this.io.sendPacketAsync(cmd2).done();
+                });
+            });
+        };
+        GDBServer.prototype.write32Async = function (addr, data) {
+            var b = new Uint8Array(4);
+            pxt.HF2.write32(b, 0, data);
+            return this.writeMemAsync(addr, b);
+        };
+        GDBServer.prototype.writeMemAsync = function (addr, data) {
+            var maxBytes = this.pktSize / 2 - 10;
+            pxt.U.assert(data.length < maxBytes);
+            return this.sendCmdOKAsync("M" + addr.toString(16) + "," +
+                data.length.toString(16) + ":" + pxt.U.toHex(data))
+                .then(function (r) {
+                console.log(r);
+            });
+        };
+        GDBServer.prototype.readMemAsync = function (addr, bytes) {
+            var _this = this;
+            var maxBytes = this.pktSize / 2 - 6;
+            if (bytes > maxBytes) {
+                var result_1 = new Uint8Array(bytes);
+                var loop_1 = function (ptr) {
+                    var len = Math.min(bytes - ptr, maxBytes);
+                    if (len == 0)
+                        return Promise.resolve(result_1);
+                    return _this.readMemAsync(addr + ptr, len)
+                        .then(function (part) {
+                        pxt.U.memcpy(result_1, ptr, part);
+                        return loop_1(ptr + len);
+                    });
+                };
+                return loop_1(0);
+            }
+            return this.sendCmdAsync("m" + addr.toString(16) + "," + bytes.toString(16))
+                .then(function (res) { return pxt.U.fromHex(res); });
+        };
+        GDBServer.prototype.initBMPAsync = function () {
+            var _this = this;
+            return Promise.resolve()
+                .then(function () { return _this.sendRCmdAsync("swdp_scan"); })
+                .then(function (r) {
+                _this.targetInfo = r;
+                return _this.sendCmdAsync("vAttach;1", function (r) { return r[0] == "T"; });
             })
                 .then(function () { });
+        };
+        GDBServer.prototype.initAsync = function () {
+            var _this = this;
+            return Promise.delay(1000)
+                .then(function () { return _this.sendCmdAsync("!"); }) // extended mode
+                .then(function () { return _this.sendCmdAsync("qSupported"); })
+                .then(function (res) {
+                var features = {};
+                res = ";" + res + ";";
+                res = res
+                    .replace(/;([^;]+)[=:]([^:;]+)/g, function (f, k, v) {
+                    features[k] = v;
+                    return ";";
+                });
+                _this.pktSize = parseInt(features["PacketSize"]) || 1024;
+                pxt.log("GDB-server caps: " + JSON.stringify(features)
+                    + " " + res.replace(/;+/g, ";"));
+                if (_this.bmpMode)
+                    return _this.initBMPAsync();
+                else {
+                    // continue
+                    return _this.sendCmdAsync("c")
+                        .then(function () { });
+                }
+                // return this.sendCmdAsync("?") // reason for stop
+            });
         };
         return GDBServer;
     }());
@@ -6468,47 +6833,6 @@ var pxt;
             });
         }
         github.latestVersionAsync = latestVersionAsync;
-        function publishGistAsync(token, forceNew, files, name, currentGistId) {
-            // Github gist API: https://developer.github.com/v3/gists/
-            var data = {
-                "description": name,
-                "public": false,
-                "files": files
-            };
-            var headers = {};
-            var method, url = "https://api.github.com/gists";
-            if (token)
-                headers['Authorization'] = "token " + token;
-            if (currentGistId && token && !forceNew) {
-                // Patch existing gist
-                method = 'PATCH';
-                url += "/" + currentGistId;
-            }
-            else {
-                // Create new gist
-                method = 'POST';
-            }
-            return pxt.U.requestAsync({
-                url: url,
-                allowHttpErrors: true,
-                headers: headers,
-                method: method,
-                data: data || {}
-            })
-                .then(function (resp) {
-                if ((resp.statusCode == 200 || resp.statusCode == 201) && resp.json.id) {
-                    return Promise.resolve(resp.json.id);
-                }
-                else if (resp.statusCode == 404 && method == 'PATCH') {
-                    return Promise.reject(resp.statusCode);
-                }
-                else if (resp.statusCode == 404) {
-                    return Promise.reject("Make sure to add the ``gist`` scope to your token. " + resp.text);
-                }
-                return Promise.reject(resp.text);
-            });
-        }
-        github.publishGistAsync = publishGistAsync;
         github.GIT_JSON = ".git.json";
     })(github = pxt.github || (pxt.github = {}));
 })(pxt || (pxt = {}));
@@ -6528,6 +6852,7 @@ var pxt;
         BuiltInType[BuiltInType["RefCollection"] = 6] = "RefCollection";
         BuiltInType[BuiltInType["RefRefLocal"] = 7] = "RefRefLocal";
         BuiltInType[BuiltInType["RefMap"] = 8] = "RefMap";
+        BuiltInType[BuiltInType["RefMImage"] = 9] = "RefMImage";
         BuiltInType[BuiltInType["User0"] = 16] = "User0";
     })(BuiltInType = pxt.BuiltInType || (pxt.BuiltInType = {}));
 })(pxt || (pxt = {}));
@@ -6863,7 +7188,19 @@ var pxt;
                     this.io.isSwitchingToBootloader();
                 }
                 return this.maybeReconnectAsync()
-                    .then(function () { return _this.talkAsync(HF2.HF2_CMD_START_FLASH); })
+                    .then(function () { return _this.talkAsync(HF2.HF2_CMD_START_FLASH)
+                    .then(function () { }, function (err) {
+                    return _this.talkAsync(HF2.HF2_CMD_RESET_INTO_BOOTLOADER)
+                        .then(function () { }, function (err) { })
+                        .then(function () {
+                        return _this.reconnectAsync()
+                            .catch(function (err) {
+                            if (err.type === "devicenotfound")
+                                err.type = "repairbootloader";
+                            throw err;
+                        });
+                    });
+                }); })
                     .then(function () { return _this.initAsync(); })
                     .then(function () {
                     if (!_this.bootloaderMode)
@@ -6911,7 +7248,7 @@ var pxt;
                     if (pos >= blocks.length)
                         return Promise.resolve();
                     var b = blocks[pos];
-                    pxt.U.assert(b.payloadSize == _this.pageSize);
+                    //U.assert(b.payloadSize == this.pageSize)
                     var buf = new Uint8Array(4 + b.payloadSize);
                     write32(buf, 0, b.targetAddr);
                     pxt.U.memcpy(buf, 4, b.data, 0, b.payloadSize);
@@ -6920,15 +7257,18 @@ var pxt;
                 };
                 return this.switchToBootloaderAsync()
                     .then(function () {
-                    var size = blocks.length * _this.pageSize;
+                    var size = blocks.length * 256;
                     log("Starting flash (" + Math.round(size / 1024) + "kB).");
                     fstart = Date.now();
+                    // only try partial flash when page size is small
+                    if (_this.pageSize > 16 * 1024)
+                        return blocks;
                     return onlyChangedBlocksAsync(blocks, function (a, l) { return _this.readWordsAsync(a, l); });
                 })
                     .then(function (res) {
                     if (res.length != blocks.length) {
                         blocks = res;
-                        var size = blocks.length * _this.pageSize;
+                        var size = blocks.length * 256;
                         log("Performing partial flash (" + Math.round(size / 1024) + "kB).");
                     }
                 })
@@ -6937,7 +7277,7 @@ var pxt;
                     var n = Date.now();
                     var t0 = n - start;
                     var t1 = n - fstart;
-                    log("Flashing done at " + Math.round(blocks.length * _this.pageSize / t1 * 1000 / 1024) + " kB/s in " + t0 + "ms (reset " + (t0 - t1) + "ms). Resetting.");
+                    log("Flashing done at " + Math.round(blocks.length * 256 / t1 * 1000 / 1024) + " kB/s in " + t0 + "ms (reset " + (t0 - t1) + "ms). Resetting.");
                 })
                     .then(function () {
                     return _this.talkAsync(HF2.HF2_CMD_RESET_INTO_APP)
@@ -6958,22 +7298,30 @@ var pxt;
                     _this.pageSize = read32(binfo, 4);
                     _this.flashSize = read32(binfo, 8) * _this.pageSize;
                     _this.maxMsgSize = read32(binfo, 12);
-                    log("Connected; msgSize " + _this.maxMsgSize + "B; flash " + _this.flashSize / 1024 + "kB; " + (_this.bootloaderMode ? "bootloader" : "application") + " mode");
+                    _this.familyID = read32(binfo, 16);
+                    log("Connected; msgSize " + _this.maxMsgSize + "B; flash " + _this.flashSize / 1024 + "kB; " + (_this.bootloaderMode ? "bootloader" : "application") + " mode; family=0x" + _this.familyID.toString(16));
                     return _this.talkAsync(HF2.HF2_CMD_INFO);
                 })
                     .then(function (buf) {
                     _this.infoRaw = pxt.U.fromUTF8(pxt.U.uint8ArrayToString(buf));
+                    pxt.debug("Info: " + _this.infoRaw);
                     var info = {};
                     ("Header: " + _this.infoRaw).replace(/^([\w\-]+):\s*([^\n\r]*)/mg, function (f, n, v) {
                         info[n.replace(/-/g, "")] = v;
                         return "";
                     });
                     _this.info = info;
-                    var m = /v(\d\S+)\s+(\S+)/.exec(_this.info.Header);
-                    _this.info.Parsed = {
-                        Version: m[1],
-                        Features: m[2],
-                    };
+                    var m = /v(\d\S+)(\s+(\S+))?/.exec(_this.info.Header);
+                    if (m)
+                        _this.info.Parsed = {
+                            Version: m[1],
+                            Features: m[3] || "",
+                        };
+                    else
+                        _this.info.Parsed = {
+                            Version: "?",
+                            Features: "",
+                        };
                     log("Board-ID: " + _this.info.BoardID + " v" + _this.info.Parsed.Version + " f" + _this.info.Parsed.Features);
                 })
                     .then(function () {
@@ -7397,11 +7745,158 @@ var pxt;
 })(pxt || (pxt = {}));
 var pxt;
 (function (pxt) {
+    // Converts encoded JRES images into PNG data uris
+    // this keeps a bit of state for perf reasons
+    var ImageConverter = /** @class */ (function () {
+        function ImageConverter() {
+        }
+        ImageConverter.prototype.logTime = function () {
+            if (this.start) {
+                var d = Date.now() - this.start;
+                pxt.debug("Icon creation: " + d + "ms");
+            }
+        };
+        ImageConverter.prototype.convert = function (jresURL) {
+            if (!this.start)
+                this.start = Date.now();
+            var data = atob(jresURL.slice(jresURL.indexOf(",") + 1));
+            var magic = data.charCodeAt(0);
+            var w = data.charCodeAt(1);
+            var h = data.charCodeAt(2);
+            if (magic != 0xe1 && magic != 0xe4)
+                return null;
+            function htmlColorToBytes(hexColor) {
+                var v = parseInt(hexColor.replace(/#/, ""), 16);
+                return [(v >> 0) & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, 0xff];
+            }
+            if (!this.palette) {
+                var arrs = pxt.appTarget.runtime.palette.map(htmlColorToBytes);
+                // Set the alpha for transparency at index 0
+                arrs[0][3] = 0;
+                this.palette = new Uint8Array(arrs.length * 4);
+                for (var i = 0; i < arrs.length; ++i) {
+                    this.palette[i * 4 + 0] = arrs[i][0];
+                    this.palette[i * 4 + 1] = arrs[i][1];
+                    this.palette[i * 4 + 2] = arrs[i][2];
+                    this.palette[i * 4 + 3] = arrs[i][3];
+                }
+            }
+            if (magic == 0xe1) {
+                return this.genMonochrome(data, w, h);
+            }
+            var scaleFactor = ((pxt.BrowserUtils.isEdge() || pxt.BrowserUtils.isIE()) && w < 100 && h < 100) ? 3 : 1;
+            return this.genColor(data, w, h, scaleFactor);
+        };
+        ImageConverter.prototype.genMonochrome = function (data, w, h) {
+            var outByteW = (w + 3) & ~3;
+            var bmpHeaderSize = 14 + 40 + this.palette.length;
+            var bmpSize = bmpHeaderSize + outByteW * h;
+            var bmp = new Uint8Array(bmpSize);
+            bmp[0] = 66;
+            bmp[1] = 77;
+            pxt.HF2.write32(bmp, 2, bmpSize);
+            pxt.HF2.write32(bmp, 10, bmpHeaderSize);
+            pxt.HF2.write32(bmp, 14, 40); // size of this header
+            pxt.HF2.write32(bmp, 18, w);
+            pxt.HF2.write32(bmp, 22, -h); // not upside down
+            pxt.HF2.write16(bmp, 26, 1); // 1 color plane
+            pxt.HF2.write16(bmp, 28, 8); // 8bpp
+            pxt.HF2.write32(bmp, 38, 2835); // 72dpi
+            pxt.HF2.write32(bmp, 42, 2835);
+            pxt.HF2.write32(bmp, 46, this.palette.length >> 2);
+            bmp.set(this.palette, 54);
+            var inP = 4;
+            var outP = bmpHeaderSize;
+            var mask = 0x01;
+            var v = data.charCodeAt(inP++);
+            for (var x = 0; x < w; ++x) {
+                outP = bmpHeaderSize + x;
+                for (var y = 0; y < h; ++y) {
+                    bmp[outP] = (v & mask) ? 1 : 0;
+                    outP += outByteW;
+                    mask <<= 1;
+                    if (mask == 0x100) {
+                        mask = 0x01;
+                        v = data.charCodeAt(inP++);
+                    }
+                }
+            }
+            return "data:image/bmp;base64," + btoa(pxt.U.uint8ArrayToString(bmp));
+        };
+        ImageConverter.prototype.genColor = function (data, width, height, intScale) {
+            intScale = Math.max(1, intScale | 0);
+            var w = width * intScale;
+            var h = height * intScale;
+            var outByteW = w << 2;
+            var bmpHeaderSize = 138;
+            var bmpSize = bmpHeaderSize + outByteW * h;
+            var bmp = new Uint8Array(bmpSize);
+            bmp[0] = 66;
+            bmp[1] = 77;
+            pxt.HF2.write32(bmp, 2, bmpSize);
+            pxt.HF2.write32(bmp, 10, bmpHeaderSize);
+            pxt.HF2.write32(bmp, 14, 124); // size of this header
+            pxt.HF2.write32(bmp, 18, w);
+            pxt.HF2.write32(bmp, 22, -h); // not upside down
+            pxt.HF2.write16(bmp, 26, 1); // 1 color plane
+            pxt.HF2.write16(bmp, 28, 32); // 32bpp
+            pxt.HF2.write16(bmp, 30, 3); // magic?
+            pxt.HF2.write32(bmp, 38, 2835); // 72dpi
+            pxt.HF2.write32(bmp, 42, 2835);
+            pxt.HF2.write32(bmp, 54, 0xff0000); // Red bitmask
+            pxt.HF2.write32(bmp, 58, 0xff00); // Green bitmask
+            pxt.HF2.write32(bmp, 62, 0xff); // Blue bitmask
+            pxt.HF2.write32(bmp, 66, 0xff000000); // Alpha bitmask
+            // Color space (sRGB)
+            bmp[70] = 0x42; // B
+            bmp[71] = 0x47; // G
+            bmp[72] = 0x52; // R
+            bmp[73] = 0x73; // s
+            var inP = 4;
+            var outP = bmpHeaderSize;
+            for (var x = 0; x < w; x++) {
+                var high = false;
+                outP = bmpHeaderSize + (x << 2);
+                var columnStart = inP;
+                var v = data.charCodeAt(inP++);
+                var colorStart = high ? (((v >> 4) & 0xf) << 2) : ((v & 0xf) << 2);
+                for (var y = 0; y < h; y++) {
+                    bmp[outP] = this.palette[colorStart];
+                    bmp[outP + 1] = this.palette[colorStart + 1];
+                    bmp[outP + 2] = this.palette[colorStart + 2];
+                    bmp[outP + 3] = this.palette[colorStart + 3];
+                    outP += outByteW;
+                    if (y % intScale === intScale - 1) {
+                        if (high) {
+                            v = data.charCodeAt(inP++);
+                        }
+                        high = !high;
+                        colorStart = high ? (((v >> 4) & 0xf) << 2) : ((v & 0xf) << 2);
+                    }
+                }
+                if (x % intScale === intScale - 1) {
+                    if (!(height % 2))
+                        --inP;
+                    while (inP & 3)
+                        inP++;
+                }
+                else {
+                    inP = columnStart;
+                }
+            }
+            return "data:image/bmp;base64," + btoa(pxt.U.uint8ArrayToString(bmp));
+        };
+        return ImageConverter;
+    }());
+    pxt.ImageConverter = ImageConverter;
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
     pxt.defaultFiles = {
         "tsconfig.json": "{\n    \"compilerOptions\": {\n        \"target\": \"es5\",\n        \"noImplicitAny\": true,\n        \"outDir\": \"built\",\n        \"rootDir\": \".\"\n    },\n    \"exclude\": [\"pxt_modules/**/*test.ts\"]\n}\n",
         "test.ts": "// tests go here; this will not be compiled when this package is used as a library\n",
         "Makefile": "all: deploy\n\nbuild:\n\tpxt build\n\ndeploy:\n\tpxt deploy\n\ntest:\n\tpxt test\n",
-        "README.md": "# @NAME@\n\n@DESCRIPTION@\n\n## TODO\n\n- [ ] Add a reference for your blocks here\n- [ ] Add \"icon.png\" image (300x200) in the root folder\n- [ ] Add \"- beta\" to the GitHub project description if you are still iterating it.\n- [ ] Turn on your automated build on https://travis-ci.org\n- [ ] Use \"pxt bump\" to create a tagged release on GitHub\n- [ ] Get your package reviewed and approved @DOCS@packages/approval\n\nRead more at @DOCS@packages/build-your-own\n\n## License\n\n@LICENSE@\n\n## Supported targets\n\n* for PXT/@TARGET@\n(The metadata above is needed for package search.)\n\n",
+        "README.md": "# @NAME@\n\n@DESCRIPTION@\n\n## TODO\n\n- [ ] Add a reference for your blocks here\n- [ ] Add \"icon.png\" image (300x200) in the root folder\n- [ ] Add \"- beta\" to the GitHub project description if you are still iterating it.\n- [ ] Turn on your automated build on https://travis-ci.org\n- [ ] Use \"pxt bump\" to create a tagged release on GitHub\n- [ ] Get your package reviewed and approved @DOCS@extensions/approval\n\nRead more at @DOCS@extensions\n\n## License\n\n@LICENSE@\n\n## Supported targets\n\n* for PXT/@TARGET@\n(The metadata above is needed for package search.)\n\n",
         ".gitignore": "built\nnode_modules\nyotta_modules\nyotta_targets\npxt_modules\n*.db\n*.tgz\n.header.json\n",
         ".vscode/settings.json": "{\n    \"editor.formatOnType\": true,\n    \"files.autoSave\": \"afterDelay\",\n    \"files.watcherExclude\": {\n        \"**/.git/objects/**\": true,\n        \"**/built/**\": true,\n        \"**/node_modules/**\": true,\n        \"**/yotta_modules/**\": true,\n        \"**/yotta_targets\": true,\n        \"**/pxt_modules/**\": true\n    },\n    \"files.associations\": {\n        \"*.blocks\": \"html\",\n        \"*.jres\": \"json\"\n    },\n    \"search.exclude\": {\n        \"**/built\": true,\n        \"**/node_modules\": true,\n        \"**/yotta_modules\": true,\n        \"**/yotta_targets\": true,\n        \"**/pxt_modules\": true\n    }\n}",
         ".travis.yml": "language: node_js\nnode_js:\n    - \"8.9.4\"\nscript:\n    - \"npm install -g pxt\"\n    - \"pxt target @TARGET@\"\n    - \"pxt install\"\n    - \"pxt build\"\nsudo: false\ncache:\n    directories:\n    - npm_modules\n    - pxt_modules",
@@ -7428,7 +7923,7 @@ var pxt;
             if (f != "README.md")
                 files[f] = prj.files[f];
         var pkgFiles = Object.keys(files).filter(function (s) {
-            return /\.(md|ts|asm|cpp|h)$/.test(s);
+            return /\.(md|ts|asm|cpp|h|py)$/.test(s);
         });
         var fieldsOrder = [
             "name",
@@ -7502,9 +7997,13 @@ var pxt;
             "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while",
             "with"];
         var placeholders = {};
+        function backtickLit(s) {
+            return "`" + s.replace(/[\\`${}]/g, function (f) { return "\\" + f; }) + "`";
+        }
+        blocks.backtickLit = backtickLit;
         function stringLit(s) {
             if (s.length > 20 && /\n/.test(s))
-                return "`" + s.replace(/[\\`${}]/g, function (f) { return "\\" + f; }) + "`";
+                return backtickLit(s);
             else
                 return JSON.stringify(s);
         }
@@ -7902,9 +8401,10 @@ var pxt;
             this.id = id;
             this._verspec = _verspec;
             this.parent = parent;
-            this.level = -1;
+            this.level = -1; // main package = 0, first children = 1, etc
             this.isLoaded = false;
             this.ignoreTests = false;
+            this.cppOnly = false;
             if (addedBy) {
                 this.level = addedBy.level + 1;
             }
@@ -7931,6 +8431,9 @@ var pxt;
             var pkgs = pxt.appTarget.bundledpkgs;
             return Object.keys(pkgs).map(function (id) { return JSON.parse(pkgs[id][pxt.CONFIG_NAME]); })
                 .filter(function (cfg) { return !!cfg; });
+        };
+        Package.prototype.invalid = function () {
+            return /^invalid:/.test(this.version());
         };
         Package.prototype.version = function () {
             return this.resolvedVersion || this._verspec;
@@ -7988,6 +8491,34 @@ var pxt;
             var text = JSON.stringify(cfg, null, 4);
             this.host().writeFile(this, pxt.CONFIG_NAME, text);
         };
+        Package.prototype.setPreferredEditor = function (editor) {
+            if (this.config.preferredEditor != editor) {
+                this.config.preferredEditor = editor;
+                this.saveConfig();
+            }
+        };
+        Package.prototype.getPreferredEditor = function () {
+            var editor = this.config.preferredEditor;
+            if (!editor) {
+                // older editors do not have this field set so we need to apply our
+                // language resolution logic here
+                // note that the preferredEditor field will be set automatically on the first save
+                // 1. no main.blocks in project, open javascript
+                var hasMainBlocks = this.getFiles().indexOf("main.blocks") >= 0;
+                if (!hasMainBlocks)
+                    return pxt.JAVASCRIPT_PROJECT_NAME;
+                // 2. if main.blocks is empty and main.ts is non-empty
+                //    open typescript
+                // https://github.com/Microsoft/pxt/blob/master/webapp/src/app.tsx#L1032
+                var mainBlocks = this.readFile("main.blocks");
+                var mainTs = this.readFile("main.ts");
+                if (!mainBlocks && mainTs)
+                    return pxt.JAVASCRIPT_PROJECT_NAME;
+                // 3. default ot blocks
+                return pxt.BLOCKS_PROJECT_NAME;
+            }
+            return editor;
+        };
         Package.prototype.parseJRes = function (allres) {
             if (allres === void 0) { allres = {}; }
             for (var _i = 0, _a = this.getFiles(); _i < _a.length; _i++) {
@@ -8033,33 +8564,40 @@ var pxt;
                 this.resolvedVersion = v = "embed:" + this.id;
             }
             else if (!v || v == "*") {
-                pxt.U.userError(lf("version not specified for {0}", this.id));
+                // don't hard crash, instead ignore dependency
+                // U.userError(lf("version not specified for {0}", this.id))
+                this.configureAsInvalidPackage(lf("version not specified for {0}", this.id));
+                v = this._verspec;
             }
             return Promise.resolve(v);
         };
         Package.prototype.downloadAsync = function () {
             var _this = this;
-            var kindCfg = "";
             return this.resolveVersionAsync()
                 .then(function (verNo) {
+                if (_this.invalid()) {
+                    pxt.debug("skip download of invalid package " + _this.id);
+                    return undefined;
+                }
                 if (!/^embed:/.test(verNo) &&
                     _this.config && _this.config.installedVersion == verNo)
                     return undefined;
                 pxt.debug('downloading ' + verNo);
                 return _this.host().downloadPackageAsync(_this)
                     .then(function () {
-                    var confStr = _this.readFile(pxt.CONFIG_NAME);
-                    if (!confStr)
-                        pxt.U.userError("extension " + _this.id + " is missing " + pxt.CONFIG_NAME);
-                    _this.parseConfig(confStr);
-                    if (_this.level != 0)
-                        _this.config.installedVersion = _this.version();
-                    _this.saveConfig();
-                })
-                    .then(function () {
+                    _this.loadConfig();
                     pxt.debug("installed " + _this.id + " /" + verNo);
                 });
             });
+        };
+        Package.prototype.loadConfig = function () {
+            var confStr = this.readFile(pxt.CONFIG_NAME);
+            if (!confStr)
+                pxt.U.userError("extension " + this.id + " is missing " + pxt.CONFIG_NAME);
+            this.parseConfig(confStr);
+            if (this.level != 0)
+                this.config.installedVersion = this.version();
+            this.saveConfig();
         };
         Package.prototype.validateConfig = function () {
             if (!this.config.dependencies)
@@ -8215,9 +8753,24 @@ var pxt;
                 return conflicts;
             });
         };
+        Package.prototype.configureAsInvalidPackage = function (reason) {
+            pxt.log("invalid package " + this.id + ": " + reason);
+            this._verspec = "invalid:" + this.id;
+            this.config = {
+                name: this.id,
+                description: reason,
+                dependencies: {},
+                files: []
+            };
+        };
         Package.prototype.parseConfig = function (cfgSrc, targetVersion) {
-            var cfg = JSON.parse(cfgSrc);
-            this.config = cfg;
+            try {
+                var cfg = JSON.parse(cfgSrc);
+                this.config = cfg;
+            }
+            catch (e) {
+                this.configureAsInvalidPackage(lf("Syntax error in pxt.json"));
+            }
             var currentConfig = JSON.stringify(this.config);
             for (var dep in this.config.dependencies) {
                 var value = pxt.patching.upgradePackageReference(this.targetVersion(), dep, this.config.dependencies[dep]);
@@ -8244,7 +8797,8 @@ var pxt;
             pxt.Util.assert(this.level == 0);
             // find all core packages in target
             var corePackages = Object.keys(this.config.dependencies)
-                .filter(function (dep) { return !!dep && JSON.parse((pxt.appTarget.bundledpkgs[dep] || {})[pxt.CONFIG_NAME] || "{}").core; });
+                .filter(function (dep) { return !!dep && (dep == pxt.BLOCKS_PROJECT_NAME || dep == pxt.JAVASCRIPT_PROJECT_NAME ||
+                JSON.parse((pxt.appTarget.bundledpkgs[dep] || {})[pxt.CONFIG_NAME] || "{}").core); });
             // no core package? add the first one
             if (corePackages.length == 0) {
                 var allCorePkgs = pxt.Package.corePackages();
@@ -8262,13 +8816,17 @@ var pxt;
                 });
             }
         };
-        Package.prototype.dependencies = function () {
+        Package.prototype.dependencies = function (includeCpp) {
+            if (includeCpp === void 0) { includeCpp = false; }
             if (!this.config)
                 return {};
             var dependencies = pxt.Util.clone(this.config.dependencies || {});
             // add test dependencies if nedeed
             if (this.level == 0 && this.config.testDependencies) {
                 pxt.Util.jsonMergeFrom(dependencies, this.config.testDependencies);
+            }
+            if (includeCpp && this.config.cppDependencies) {
+                pxt.Util.jsonMergeFrom(dependencies, this.config.cppDependencies);
             }
             return dependencies;
         };
@@ -8322,30 +8880,41 @@ var pxt;
                     }
                 });
             }
-            var loadDepsRecursive = function (deps) {
-                return pxt.U.mapStringMapAsync(deps, function (id, ver) {
+            var loadDepsRecursive = function (deps, from, isCpp) {
+                if (isCpp === void 0) { isCpp = false; }
+                return pxt.U.mapStringMapAsync(deps || from.dependencies(isCpp), function (id, ver) {
                     if (id == "hw" && pxt.hwVariant)
                         id = "hw---" + pxt.hwVariant;
-                    var mod = _this.resolveDep(id);
+                    var mod = from.resolveDep(id);
                     ver = ver || "*";
                     if (mod) {
+                        if (mod.invalid()) {
+                            // failed to resolve dependency, ignore
+                            mod.level = Math.min(mod.level, from.level + 1);
+                            mod.addedBy.push(from);
+                            return Promise.resolve();
+                        }
                         if (mod._verspec != ver && !/^file:/.test(mod._verspec) && !/^file:/.test(ver))
                             pxt.U.userError("Version spec mismatch on " + id);
-                        mod.level = Math.min(mod.level, _this.level + 1);
-                        mod.addedBy.push(_this);
+                        if (!isCpp) {
+                            mod.level = Math.min(mod.level, from.level + 1);
+                            mod.addedBy.push(from);
+                        }
                         return Promise.resolve();
                     }
                     else {
-                        mod = new Package(id, ver, _this.parent, _this);
-                        _this.parent.deps[id] = mod;
+                        var mod_1 = new Package(id, ver, from.parent, from);
+                        if (isCpp)
+                            mod_1.cppOnly = true;
+                        from.parent.deps[id] = mod_1;
                         // we can have "core---nrf52" to be used instead of "core" in other packages
-                        _this.parent.deps[id.replace(/---.*/, "")] = mod;
-                        return mod.loadAsync(isInstall);
+                        from.parent.deps[id.replace(/---.*/, "")] = mod_1;
+                        return mod_1.loadAsync(isInstall);
                     }
                 });
             };
             return initPromise
-                .then(function () { return loadDepsRecursive(_this.dependencies()); })
+                .then(function () { return loadDepsRecursive(null, _this); })
                 .then(function () {
                 // get paletter config loading deps, so the more higher level packages take precedence
                 if (_this.config.palette && pxt.appTarget.runtime)
@@ -8377,7 +8946,7 @@ var pxt;
                                 _this.config.dependencies[missing] = "*";
                                 var addDependency = {};
                                 addDependency[missing] = missingPackages_1[missing];
-                                return loadDepsRecursive(addDependency);
+                                return loadDepsRecursive(addDependency, _this);
                             }
                         });
                     }, Promise.resolve(null))
@@ -8391,7 +8960,16 @@ var pxt;
                 }
                 return Promise.resolve(null);
             })
-                .then(function () { return null; });
+                .then(function () {
+                if (_this.level != 0)
+                    return Promise.resolve();
+                return Promise.all(pxt.U.values(_this.parent.deps).map(function (pkg) {
+                    return loadDepsRecursive(null, pkg, true);
+                }));
+            })
+                .then(function () {
+                pxt.debug("  installed " + _this.id);
+            });
         };
         Package.prototype.getFiles = function () {
             if (this.level == 0 && !this.ignoreTests)
@@ -8422,6 +9000,8 @@ var pxt;
             var filenames = [this.id + "-jsdoc", this.id];
             var r = {};
             var theme = pxt.appTarget.appTheme || {};
+            if (this.config.skipLocalization)
+                return Promise.resolve(r);
             // live loc of bundled packages
             if (pxt.Util.localizeLive && this.id != "this" && pxt.appTarget.bundledpkgs[this.id]) {
                 pxt.debug("loading live translations for " + this.id);
@@ -8480,18 +9060,23 @@ var pxt;
         MainPackage.prototype.installAllAsync = function (targetVersion) {
             return this.loadAsync(true, targetVersion);
         };
-        MainPackage.prototype.sortedDeps = function () {
+        MainPackage.prototype.sortedDeps = function (includeCpp) {
             var _this = this;
+            if (includeCpp === void 0) { includeCpp = false; }
             var visited = {};
             var ids = [];
+            var weight = function (p) {
+                return p.config ? Object.keys(p.config.cppDependencies || {}).length : 0;
+            };
             var rec = function (p) {
                 if (!p || pxt.U.lookup(visited, p.id))
                     return;
                 visited[p.id] = true;
-                var dependencies = p.dependencies();
-                var deps = Object.keys(dependencies);
-                deps.sort(function (a, b) { return pxt.U.strcmp(a, b); });
-                deps.forEach(function (id) { return rec(_this.resolveDep(id)); });
+                var depNames = Object.keys(p.dependencies(includeCpp));
+                var deps = depNames.map(function (id) { return _this.resolveDep(id); });
+                // packages with more cppDependencies (core---* most likely) come first
+                deps.sort(function (a, b) { return weight(b) - weight(a) || pxt.U.strcmp(a.id, b.id); });
+                deps.forEach(rec);
                 ids.push(p.id);
             };
             rec(this);
@@ -8570,6 +9155,7 @@ var pxt;
             };
             return this.loadAsync()
                 .then(function () {
+                opts.target.preferredEditor = _this.getPreferredEditor();
                 pxt.debug("building: " + _this.sortedDeps().map(function (p) { return p.config.name; }).join(", "));
                 var ext = pxt.cpp.getExtensionInfo(_this);
                 if (ext.shimsDTS)
@@ -8597,7 +9183,7 @@ var pxt;
                         status: "unpublished",
                         scriptId: _this.config.installedVersion,
                         cloudId: pxt.CLOUD_ID + pxt.appTarget.id,
-                        editor: target.preferredEditor ? target.preferredEditor : (pxt.U.lookup(files, "main.blocks") ? pxt.BLOCKS_PROJECT_NAME : pxt.JAVASCRIPT_PROJECT_NAME),
+                        editor: _this.getPreferredEditor(),
                         targetVersions: pxt.appTarget.versions
                     });
                     var programText_1 = JSON.stringify(files);
@@ -8626,7 +9212,7 @@ var pxt;
                     var pkg = _a[_i];
                     for (var _b = 0, _c = pkg.getFiles(); _b < _c.length; _b++) {
                         var f = _c[_b];
-                        if (/\.(ts|asm)$/.test(f)) {
+                        if (/\.(ts|asm|py)$/.test(f)) {
                             var sn = f;
                             if (pkg.level > 0)
                                 sn = "pxt_modules/" + pkg.id + "/" + f;
@@ -8636,6 +9222,8 @@ var pxt;
                     }
                 }
                 opts.jres = _this.getJRes();
+                var functionOpts = pxt.appTarget.runtime && pxt.appTarget.runtime.functionsOptions;
+                opts.allowedArgumentTypes = functionOpts && functionOpts.extraFunctionEditorTypes && functionOpts.extraFunctionEditorTypes.map(function (info) { return info.typeName; }).concat("number", "boolean", "string");
                 return opts;
             });
         };
@@ -8672,6 +9260,9 @@ var pxt;
                 files[pxt.CONFIG_NAME] = JSON.stringify(cfg, null, 4);
                 for (var _i = 0, _a = _this.getFiles(); _i < _a.length; _i++) {
                     var f = _a[_i];
+                    // already stored
+                    if (f == pxt.CONFIG_NAME)
+                        continue;
                     var str = _this.readFile(f);
                     if (str == null)
                         pxt.U.userError("referenced file missing: " + f);
@@ -8680,7 +9271,7 @@ var pxt;
                 return pxt.U.sortObjectFields(files);
             });
         };
-        MainPackage.prototype.saveToJsonAsync = function (editor) {
+        MainPackage.prototype.saveToJsonAsync = function () {
             var _this = this;
             return this.filesToBePublishedAsync(true)
                 .then(function (files) {
@@ -8688,7 +9279,7 @@ var pxt;
                     meta: {
                         cloudId: pxt.CLOUD_ID + pxt.appTarget.id,
                         targetVersions: pxt.appTarget.versions,
-                        editor: editor || pxt.BLOCKS_PROJECT_NAME,
+                        editor: _this.getPreferredEditor(),
                         name: _this.config.name
                     },
                     source: JSON.stringify(files, null, 2)
@@ -8696,8 +9287,8 @@ var pxt;
                 return project;
             });
         };
-        MainPackage.prototype.compressToFileAsync = function (editor) {
-            return this.saveToJsonAsync(editor)
+        MainPackage.prototype.compressToFileAsync = function () {
+            return this.saveToJsonAsync()
                 .then(function (project) { return pxt.lzmaCompressAsync(JSON.stringify(project, null, 2)); });
         };
         MainPackage.prototype.computePartDefinitions = function (parts) {
@@ -8850,6 +9441,15 @@ var pxt;
         }
         semver.parse = parse;
         function tryParse(v) {
+            if ("*" === v) {
+                return {
+                    major: Number.MAX_SAFE_INTEGER,
+                    minor: Number.MAX_SAFE_INTEGER,
+                    patch: Number.MAX_SAFE_INTEGER,
+                    pre: [],
+                    build: []
+                };
+            }
             if (/^v\d/i.test(v))
                 v = v.slice(1);
             var m = /^(\d+)\.(\d+)\.(\d+)(-([0-9a-zA-Z\-\.]+))?(\+([0-9a-zA-Z\-\.]+))?$/.exec(v);
@@ -8979,19 +9579,6 @@ var ts;
         pxtc.BINARY_UF2 = "binary.uf2";
         pxtc.BINARY_ELF = "binary.elf";
         pxtc.NATIVE_TYPE_THUMB = "thumb";
-        var SymbolKind;
-        (function (SymbolKind) {
-            SymbolKind[SymbolKind["None"] = 0] = "None";
-            SymbolKind[SymbolKind["Method"] = 1] = "Method";
-            SymbolKind[SymbolKind["Property"] = 2] = "Property";
-            SymbolKind[SymbolKind["Function"] = 3] = "Function";
-            SymbolKind[SymbolKind["Variable"] = 4] = "Variable";
-            SymbolKind[SymbolKind["Module"] = 5] = "Module";
-            SymbolKind[SymbolKind["Enum"] = 6] = "Enum";
-            SymbolKind[SymbolKind["EnumMember"] = 7] = "EnumMember";
-            SymbolKind[SymbolKind["Class"] = 8] = "Class";
-            SymbolKind[SymbolKind["Interface"] = 9] = "Interface";
-        })(SymbolKind = pxtc.SymbolKind || (pxtc.SymbolKind = {}));
         function computeUsedParts(resp, ignoreBuiltin) {
             if (ignoreBuiltin === void 0) { ignoreBuiltin = false; }
             if (!resp.usedSymbols || !pxt.appTarget.simulator || !pxt.appTarget.simulator.parts)
@@ -9068,7 +9655,7 @@ var ts;
                     ex = m[mkey] = {
                         attributes: {
                             blockId: (isNumberType ? s.namespace : mkey) + "_blockCombine_" + rtp,
-                            callingConvention: pxtc.ir.CallingConvention.Plain,
+                            callingConvention: 0 /* Plain */,
                             group: s.attributes.group,
                             paramDefl: {},
                             jsDoc: isGet
@@ -9079,7 +9666,7 @@ var ts;
                         namespace: s.namespace,
                         qName: mkey + "." + tp,
                         pkg: s.pkg,
-                        kind: SymbolKind.Property,
+                        kind: 2 /* Property */,
                         parameters: [
                             {
                                 name: "property",
@@ -9139,6 +9726,7 @@ var ts;
                         memberName: s.attributes.enumMemberName,
                         firstValue: isNaN(firstValue) ? undefined : firstValue,
                         isBitMask: s.attributes.enumIsBitMask,
+                        isHash: s.attributes.enumIsHash,
                         initialMembers: s.attributes.enumInitialMembers,
                         promptHint: s.attributes.enumPromptHint
                     };
@@ -9156,15 +9744,15 @@ var ts;
                 }
                 else if (!!s.attributes.block
                     && !s.attributes.fixedInstance
-                    && s.kind != pxtc.SymbolKind.EnumMember
-                    && s.kind != pxtc.SymbolKind.Module
-                    && s.kind != pxtc.SymbolKind.Interface
-                    && s.kind != pxtc.SymbolKind.Class) {
+                    && s.kind != 7 /* EnumMember */
+                    && s.kind != 5 /* Module */
+                    && s.kind != 9 /* Interface */
+                    && s.kind != 8 /* Class */) {
                     if (!s.attributes.blockId)
                         s.attributes.blockId = s.qName.replace(/\./g, "_");
                     if (s.attributes.block == "true") {
                         var b = pxtc.U.uncapitalize(s.name);
-                        if (s.kind == SymbolKind.Method || s.kind == SymbolKind.Property) {
+                        if (s.kind == 1 /* Method */ || s.kind == 2 /* Property */) {
                             b += " %" + s.namespace.toLowerCase();
                         }
                         for (var _b = 0, _c = s.parameters || []; _b < _c.length; _b++) {
@@ -9217,6 +9805,7 @@ var ts;
             var lang = pxtc.Util.userLanguage();
             if (pxtc.Util.userLanguage() == "en")
                 return Promise.resolve(apis);
+            var errors = {};
             return mainPkg.localizationStringsAsync(lang)
                 .then(function (loc) { return pxtc.Util.values(apis.byQName).forEach(function (fn) {
                 var jsDoc = loc[fn.qName];
@@ -9249,7 +9838,7 @@ var ts;
                 else if (fn.attributes.block && locBlock) {
                     var ps = pxt.blocks.compileInfo(fn);
                     var oldBlock = fn.attributes.block;
-                    fn.attributes.block = pxt.blocks.normalizeBlock(locBlock);
+                    fn.attributes.block = pxt.blocks.normalizeBlock(locBlock, function (err) { return errors[fn + "." + lang] = 1; });
                     fn.attributes._untranslatedBlock = oldBlock;
                     if (oldBlock != fn.attributes.block) {
                         var locps = pxt.blocks.compileInfo(fn);
@@ -9261,7 +9850,11 @@ var ts;
                 }
                 updateBlockDef(fn.attributes);
             }); })
-                .then(function () { return apis; });
+                .then(function () { return apis; })
+                .finally(function () {
+                if (Object.keys(errors).length)
+                    pxt.reportError("loc.errors", "invalid translation", errors);
+            });
         }
         pxtc.localizeApisAsync = localizeApisAsync;
         function emptyExtInfo() {
@@ -9299,14 +9892,16 @@ var ts;
             "constantShim",
             "blockCombine",
             "enumIsBitMask",
+            "enumIsHash",
             "decompileIndirectFixedInstances",
-            "draggableParameters",
-            "topblock"
+            "topblock",
+            "callInDebugger",
+            "duplicateShadowOnDrag"
         ];
         function parseCommentString(cmt) {
             var res = {
                 paramDefl: {},
-                callingConvention: pxtc.ir.CallingConvention.Plain,
+                callingConvention: 0 /* Plain */,
                 _source: cmt
             };
             var didSomething = true;
@@ -9419,9 +10014,9 @@ var ts;
             });
             res.jsDoc = res.jsDoc.trim();
             if (res.async)
-                res.callingConvention = pxtc.ir.CallingConvention.Async;
+                res.callingConvention = 1 /* Async */;
             if (res.promise)
-                res.callingConvention = pxtc.ir.CallingConvention.Promise;
+                res.callingConvention = 2 /* Promise */;
             if (res.jres)
                 res.whenUsed = true;
             if (res.subcategories) {
@@ -9577,15 +10172,15 @@ var ts;
             var labelStack = [];
             for (var i = 0; i < tokens.length; i++) {
                 var token = tokens[i].kind;
-                var top_1 = stack[stack.length - 1];
+                var top_2 = stack[stack.length - 1];
                 if (token & 15 /* StyleMarks */) {
                     pushCurrentLabel(tokens[i].content);
                     if (token & open) {
-                        if (top_1 & token) {
+                        if (top_2 & token) {
                             stack.pop();
                             open ^= token;
                             // Handle triple tokens
-                            var remainder = (top_1 & open) | (token & open);
+                            var remainder = (top_2 & open) | (token & open);
                             if (remainder) {
                                 stack.push(remainder);
                             }
@@ -9780,6 +10375,7 @@ var ts;
             UF2.UF2_FLAG_NONE = 0x00000000;
             UF2.UF2_FLAG_NOFLASH = 0x00000001;
             UF2.UF2_FLAG_FILE = 0x00001000;
+            UF2.UF2_FLAG_FAMILY_ID_PRESENT = 0x00002000;
             function parseBlock(block) {
                 var wordAt = function (k) {
                     return (block[k] + (block[k + 1] << 8) + (block[k + 2] << 16) + (block[k + 3] << 24)) >>> 0;
@@ -9793,6 +10389,8 @@ var ts;
                 if (payloadSize > 476)
                     payloadSize = 256;
                 var filename = null;
+                var familyId = 0;
+                var fileSize = 0;
                 if (flags & UF2.UF2_FLAG_FILE) {
                     var fnbuf = block.slice(32 + payloadSize);
                     var len = fnbuf.indexOf(0);
@@ -9800,6 +10398,10 @@ var ts;
                         fnbuf = fnbuf.slice(0, len);
                     }
                     filename = pxtc.U.fromUTF8(pxtc.U.uint8ArrayToString(fnbuf));
+                    fileSize = wordAt(28);
+                }
+                if (flags & UF2.UF2_FLAG_FAMILY_ID_PRESENT) {
+                    familyId = wordAt(28);
                 }
                 return {
                     flags: flags,
@@ -9807,7 +10409,8 @@ var ts;
                     payloadSize: payloadSize,
                     blockNo: wordAt(20),
                     numBlocks: wordAt(24),
-                    fileSize: wordAt(28),
+                    fileSize: fileSize,
+                    familyId: familyId,
                     data: block.slice(32, 32 + payloadSize),
                     filename: filename
                 };
@@ -9892,13 +10495,16 @@ var ts;
                 block[ptr + 2] = ((v >> 16) & 0xff);
                 block[ptr + 3] = ((v >> 24) & 0xff);
             }
-            function newBlockFile() {
+            function newBlockFile(familyId) {
+                if (typeof familyId == "string")
+                    familyId = parseInt(familyId);
                 return {
                     currBlock: null,
                     currPtr: -1,
                     blocks: [],
                     ptrs: [],
-                    filesize: 0
+                    filesize: 0,
+                    familyId: familyId || 0
                 };
             }
             UF2.newBlockFile = newBlockFile;
@@ -9996,12 +10602,15 @@ var ts;
                         currBlock = new Uint8Array(512);
                         if (f.filename)
                             flags |= UF2.UF2_FLAG_FILE;
+                        else if (f.familyId)
+                            flags |= UF2.UF2_FLAG_FAMILY_ID_PRESENT;
                         setWord(currBlock, 0, UF2.UF2_MAGIC_START0);
                         setWord(currBlock, 4, UF2.UF2_MAGIC_START1);
                         setWord(currBlock, 8, flags);
                         setWord(currBlock, 12, needAddr << 8);
                         setWord(currBlock, 16, 256);
                         setWord(currBlock, 20, f.blocks.length);
+                        setWord(currBlock, 28, f.familyId);
                         setWord(currBlock, 512 - 4, UF2.UF2_MAGIC_END);
                         if (f.filename) {
                             pxtc.U.memcpy(currBlock, 32 + 256, pxtc.U.stringToUint8Array(pxtc.U.toUTF8(f.filename)));
@@ -10041,20 +10650,6 @@ var ts;
         })(UF2 = pxtc.UF2 || (pxtc.UF2 = {}));
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));
-(function (ts) {
-    var pxtc;
-    (function (pxtc) {
-        var ir;
-        (function (ir) {
-            var CallingConvention;
-            (function (CallingConvention) {
-                CallingConvention[CallingConvention["Plain"] = 0] = "Plain";
-                CallingConvention[CallingConvention["Async"] = 1] = "Async";
-                CallingConvention[CallingConvention["Promise"] = 2] = "Promise";
-            })(CallingConvention = ir.CallingConvention || (ir.CallingConvention = {}));
-        })(ir = pxtc.ir || (pxtc.ir = {}));
-    })(pxtc = ts.pxtc || (ts.pxtc = {}));
-})(ts || (ts = {}));
 // See https://github.com/Microsoft/TouchDevelop-backend/blob/master/docs/streams.md
 var pxt;
 (function (pxt) {
@@ -10092,6 +10687,7 @@ var pxt;
             LengthUnit[LengthUnit["pc"] = 7] = "pc";
             LengthUnit[LengthUnit["percent"] = 8] = "percent";
         })(LengthUnit = svgUtil.LengthUnit || (svgUtil.LengthUnit = {}));
+        var XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
         var BaseElement = /** @class */ (function () {
             function BaseElement(type) {
                 this.el = elt(type);
@@ -10105,6 +10701,10 @@ var pxt;
             };
             BaseElement.prototype.setAttribute = function (name, value) {
                 this.el.setAttribute(name, value.toString());
+                return this;
+            };
+            BaseElement.prototype.setAttributeNS = function (ns, name, value) {
+                this.el.setAttributeNS(ns, name, value.toString());
                 return this;
             };
             BaseElement.prototype.id = function (id) {
@@ -10536,7 +11136,7 @@ var pxt;
                 return _super.call(this, "image") || this;
             }
             Image.prototype.src = function (url) {
-                return this.setAttribute("href", url);
+                return this.setAttributeNS(XLINK_NAMESPACE, "href", url);
             };
             Image.prototype.width = function (width, unit) {
                 if (unit === void 0) { unit = LengthUnit.px; }
@@ -10911,7 +11511,6 @@ var pxt;
             default: '\uf12e',
             topblocks: '\uf005'
         };
-        var toolboxStyle;
         var toolboxStyleBuffer = '';
         function appendToolboxIconCss(className, i) {
             if (toolboxStyleBuffer.indexOf(className) > -1)
@@ -12057,8 +12656,11 @@ var pxt;
         usb.filters = [{
                 classCode: 255,
                 subclassCode: 42,
-            }];
+            }
+        ];
+        var isHF2 = true;
         function setFilters(f) {
+            isHF2 = false;
             usb.filters = f;
         }
         usb.setFilters = setFilters;
@@ -12067,12 +12669,25 @@ var pxt;
         ;
         var HID = /** @class */ (function () {
             function HID(dev) {
+                var _this = this;
                 this.dev = dev;
                 this.ready = false;
+                this.readLoopStarted = false;
                 this.onData = function (v) { };
                 this.onError = function (e) { };
                 this.onEvent = function (v) { };
+                navigator.usb.addEventListener('disconnect', function (event) {
+                    if (event.device == _this.dev) {
+                        _this.log("Device disconnected");
+                        _this.clearDev();
+                    }
+                });
             }
+            HID.prototype.clearDev = function () {
+                this.dev = null;
+                this.epIn = null;
+                this.epOut = null;
+            };
             HID.prototype.error = function (msg) {
                 throw new USBError(pxt.U.lf("USB error on device {0} ({1})", this.dev.productName, msg));
             };
@@ -12092,7 +12707,7 @@ var pxt;
                     // just ignore errors closing, most likely device just disconnected
                 })
                     .then(function () {
-                    _this.dev = null;
+                    _this.clearDev();
                     return Promise.delay(500);
                 });
             };
@@ -12109,6 +12724,8 @@ var pxt;
             };
             HID.prototype.sendPacketAsync = function (pkt) {
                 var _this = this;
+                if (!this.dev)
+                    return Promise.reject(new Error("Disconnected"));
                 pxt.Util.assert(pkt.length <= 64);
                 if (!this.epOut) {
                     return this.dev.controlTransferOut({
@@ -12120,7 +12737,7 @@ var pxt;
                     }, pkt).then(function (res) {
                         if (res.status != "ok")
                             _this.error("USB CTRL OUT transfer failed");
-                        else
+                        else if (!isHF2)
                             _this.recvOne();
                     });
                 }
@@ -12141,16 +12758,28 @@ var pxt;
             };
             HID.prototype.readLoop = function () {
                 var _this = this;
+                if (this.readLoopStarted)
+                    return;
+                this.readLoopStarted = true;
+                this.log("start read loop");
                 var loop = function () {
                     if (!_this.ready)
                         Promise.delay(300).then(loop);
                     else
                         _this.recvPacketAsync()
                             .then(function (buf) {
-                            _this.onData(buf);
-                            loop();
+                            if (buf[0]) {
+                                // we've got data; retry reading immedietly after processing it
+                                _this.onData(buf);
+                                loop();
+                            }
+                            else {
+                                // throttle down if no data coming
+                                Promise.delay(500).then(loop);
+                            }
                         }, function (err) {
-                            _this.onError(err);
+                            if (_this.dev)
+                                _this.onError(err);
                             Promise.delay(300).then(loop);
                         });
                 };
@@ -12166,7 +12795,9 @@ var pxt;
                         return _this.recvPacketAsync();
                     return arr;
                 };
-                if (!this.epIn)
+                if (!this.dev)
+                    return Promise.reject(new Error("Disconnected"));
+                if (!this.epIn) {
                     return this.dev.controlTransferIn({
                         requestType: "class",
                         recipient: "interface",
@@ -12174,11 +12805,14 @@ var pxt;
                         value: controlTransferInReport,
                         index: this.iface.interfaceNumber
                     }, 64).then(final);
+                }
                 return this.dev.transferIn(this.epIn.endpointNumber, 64)
                     .then(final);
             };
             HID.prototype.initAsync = function () {
                 var _this = this;
+                if (!this.dev)
+                    return Promise.reject(new Error("Disconnected"));
                 var dev = this.dev;
                 this.log("open device");
                 return dev.open()
@@ -12223,7 +12857,7 @@ var pxt;
                     .then(function () {
                     _this.log("device ready");
                     _this.ready = true;
-                    if (_this.epIn)
+                    if (_this.epIn || isHF2)
                         _this.readLoop();
                 });
             };
@@ -12243,18 +12877,22 @@ var pxt;
                 return Promise.resolve(false);
             return getDeviceAsync()
                 .then(function (dev) {
-                return Promise.resolve(true);
+                return true;
             })
                 .catch(function () {
-                return Promise.resolve(false);
+                return false;
             });
         }
         usb.isPairedAsync = isPairedAsync;
         function getDeviceAsync() {
             return navigator.usb.getDevices()
                 .then(function (devs) {
-                if (!devs || !devs.length)
-                    pxt.U.userError(pxt.U.lf("No USB device selected or connected; try pairing!"));
+                if (!devs || !devs.length) {
+                    var err = new Error(pxt.U.lf("No USB device selected or connected; try pairing!"));
+                    err.isUserError = true;
+                    err.type = "devicenotfound";
+                    throw err;
+                }
                 return devs[0];
             });
         }
@@ -12282,7 +12920,17 @@ var pxt;
         }
         usb.setEnabled = setEnabled;
         function isAvailable() {
-            return !!navigator.usb;
+            if (!!navigator.usb) {
+                // Windows versions:
+                // 5.1 - XP, 6.0 - Vista, 6.1 - Win7, 6.2 - Win8, 6.3 - Win8.1, 10.0 - Win10
+                // If on Windows, and Windows is older 8.1, don't enable WebUSB,
+                // as it requires signed INF files.
+                var m = /Windows NT (\d+\.\d+)/.exec(navigator.userAgent);
+                if (m && parseFloat(m[1]) < 6.3)
+                    return false;
+                return true;
+            }
+            return false;
         }
         usb.isAvailable = isAvailable;
     })(usb = pxt.usb || (pxt.usb = {}));
@@ -12641,18 +13289,19 @@ var ts;
                 File.prototype.parseOneInt = function (s) {
                     if (!s)
                         return null;
-                    if (s == "0")
-                        return 0;
+                    // fast path
+                    if (/^\d+$/.test(s))
+                        return parseInt(s, 10);
                     var mul = 1;
                     // recursive-descent parsing of multiplication
                     if (s.indexOf("*") >= 0) {
-                        var m_1 = null;
-                        while (m_1 = /^([^\*]*)\*(.*)$/.exec(s)) {
-                            var tmp = this.parseOneInt(m_1[1]);
+                        var m = null;
+                        while (m = /^([^\*]*)\*(.*)$/.exec(s)) {
+                            var tmp = this.parseOneInt(m[1]);
                             if (tmp == null)
                                 return null;
                             mul *= tmp;
-                            s = m_1[2];
+                            s = m[2];
                         }
                     }
                     if (s[0] == "-") {
@@ -12662,7 +13311,9 @@ var ts;
                     else if (s[0] == "+") {
                         s = s.slice(1);
                     }
-                    var v = null;
+                    // decimal encoding; fast-ish path
+                    if (/^\d+$/.test(s))
+                        return mul * parseInt(s, 10);
                     // allow or'ing of 1 to least-signficant bit
                     if (pxtc.U.endsWith(s, "|1")) {
                         return this.parseOneInt(s.slice(0, s.length - 2)) | 1;
@@ -12682,27 +13333,24 @@ var ts;
                         left &= ~mask;
                         return left >> parseInt(shm[2]);
                     }
+                    var v = null;
                     // handle hexadecimal and binary encodings
                     if (s[0] == "0") {
                         if (s[1] == "x" || s[1] == "X") {
-                            var m_2 = /^0x([a-f0-9]+)$/i.exec(s);
-                            if (m_2)
-                                v = parseInt(m_2[1], 16);
+                            var m = /^0x([a-f0-9]+)$/i.exec(s);
+                            if (m)
+                                v = parseInt(m[1], 16);
                         }
                         else if (s[1] == "b" || s[1] == "B") {
-                            var m_3 = /^0b([01]+)$/i.exec(s);
-                            if (m_3)
-                                v = parseInt(m_3[1], 2);
+                            var m = /^0b([01]+)$/i.exec(s);
+                            if (m)
+                                v = parseInt(m[1], 2);
                         }
                     }
-                    // decimal encoding
-                    var m = /^(\d+)$/i.exec(s);
-                    if (m)
-                        v = parseInt(m[1], 10);
                     // stack-specific processing
                     // more special characters to handle
                     if (s.indexOf("@") >= 0) {
-                        m = /^(\w+)@(-?\d+)$/.exec(s);
+                        var m = /^(\w+)@(-?\d+)$/.exec(s);
                         if (m) {
                             if (mul != 1)
                                 this.directiveError(lf("multiplication not supported with saved stacks"));
@@ -13621,7 +14269,7 @@ var pxt;
     (function (Cloud) {
         var Util = pxtc.Util;
         // hit /api/ to stay on same domain and avoid CORS
-        Cloud.apiRoot = isLocalHost() || Util.isNodeJS ? "https://www.makecode.com/api/" : "/api/";
+        Cloud.apiRoot = pxt.BrowserUtils.isLocalHost() || Util.isNodeJS ? "https://www.makecode.com/api/" : "/api/";
         Cloud.accessToken = "";
         Cloud.localToken = "";
         var _isOnline = true;
@@ -13635,17 +14283,6 @@ var pxt;
             return !!Cloud.accessToken;
         }
         Cloud.hasAccessToken = hasAccessToken;
-        function isLocalHost() {
-            try {
-                return /^http:\/\/(localhost|127\.0\.0\.1):\d+\//.test(window.location.href)
-                    && !/nolocalhost=1/.test(window.location.href)
-                    && !(pxt.webConfig && pxt.webConfig.isStatic);
-            }
-            catch (e) {
-                return false;
-            }
-        }
-        Cloud.isLocalHost = isLocalHost;
         function localRequestAsync(path, data) {
             return pxt.U.requestAsync({
                 url: "/api/" + path,
@@ -13664,7 +14301,7 @@ var pxt;
             }
             if (!options.headers)
                 options.headers = {};
-            if (pxt.Cloud.isLocalHost()) {
+            if (pxt.BrowserUtils.isLocalHost()) {
                 if (Cloud.localToken)
                     options.headers["Authorization"] = Cloud.localToken;
             }
@@ -13700,7 +14337,7 @@ var pxt;
                 return Promise.resolve(undefined);
             var targetVersion = pxt.appTarget.versions && pxt.appTarget.versions.target;
             var url = pxt.webConfig && pxt.webConfig.isStatic ? "targetconfig.json" : "config/" + pxt.appTarget.id + "/targetconfig" + (targetVersion ? "/v" + targetVersion : '');
-            if (Cloud.isLocalHost())
+            if (pxt.BrowserUtils.isLocalHost())
                 return localRequestAsync(url).then(function (r) { return r ? r.json : undefined; });
             else
                 return Cloud.privateGetAsync(url);
@@ -13712,8 +14349,8 @@ var pxt;
             });
         }
         Cloud.downloadScriptFilesAsync = downloadScriptFilesAsync;
-        // 1h check on markdown content
-        var MARKDOWN_EXPIRATION = 1 * 60 * 60 * 1000;
+        // 1h check on markdown content if not on development server
+        var MARKDOWN_EXPIRATION = pxt.BrowserUtils.isLocalHostDev() ? 1 : 1 * 60 * 60 * 1000;
         function markdownAsync(docid, locale, live) {
             var branch = "";
             return pxt.BrowserUtils.translationDbAsync()
@@ -13759,7 +14396,7 @@ var pxt;
                 if (live)
                     url += "&live=1";
             }
-            if (Cloud.isLocalHost() && !live)
+            if (pxt.BrowserUtils.isLocalHost() && !live)
                 return localRequestAsync(url).then(function (resp) {
                     if (resp.statusCode == 404)
                         return privateRequestAsync({ url: url, method: "GET" })
@@ -13830,3 +14467,2392 @@ var pxt;
         Cloud.parseScriptId = parseScriptId;
     })(Cloud = pxt.Cloud || (pxt.Cloud = {}));
 })(pxt || (pxt = {}));
+var pxtsprite;
+(function (pxtsprite) {
+    // These are the characters used to output literals (but we support aliases for some of these)
+    var hexChars = [".", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
+    /**
+     * 16-color sprite
+     */
+    var Bitmap = /** @class */ (function () {
+        function Bitmap(width, height, x0, y0) {
+            if (x0 === void 0) { x0 = 0; }
+            if (y0 === void 0) { y0 = 0; }
+            this.width = width;
+            this.height = height;
+            this.x0 = x0;
+            this.y0 = y0;
+            this.buf = new Uint8Array(Math.ceil(width * height / 2));
+        }
+        Bitmap.prototype.set = function (col, row, value) {
+            if (col < this.width && row < this.height && col >= 0 && row >= 0) {
+                var index = this.coordToIndex(col, row);
+                this.setCore(index, value);
+            }
+        };
+        Bitmap.prototype.get = function (col, row) {
+            if (col < this.width && row < this.height && col >= 0 && row >= 0) {
+                var index = this.coordToIndex(col, row);
+                return this.getCore(index);
+            }
+            return 0;
+        };
+        Bitmap.prototype.copy = function (col, row, width, height) {
+            if (col === void 0) { col = 0; }
+            if (row === void 0) { row = 0; }
+            if (width === void 0) { width = this.width; }
+            if (height === void 0) { height = this.height; }
+            var sub = new Bitmap(width, height);
+            sub.x0 = col;
+            sub.y0 = row;
+            for (var c = 0; c < width; c++) {
+                for (var r = 0; r < height; r++) {
+                    sub.set(c, r, this.get(col + c, row + r));
+                }
+            }
+            return sub;
+        };
+        Bitmap.prototype.apply = function (change) {
+            for (var c = 0; c < change.width; c++) {
+                for (var r = 0; r < change.height; r++) {
+                    this.set(change.x0 + c, change.y0 + r, change.get(c, r));
+                }
+            }
+        };
+        Bitmap.prototype.equals = function (other) {
+            if (this.width === other.width && this.height === other.height && this.x0 === other.x0 && this.y0 === other.y0 && this.buf.length === other.buf.length) {
+                for (var i = 0; i < this.buf.length; i++) {
+                    if (this.buf[i] !== other.buf[i])
+                        return false;
+                }
+                return true;
+            }
+            return false;
+        };
+        Bitmap.prototype.coordToIndex = function (col, row) {
+            return col + row * this.width;
+        };
+        Bitmap.prototype.getCore = function (index) {
+            var cell = Math.floor(index / 2);
+            if (index % 2 === 0) {
+                return this.buf[cell] & 0xf;
+            }
+            else {
+                return (this.buf[cell] & 0xf0) >> 4;
+            }
+        };
+        Bitmap.prototype.setCore = function (index, value) {
+            var cell = Math.floor(index / 2);
+            if (index % 2 === 0) {
+                this.buf[cell] = (this.buf[cell] & 0xf0) | (value & 0xf);
+            }
+            else {
+                this.buf[cell] = (this.buf[cell] & 0x0f) | ((value & 0xf) << 4);
+            }
+        };
+        return Bitmap;
+    }());
+    pxtsprite.Bitmap = Bitmap;
+    var Bitmask = /** @class */ (function () {
+        function Bitmask(width, height) {
+            this.width = width;
+            this.height = height;
+            this.mask = new Uint8Array(Math.ceil(width * height / 8));
+        }
+        Bitmask.prototype.set = function (col, row) {
+            var cellIndex = col + this.width * row;
+            var index = cellIndex >> 3;
+            var offset = cellIndex & 7;
+            this.mask[index] |= (1 << offset);
+        };
+        Bitmask.prototype.get = function (col, row) {
+            var cellIndex = col + this.width * row;
+            var index = cellIndex >> 3;
+            var offset = cellIndex & 7;
+            return (this.mask[index] >> offset) & 1;
+        };
+        return Bitmask;
+    }());
+    pxtsprite.Bitmask = Bitmask;
+    function resizeBitmap(img, width, height) {
+        var result = new Bitmap(width, height);
+        result.apply(img);
+        return result;
+    }
+    pxtsprite.resizeBitmap = resizeBitmap;
+    function imageLiteralToBitmap(text, defaultPattern) {
+        // Strip the tagged template string business and the whitespace. We don't have to exhaustively
+        // replace encoded characters because the compiler will catch any disallowed characters and throw
+        // an error before the decompilation happens. 96 is backtick and 9 is tab
+        text = text.replace(/[ `]|(?:&#96;)|(?:&#9;)|(?:img)/g, "").trim();
+        text = text.replace(/^["`\(\)]*/, '').replace(/["`\(\)]*$/, '');
+        text = text.replace(/&#10;/g, "\n");
+        if (!text && defaultPattern)
+            text = defaultPattern;
+        var rows = text.split("\n");
+        // We support "ragged" sprites so not all rows will be the same length
+        var sprite = [];
+        var spriteWidth = 0;
+        for (var r = 0; r < rows.length; r++) {
+            var row = rows[r];
+            var rowValues = [];
+            for (var c = 0; c < row.length; c++) {
+                // This list comes from libs/screen/targetOverrides.ts in pxt-arcade
+                // Technically, this could change per target.
+                switch (row[c]) {
+                    case "0":
+                    case ".":
+                        rowValues.push(0);
+                        break;
+                    case "1":
+                    case "#":
+                        rowValues.push(1);
+                        break;
+                    case "2":
+                    case "T":
+                        rowValues.push(2);
+                        break;
+                    case "3":
+                    case "t":
+                        rowValues.push(3);
+                        break;
+                    case "4":
+                    case "N":
+                        rowValues.push(4);
+                        break;
+                    case "5":
+                    case "n":
+                        rowValues.push(5);
+                        break;
+                    case "6":
+                    case "G":
+                        rowValues.push(6);
+                        break;
+                    case "7":
+                    case "g":
+                        rowValues.push(7);
+                        break;
+                    case "8":
+                        rowValues.push(8);
+                        break;
+                    case "9":
+                        rowValues.push(9);
+                        break;
+                    case "a":
+                    case "A":
+                    case "R":
+                        rowValues.push(10);
+                        break;
+                    case "b":
+                    case "B":
+                    case "P":
+                        rowValues.push(11);
+                        break;
+                    case "c":
+                    case "C":
+                    case "p":
+                        rowValues.push(12);
+                        break;
+                    case "d":
+                    case "D":
+                    case "O":
+                        rowValues.push(13);
+                        break;
+                    case "e":
+                    case "E":
+                    case "Y":
+                        rowValues.push(14);
+                        break;
+                    case "f":
+                    case "F":
+                    case "W":
+                        rowValues.push(15);
+                        break;
+                }
+            }
+            if (rowValues.length) {
+                sprite.push(rowValues);
+                spriteWidth = Math.max(spriteWidth, rowValues.length);
+            }
+        }
+        var spriteHeight = sprite.length;
+        var result = new pxtsprite.Bitmap(spriteWidth, spriteHeight);
+        for (var r = 0; r < spriteHeight; r++) {
+            var row = sprite[r];
+            for (var c = 0; c < spriteWidth; c++) {
+                if (c < row.length) {
+                    result.set(c, r, row[c]);
+                }
+                else {
+                    result.set(c, r, 0);
+                }
+            }
+        }
+        return result;
+    }
+    pxtsprite.imageLiteralToBitmap = imageLiteralToBitmap;
+    function bitmapToImageLiteral(bitmap, fileType) {
+        var res = '';
+        switch (fileType) {
+            case "python" /* Python */:
+                res = "img(\"\"\"";
+                break;
+            default:
+                res = "img`";
+                break;
+        }
+        if (bitmap) {
+            for (var r = 0; r < bitmap.height; r++) {
+                res += "\n";
+                for (var c = 0; c < bitmap.width; c++) {
+                    res += hexChars[bitmap.get(c, r)] + " ";
+                }
+            }
+        }
+        res += "\n";
+        switch (fileType) {
+            case "python" /* Python */:
+                res += "\"\"\")";
+                break;
+            default:
+                res += "`";
+                break;
+        }
+        return res;
+    }
+    pxtsprite.bitmapToImageLiteral = bitmapToImageLiteral;
+})(pxtsprite || (pxtsprite = {}));
+var pxtsprite;
+(function (pxtsprite) {
+    var svg = pxt.svgUtil;
+    var TOGGLE_WIDTH = 200;
+    var TOGGLE_HEIGHT = 40;
+    var TOGGLE_BORDER_WIDTH = 2;
+    var TOGGLE_CORNER_RADIUS = 4;
+    var BUTTON_CORNER_RADIUS = 2;
+    var BUTTON_BORDER_WIDTH = 1;
+    var BUTTON_BOTTOM_BORDER_WIDTH = 2;
+    var Toggle = /** @class */ (function () {
+        function Toggle(parent, props) {
+            this.props = defaultColors(props);
+            this.root = parent.group();
+            this.buildDom();
+            this.isLeft = true;
+        }
+        Toggle.prototype.buildDom = function () {
+            var _this = this;
+            // Our css minifier mangles animation names so they need to be injected manually
+            this.root.style().content("\n            .toggle-left {\n                transform: translateX(0px);\n                animation: mvleft 0.2s 0s ease;\n            }\n\n            .toggle-right {\n                transform: translateX(100px);\n                animation: mvright 0.2s 0s ease;\n            }\n\n            @keyframes mvright {\n                0% {\n                    transform: translateX(0px);\n                }\n                100% {\n                    transform: translateX(100px);\n                }\n            }\n\n            @keyframes mvleft {\n                0% {\n                    transform: translateX(100px);\n                }\n                100% {\n                    transform: translateX(0px);\n                }\n            }\n            ");
+            // The outer border has an inner-stroke so we need to clip out the outer part
+            // because SVG's don't support "inner borders"
+            var clip = this.root.def().create("clipPath", "sprite-editor-toggle-border")
+                .clipPathUnits(true);
+            clip.draw("rect")
+                .at(0, 0)
+                .corners(TOGGLE_CORNER_RADIUS / TOGGLE_WIDTH, TOGGLE_CORNER_RADIUS / TOGGLE_HEIGHT)
+                .size(1, 1);
+            // Draw the outer border
+            this.root.draw("rect")
+                .size(TOGGLE_WIDTH, TOGGLE_HEIGHT)
+                .fill(this.props.baseColor)
+                .stroke(this.props.borderColor, TOGGLE_BORDER_WIDTH * 2)
+                .corners(TOGGLE_CORNER_RADIUS, TOGGLE_CORNER_RADIUS)
+                .clipPath("url(#sprite-editor-toggle-border)");
+            // Draw the background
+            this.root.draw("rect")
+                .at(TOGGLE_BORDER_WIDTH, TOGGLE_BORDER_WIDTH)
+                .size(TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH * 2, TOGGLE_HEIGHT - TOGGLE_BORDER_WIDTH * 2)
+                .fill(this.props.backgroundColor)
+                .corners(TOGGLE_CORNER_RADIUS, TOGGLE_CORNER_RADIUS);
+            // Draw the switch
+            this.switch = this.root.draw("rect")
+                .at(TOGGLE_BORDER_WIDTH, TOGGLE_BORDER_WIDTH)
+                .size((TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH * 2) / 2, TOGGLE_HEIGHT - TOGGLE_BORDER_WIDTH * 2)
+                .fill(this.props.switchColor)
+                .corners(TOGGLE_CORNER_RADIUS, TOGGLE_CORNER_RADIUS);
+            // Draw the left option
+            this.leftElement = this.root.group();
+            this.leftText = mkText(this.props.leftText)
+                .appendClass("sprite-editor-text")
+                .fill(this.props.selectedTextColor);
+            this.leftElement.appendChild(this.leftText);
+            // Draw the right option
+            this.rightElement = this.root.group();
+            this.rightText = mkText(this.props.rightText)
+                .appendClass("sprite-editor-text")
+                .fill(this.props.unselectedTextColor);
+            this.rightElement.appendChild(this.rightText);
+            this.root.onClick(function () { return _this.toggle(); });
+        };
+        Toggle.prototype.toggle = function (quiet) {
+            if (quiet === void 0) { quiet = false; }
+            if (this.isLeft) {
+                this.switch.removeClass("toggle-left");
+                this.switch.appendClass("toggle-right");
+                this.leftText.fill(this.props.unselectedTextColor);
+                this.rightText.fill(this.props.selectedTextColor);
+            }
+            else {
+                this.switch.removeClass("toggle-right");
+                this.switch.appendClass("toggle-left");
+                this.leftText.fill(this.props.selectedTextColor);
+                this.rightText.fill(this.props.unselectedTextColor);
+            }
+            this.isLeft = !this.isLeft;
+            if (!quiet && this.changeHandler) {
+                this.changeHandler(this.isLeft);
+            }
+        };
+        Toggle.prototype.onStateChange = function (handler) {
+            this.changeHandler = handler;
+        };
+        Toggle.prototype.layout = function () {
+            var centerOffset = (TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH * 2) / 4;
+            this.leftText.moveTo(centerOffset + TOGGLE_BORDER_WIDTH, TOGGLE_HEIGHT / 2);
+            this.rightText.moveTo(TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH - centerOffset, TOGGLE_HEIGHT / 2);
+        };
+        Toggle.prototype.translate = function (x, y) {
+            this.root.translate(x, y);
+        };
+        Toggle.prototype.height = function () {
+            return TOGGLE_HEIGHT;
+        };
+        Toggle.prototype.width = function () {
+            return TOGGLE_WIDTH;
+        };
+        return Toggle;
+    }());
+    pxtsprite.Toggle = Toggle;
+    var Button = /** @class */ (function () {
+        function Button(root, cx, cy) {
+            var _this = this;
+            this.root = root;
+            this.cx = cx;
+            this.cy = cy;
+            this.root.onClick(function () { return _this.clickHandler && _this.clickHandler(); });
+            this.root.appendClass("sprite-editor-button");
+        }
+        Button.prototype.getElement = function () {
+            return this.root;
+        };
+        Button.prototype.addClass = function (className) {
+            this.root.appendClass(className);
+        };
+        Button.prototype.removeClass = function (className) {
+            this.root.removeClass(className);
+        };
+        Button.prototype.onClick = function (clickHandler) {
+            this.clickHandler = clickHandler;
+        };
+        Button.prototype.translate = function (x, y) {
+            this.root.translate(x, y);
+        };
+        Button.prototype.title = function (text) {
+            this.root.title(text);
+        };
+        Button.prototype.setDisabled = function (disabled) {
+            this.editClass("disabled", disabled);
+        };
+        Button.prototype.setSelected = function (selected) {
+            this.editClass("selected", selected);
+        };
+        Button.prototype.layout = function () { };
+        Button.prototype.editClass = function (className, add) {
+            if (add) {
+                this.root.appendClass(className);
+            }
+            else {
+                this.root.removeClass(className);
+            }
+        };
+        return Button;
+    }());
+    pxtsprite.Button = Button;
+    var TextButton = /** @class */ (function (_super) {
+        __extends(TextButton, _super);
+        function TextButton(button, text, className) {
+            var _this = _super.call(this, button.root, button.cx, button.cy) || this;
+            _this.textEl = mkText(text)
+                .appendClass(className);
+            _this.textEl.moveTo(_this.cx, _this.cy);
+            _this.root.appendChild(_this.textEl);
+            return _this;
+        }
+        TextButton.prototype.setText = function (text) {
+            this.textEl.text(text);
+            this.textEl.moveTo(this.cx, this.cy);
+        };
+        TextButton.prototype.getComputedTextLength = function () {
+            try {
+                return this.textEl.el.getComputedTextLength();
+            }
+            catch (e) {
+                // Internet Explorer and Microsoft Edge throw if the element
+                // is not visible. The best we can do is approximate
+                return this.textEl.el.textContent.length * 8;
+            }
+        };
+        return TextButton;
+    }(Button));
+    pxtsprite.TextButton = TextButton;
+    var StandaloneTextButton = /** @class */ (function (_super) {
+        __extends(StandaloneTextButton, _super);
+        function StandaloneTextButton(text, height) {
+            var _this = _super.call(this, drawSingleButton(65, height), text, "sprite-editor-text") || this;
+            _this.height = height;
+            _this.padding = 30;
+            _this.addClass("sprite-editor-label");
+            return _this;
+        }
+        StandaloneTextButton.prototype.layout = function () {
+            var newBG = drawSingleButton(this.width(), this.height);
+            while (this.root.el.hasChildNodes()) {
+                this.root.el.removeChild(this.root.el.firstChild);
+            }
+            while (newBG.root.el.hasChildNodes()) {
+                var el = newBG.root.el.firstChild;
+                newBG.root.el.removeChild(el);
+                this.root.el.appendChild(el);
+            }
+            this.cx = newBG.cx;
+            this.cy = newBG.cy;
+            this.root.appendChild(this.textEl);
+            this.textEl.moveTo(this.cx, this.cy);
+        };
+        StandaloneTextButton.prototype.width = function () {
+            return this.getComputedTextLength() + this.padding * 2;
+        };
+        return StandaloneTextButton;
+    }(TextButton));
+    pxtsprite.StandaloneTextButton = StandaloneTextButton;
+    var CursorButton = /** @class */ (function (_super) {
+        __extends(CursorButton, _super);
+        function CursorButton(root, cx, cy, width) {
+            var _this = _super.call(this, root, cx, cy) || this;
+            _this.root.draw("rect")
+                .fill("white")
+                .size(width, width)
+                .at(Math.floor(_this.cx - width / 2), Math.floor(_this.cy - width / 2));
+            return _this;
+        }
+        return CursorButton;
+    }(Button));
+    pxtsprite.CursorButton = CursorButton;
+    function mkIconButton(icon, width, height) {
+        if (height === void 0) { height = width + BUTTON_BOTTOM_BORDER_WIDTH - BUTTON_BORDER_WIDTH; }
+        var g = drawSingleButton(width, height);
+        return new TextButton(g, icon, "sprite-editor-icon");
+    }
+    pxtsprite.mkIconButton = mkIconButton;
+    function mkXIconButton(icon, width, height) {
+        if (height === void 0) { height = width + BUTTON_BOTTOM_BORDER_WIDTH - BUTTON_BORDER_WIDTH; }
+        var g = drawSingleButton(width, height);
+        return new TextButton(g, icon, "sprite-editor-xicon");
+    }
+    pxtsprite.mkXIconButton = mkXIconButton;
+    function mkTextButton(text, width, height) {
+        var g = drawSingleButton(width, height);
+        var t = new TextButton(g, text, "sprite-editor-text");
+        t.addClass("sprite-editor-label");
+        return t;
+    }
+    pxtsprite.mkTextButton = mkTextButton;
+    /**
+     * Draws a button suitable for the left end of a button group.
+     *
+     * @param width The total width of the result (including border)
+     * @param height The total height of the resul (including border and lip)
+     * @param lip  The width of the bottom border
+     * @param border The width of the outer border (except bottom)
+     * @param r The corner radius
+     */
+    function drawLeftButton(width, height, lip, border, r) {
+        var root = new svg.Group().appendClass("sprite-editor-button");
+        var bg = root.draw("path")
+            .appendClass("sprite-editor-button-bg");
+        bg.d.moveTo(r, 0)
+            .lineBy(width - r, 0)
+            .lineBy(0, height)
+            .lineBy(-(width - r), 0)
+            .arcBy(r, r, 0, false, true, -r, -r)
+            .lineBy(0, -(height - (r << 1)))
+            .arcBy(r, r, 0, false, true, r, -r)
+            .close();
+        bg.update();
+        var fg = root.draw("path")
+            .appendClass("sprite-editor-button-fg");
+        fg.d.moveTo(border + r, border)
+            .lineBy(width - border - r, 0)
+            .lineBy(0, height - lip - border)
+            .lineBy(-(width - border - r), 0)
+            .arcBy(r, r, 0, false, true, -r, -r)
+            .lineBy(0, -(height - lip - border - (r << 1)))
+            .arcBy(r, r, 0, false, true, r, -r)
+            .close();
+        fg.update();
+        return {
+            root: root,
+            cx: border + (width - border) / 2,
+            cy: border + (height - lip) / 2
+        };
+    }
+    var CursorMultiButton = /** @class */ (function () {
+        function CursorMultiButton(parent, width) {
+            var _this = this;
+            this.root = parent.group();
+            var widths = [4, 7, 10];
+            this.buttons = buttonGroup(65, 21, 3).map(function (b, i) { return new CursorButton(b.root, b.cx, b.cy, widths[i]); });
+            this.buttons.forEach(function (button, index) {
+                button.onClick(function () { return _this.handleClick(index); });
+                button.title(sizeAdjective(index));
+                _this.root.appendChild(button.getElement());
+            });
+        }
+        CursorMultiButton.prototype.handleClick = function (index) {
+            if (index === this.selected)
+                return;
+            if (this.selected != undefined) {
+                this.buttons[this.selected].setSelected(false);
+            }
+            this.selected = index;
+            if (this.selected != undefined) {
+                this.buttons[this.selected].setSelected(true);
+            }
+            if (this.indexHandler)
+                this.indexHandler(index);
+        };
+        CursorMultiButton.prototype.onSelected = function (cb) {
+            this.indexHandler = cb;
+        };
+        return CursorMultiButton;
+    }());
+    pxtsprite.CursorMultiButton = CursorMultiButton;
+    var UndoRedoGroup = /** @class */ (function () {
+        function UndoRedoGroup(parent, host, width, height) {
+            var _this = this;
+            this.root = parent.group();
+            this.host = host;
+            var _a = buttonGroup(width, height, 2), undo = _a[0], redo = _a[1];
+            this.undo = new TextButton(undo, "\uf118", "sprite-editor-xicon");
+            this.undo.onClick(function () { return _this.host.undo(); });
+            this.root.appendChild(this.undo.getElement());
+            this.redo = new TextButton(redo, "\uf111", "sprite-editor-xicon");
+            this.redo.onClick(function () { return _this.host.redo(); });
+            this.root.appendChild(this.redo.getElement());
+        }
+        UndoRedoGroup.prototype.translate = function (x, y) {
+            this.root.translate(x, y);
+        };
+        UndoRedoGroup.prototype.updateState = function (undo, redo) {
+            this.undo.setDisabled(undo);
+            this.redo.setDisabled(redo);
+        };
+        return UndoRedoGroup;
+    }());
+    pxtsprite.UndoRedoGroup = UndoRedoGroup;
+    function defaultColors(props) {
+        if (!props.baseColor)
+            props.baseColor = "#e95153";
+        if (!props.backgroundColor)
+            props.backgroundColor = "rgba(52,73,94,.2)";
+        if (!props.borderColor)
+            props.borderColor = "rgba(52,73,94,.4)";
+        if (!props.selectedTextColor)
+            props.selectedTextColor = props.baseColor;
+        if (!props.unselectedTextColor)
+            props.unselectedTextColor = "hsla(0,0%,100%,.9)";
+        if (!props.switchColor)
+            props.switchColor = "#ffffff";
+        return props;
+    }
+    function sizeAdjective(cursorIndex) {
+        switch (cursorIndex) {
+            case 0: return lf("Small Cursor");
+            case 1: return lf("Medium Cursor");
+            case 2: return lf("Large Cursor");
+        }
+        return undefined;
+    }
+    /**
+ * Draws a button suitable for the interior of a button group.
+ *
+ * @param width The total width of the result (including border)
+ * @param height The total height of the resul (including border and lip)
+ * @param lip  The width of the bottom border
+ * @param border The width of the outer border (except bottom)
+ */
+    function drawMidButton(width, height, lip, border) {
+        var root = new svg.Group().appendClass("sprite-editor-button");
+        var bg = root.draw("rect")
+            .appendClass("sprite-editor-button-bg")
+            .size(width, height);
+        var fg = root.draw("rect")
+            .appendClass("sprite-editor-button-fg")
+            .size(width - border, height - lip - border)
+            .at(border, border);
+        return {
+            root: root,
+            cx: border + (width - border) / 2,
+            cy: border + (height - lip) / 2
+        };
+    }
+    /**
+     * Draws a button suitable for the right end of a button group.
+     *
+     * @param width The total width of the result (including border)
+     * @param height The total height of the resul (including border and lip)
+     * @param lip  The width of the bottom border
+     * @param border The width of the outer border (except bottom)
+     * @param r The corner radius
+     */
+    function drawRightButton(width, height, lip, border, r) {
+        var root = new svg.Group().appendClass("sprite-editor-button");
+        var bg = root.draw("path")
+            .appendClass("sprite-editor-button-bg");
+        bg.d.moveTo(0, 0)
+            .lineBy(width - r, 0)
+            .arcBy(r, r, 0, false, true, r, r)
+            .lineBy(0, height - (r << 1))
+            .arcBy(r, r, 0, false, true, -r, r)
+            .lineBy(-(width - r), 0)
+            .lineBy(0, -height)
+            .close();
+        bg.update();
+        var fg = root.draw("path")
+            .appendClass("sprite-editor-button-fg");
+        fg.d.moveTo(border, border)
+            .lineBy(width - border - r, 0)
+            .arcBy(r, r, 0, false, true, r, r)
+            .lineBy(0, height - border - lip - (r << 1))
+            .arcBy(r, r, 0, false, true, -r, r)
+            .lineBy(-(width - border - r), 0)
+            .lineBy(0, -(height - border - lip))
+            .close();
+        fg.update();
+        var content = root.group().id("sprite-editor-button-content");
+        content.translate(border + (width - (border << 1)) >> 1, (height - lip - border) >> 1);
+        return {
+            root: root,
+            cx: width / 2,
+            cy: border + (height - lip) / 2
+        };
+    }
+    /**
+     * Draws a standalone button.
+     *
+     * @param width The total width of the result (including border)
+     * @param height The total height of the resul (including border and lip)
+     * @param lip  The width of the bottom border
+     * @param border The width of the outer border (except bottom)
+     * @param r The corner radius
+     */
+    function drawSingleButton(width, height, lip, border, r) {
+        if (lip === void 0) { lip = BUTTON_BOTTOM_BORDER_WIDTH; }
+        if (border === void 0) { border = BUTTON_BORDER_WIDTH; }
+        if (r === void 0) { r = BUTTON_CORNER_RADIUS; }
+        var root = new svg.Group().appendClass("sprite-editor-button");
+        root.draw("rect")
+            .size(width, height)
+            .corners(r, r)
+            .appendClass("sprite-editor-button-bg");
+        root.draw("rect")
+            .at(border, border)
+            .size(width - (border << 1), height - lip - border)
+            .corners(r, r)
+            .appendClass("sprite-editor-button-fg");
+        return {
+            root: root,
+            cx: width / 2,
+            cy: border + (height - lip) / 2
+        };
+    }
+    function buttonGroup(width, height, segments, lip, border, r) {
+        if (lip === void 0) { lip = BUTTON_BOTTOM_BORDER_WIDTH; }
+        if (border === void 0) { border = BUTTON_BORDER_WIDTH; }
+        if (r === void 0) { r = BUTTON_CORNER_RADIUS; }
+        var available = width - (segments + 1) * border;
+        var segmentWidth = Math.floor(available / segments);
+        var result = [];
+        for (var i = 0; i < segments; i++) {
+            if (i === 0) {
+                result.push(drawLeftButton(segmentWidth + border, height, lip, border, r));
+            }
+            else if (i === segments - 1) {
+                var b = drawRightButton(segmentWidth + (border << 1), height, lip, border, r);
+                b.root.translate((border + segmentWidth) * i, 0);
+                result.push(b);
+            }
+            else {
+                var b = drawMidButton(segmentWidth + border, height, lip, border);
+                b.root.translate((border + segmentWidth) * i, 0);
+                result.push(b);
+            }
+        }
+        return result;
+    }
+    function mkText(text) {
+        return new svg.Text(text)
+            .anchor("middle")
+            .setAttribute("dominant-baseline", "middle")
+            .setAttribute("dy", (pxt.BrowserUtils.isIE() || pxt.BrowserUtils.isEdge()) ? "0.3em" : "0.1em");
+    }
+    pxtsprite.mkText = mkText;
+})(pxtsprite || (pxtsprite = {}));
+var pxtsprite;
+(function (pxtsprite) {
+    var alphaCellWidth = 5;
+    var dropdownPaddding = 4;
+    var lightModeBackground = "#dedede";
+    var CanvasGrid = /** @class */ (function () {
+        function CanvasGrid(palette, image, lightMode) {
+            if (lightMode === void 0) { lightMode = false; }
+            var _this = this;
+            this.palette = palette;
+            this.image = image;
+            this.lightMode = lightMode;
+            this.cellWidth = 16;
+            this.cellHeight = 16;
+            this.upHandler = function (ev) {
+                _this.endDrag();
+                var _a = _this.clientToCell(clientCoord(ev)), col = _a[0], row = _a[1];
+                _this.gesture.handle(InputEvent.Up, col, row);
+                ev.stopPropagation();
+                ev.preventDefault();
+            };
+            this.leaveHandler = function (ev) {
+                _this.endDrag();
+                var _a = _this.clientToCell(clientCoord(ev)), col = _a[0], row = _a[1];
+                _this.gesture.handle(InputEvent.Leave, col, row);
+                ev.stopPropagation();
+                ev.preventDefault();
+            };
+            this.moveHandler = function (ev) {
+                var _a = _this.clientToCell(clientCoord(ev)), col = _a[0], row = _a[1];
+                if (col >= 0 && row >= 0 && col < _this.image.width && row < _this.image.height) {
+                    if (ev.buttons & 1) {
+                        _this.gesture.handle(InputEvent.Down, col, row);
+                    }
+                    _this.gesture.handle(InputEvent.Move, col, row);
+                }
+                ev.stopPropagation();
+                ev.preventDefault();
+            };
+            this.hoverHandler = function (ev) {
+                var _a = _this.clientToCell(clientCoord(ev)), col = _a[0], row = _a[1];
+                if (col >= 0 && row >= 0 && col < _this.image.width && row < _this.image.height) {
+                    _this.gesture.handle(InputEvent.Move, col, row);
+                    _this.gesture.isHover = true;
+                }
+                else if (_this.gesture.isHover) {
+                    _this.gesture.isHover = false;
+                    _this.gesture.handle(InputEvent.Leave, -1, -1);
+                }
+            };
+            this.paintLayer = document.createElement("canvas");
+            this.paintLayer.setAttribute("class", "sprite-editor-canvas");
+            if (!this.lightMode) {
+                this.backgroundLayer = document.createElement("canvas");
+                this.backgroundLayer.setAttribute("class", "sprite-editor-canvas");
+                this.overlayLayer = document.createElement("canvas");
+                this.overlayLayer.setAttribute("class", "sprite-editor-canvas");
+                this.context = this.paintLayer.getContext("2d");
+            }
+            else {
+                this.context = this.paintLayer.getContext("2d", { alpha: false });
+                this.context.fillStyle = lightModeBackground;
+                this.context.fill();
+            }
+            this.hideOverlay();
+        }
+        CanvasGrid.prototype.repaint = function () {
+            this.redraw();
+        };
+        CanvasGrid.prototype.applyEdit = function (edit, cursorCol, cursorRow) {
+            edit.doEdit(this.image);
+            this.drawCursor(edit, cursorCol, cursorRow);
+        };
+        CanvasGrid.prototype.drawCursor = function (edit, col, row) {
+            var _this = this;
+            this.context.strokeStyle = "#898989";
+            this.repaint();
+            edit.drawCursor(col, row, function (c, r) {
+                _this.drawColor(c, r, edit.color);
+                var x = c * _this.cellWidth;
+                var y = r * _this.cellHeight;
+                _this.context.strokeRect(x, y, _this.cellWidth, _this.cellHeight);
+            });
+        };
+        CanvasGrid.prototype.bitmap = function () {
+            return this.image;
+        };
+        CanvasGrid.prototype.outerWidth = function () {
+            return this.paintLayer.getBoundingClientRect().width;
+        };
+        CanvasGrid.prototype.outerHeight = function () {
+            return this.paintLayer.getBoundingClientRect().height;
+        };
+        CanvasGrid.prototype.writeColor = function (col, row, color) {
+            this.image.set(col, row, color);
+            this.drawColor(col, row, color);
+        };
+        CanvasGrid.prototype.drawColor = function (col, row, color) {
+            this.setCellColor(col, row, color === 0 ? undefined : this.palette[color - 1]);
+        };
+        CanvasGrid.prototype.restore = function (bitmap, repaint) {
+            if (repaint === void 0) { repaint = false; }
+            if (bitmap.height != this.image.height || bitmap.width != this.image.width) {
+                this.image = bitmap.copy();
+                this.resizeGrid(bitmap.width, bitmap.width * bitmap.height);
+            }
+            else {
+                this.image.apply(bitmap);
+            }
+            if (repaint) {
+                this.repaint();
+            }
+        };
+        CanvasGrid.prototype.showOverlay = function () {
+            var _this = this;
+            if (this.lightMode)
+                return;
+            if (this.fadeAnimation) {
+                this.fadeAnimation.kill();
+            }
+            this.overlayLayer.style.visibility = "visible";
+            var w = this.overlayLayer.width;
+            var h = this.overlayLayer.height;
+            var context = this.overlayLayer.getContext("2d");
+            var toastWidth = 100;
+            var toastHeight = 40;
+            var toastLeft = w / 2 - toastWidth / 2;
+            var toastTop = h / 2 - toastWidth / 4;
+            this.fadeAnimation = new Fade(function (opacity, dead) {
+                if (dead) {
+                    _this.hideOverlay();
+                    return;
+                }
+                context.clearRect(0, 0, w, h);
+                context.globalAlpha = opacity;
+                context.fillStyle = "#898989";
+                // After 32x32 the grid isn't easy to see anymore so skip it
+                if (_this.image.width <= 32 && _this.image.height <= 32) {
+                    for (var c = 1; c < _this.image.width; c++) {
+                        context.fillRect(c * _this.cellWidth, 0, 1, h);
+                    }
+                    for (var r = 1; r < _this.image.height; r++) {
+                        context.fillRect(0, r * _this.cellHeight, w, 1);
+                    }
+                }
+                context.fillRect(toastLeft, toastTop, toastWidth, toastHeight);
+                context.fillStyle = "#ffffff";
+                context.font = "30px sans-serif";
+                context.textBaseline = "middle";
+                context.textAlign = "center";
+                context.fillText(_this.image.width.toString(), toastLeft + toastWidth / 2 - 25, toastTop + toastHeight / 2);
+                context.fillText("x", toastLeft + 50, toastTop + toastHeight / 2, 10);
+                context.fillText(_this.image.height.toString(), toastLeft + toastWidth / 2 + 25, toastTop + toastHeight / 2);
+            }, 750, 500);
+        };
+        CanvasGrid.prototype.hideOverlay = function () {
+            if (!this.lightMode) {
+                this.overlayLayer.style.visibility = "hidden";
+            }
+        };
+        CanvasGrid.prototype.resizeGrid = function (rowLength, numCells) {
+            this.repaint();
+        };
+        CanvasGrid.prototype.setCellDimensions = function (width, height) {
+            this.cellWidth = width | 0;
+            this.cellHeight = height | 0;
+            var canvasWidth = this.cellWidth * this.image.width;
+            var canvasHeight = this.cellHeight * this.image.height;
+            this.paintLayer.width = canvasWidth;
+            this.paintLayer.height = canvasHeight;
+            if (!this.lightMode) {
+                this.backgroundLayer.width = canvasWidth;
+                this.backgroundLayer.height = canvasHeight;
+                this.overlayLayer.width = canvasWidth;
+                this.overlayLayer.height = canvasHeight;
+            }
+        };
+        CanvasGrid.prototype.setGridDimensions = function (width, height, lockAspectRatio) {
+            if (height === void 0) { height = width; }
+            if (lockAspectRatio === void 0) { lockAspectRatio = true; }
+            var maxCellWidth = width / this.image.width;
+            var maxCellHeight = height / this.image.height;
+            if (lockAspectRatio) {
+                var aspectRatio = this.cellWidth / this.cellHeight;
+                if (aspectRatio >= 1) {
+                    var w = Math.min(maxCellWidth, maxCellHeight * aspectRatio);
+                    this.setCellDimensions(w, w * aspectRatio);
+                }
+                else {
+                    var h = Math.min(maxCellHeight, maxCellWidth / aspectRatio);
+                    this.setCellDimensions(h / aspectRatio, h);
+                }
+            }
+            else {
+                this.setCellDimensions(maxCellWidth, maxCellHeight);
+            }
+        };
+        CanvasGrid.prototype.setCellColor = function (column, row, color, opacity) {
+            var x = column * this.cellWidth;
+            var y = row * this.cellHeight;
+            if (color) {
+                this.context.fillStyle = color;
+                this.context.fillRect(x, y, this.cellWidth, this.cellHeight);
+            }
+            else if (!this.lightMode) {
+                this.context.clearRect(x, y, this.cellWidth, this.cellHeight);
+            }
+            else {
+                this.context.fillStyle = lightModeBackground;
+                this.context.fillRect(x, y, this.cellWidth, this.cellHeight);
+            }
+        };
+        CanvasGrid.prototype.down = function (handler) {
+            this.initDragSurface();
+            this.gesture.subscribe(GestureType.Down, handler);
+        };
+        CanvasGrid.prototype.up = function (handler) {
+            this.initDragSurface();
+            this.gesture.subscribe(GestureType.Up, handler);
+        };
+        CanvasGrid.prototype.drag = function (handler) {
+            this.initDragSurface();
+            this.gesture.subscribe(GestureType.Drag, handler);
+        };
+        CanvasGrid.prototype.move = function (handler) {
+            this.initDragSurface();
+            this.gesture.subscribe(GestureType.Move, handler);
+        };
+        CanvasGrid.prototype.leave = function (handler) {
+            this.initDragSurface();
+            this.gesture.subscribe(GestureType.Leave, handler);
+        };
+        CanvasGrid.prototype.updateBounds = function (top, left, width, height) {
+            this.layoutCanvas(this.paintLayer, top, left, width, height);
+            if (!this.lightMode) {
+                this.layoutCanvas(this.overlayLayer, top, left, width, height);
+                this.layoutCanvas(this.backgroundLayer, top, left, width, height);
+            }
+            this.redraw();
+            this.drawBackground();
+        };
+        CanvasGrid.prototype.render = function (parent) {
+            if (!this.lightMode) {
+                parent.appendChild(this.backgroundLayer);
+            }
+            parent.appendChild(this.paintLayer);
+            if (!this.lightMode) {
+                parent.appendChild(this.overlayLayer);
+            }
+        };
+        CanvasGrid.prototype.removeMouseListeners = function () {
+            this.endDrag();
+        };
+        CanvasGrid.prototype.redraw = function () {
+            for (var c = 0; c < this.image.width; c++) {
+                for (var r = 0; r < this.image.height; r++) {
+                    this.drawColor(c, r, this.image.get(c, r));
+                }
+            }
+        };
+        CanvasGrid.prototype.drawBackground = function () {
+            if (this.lightMode)
+                return;
+            var context = this.backgroundLayer.getContext("2d", { alpha: false });
+            var alphaCols = Math.ceil(this.paintLayer.width / alphaCellWidth);
+            var alphaRows = Math.ceil(this.paintLayer.height / alphaCellWidth);
+            context.fillStyle = "#ffffff";
+            context.fillRect(0, 0, this.paintLayer.width, this.paintLayer.height);
+            context.fillStyle = "#dedede";
+            for (var ac = 0; ac < alphaCols; ac++) {
+                for (var ar = 0; ar < alphaRows; ar++) {
+                    if ((ac + ar) % 2) {
+                        context.fillRect(ac * alphaCellWidth, ar * alphaCellWidth, alphaCellWidth, alphaCellWidth);
+                    }
+                }
+            }
+        };
+        /**
+         * This calls getBoundingClientRect() so don't call it in a loop!
+         */
+        CanvasGrid.prototype.clientToCell = function (coord) {
+            var bounds = this.paintLayer.getBoundingClientRect();
+            return [
+                Math.floor((coord.clientX - bounds.left) / this.cellWidth),
+                Math.floor((coord.clientY - bounds.top) / this.cellHeight)
+            ];
+        };
+        CanvasGrid.prototype.initDragSurface = function () {
+            var _this = this;
+            if (!this.gesture) {
+                this.gesture = new GestureState();
+                pxt.BrowserUtils.pointerEvents.down.forEach(function (evId) {
+                    _this.paintLayer.addEventListener(evId, function (ev) {
+                        _this.startDrag();
+                        var _a = _this.clientToCell(clientCoord(ev)), col = _a[0], row = _a[1];
+                        _this.gesture.handle(InputEvent.Down, col, row);
+                    });
+                });
+                this.paintLayer.addEventListener("click", function (ev) {
+                    var _a = _this.clientToCell(clientCoord(ev)), col = _a[0], row = _a[1];
+                    _this.gesture.handle(InputEvent.Down, col, row);
+                    _this.gesture.handle(InputEvent.Up, col, row);
+                });
+                document.addEventListener(pxt.BrowserUtils.pointerEvents.move, this.hoverHandler);
+            }
+        };
+        CanvasGrid.prototype.startDrag = function () {
+            document.removeEventListener(pxt.BrowserUtils.pointerEvents.move, this.hoverHandler);
+            document.addEventListener(pxt.BrowserUtils.pointerEvents.move, this.moveHandler);
+            document.addEventListener(pxt.BrowserUtils.pointerEvents.up, this.upHandler);
+            if (pxt.BrowserUtils.isTouchEnabled() && !pxt.BrowserUtils.hasPointerEvents()) {
+                document.addEventListener("touchend", this.upHandler);
+                document.addEventListener("touchcancel", this.leaveHandler);
+            }
+            else {
+                document.addEventListener(pxt.BrowserUtils.pointerEvents.leave, this.leaveHandler);
+            }
+        };
+        CanvasGrid.prototype.endDrag = function () {
+            document.addEventListener(pxt.BrowserUtils.pointerEvents.move, this.hoverHandler);
+            document.removeEventListener(pxt.BrowserUtils.pointerEvents.move, this.moveHandler);
+            document.removeEventListener(pxt.BrowserUtils.pointerEvents.up, this.upHandler);
+            document.removeEventListener(pxt.BrowserUtils.pointerEvents.leave, this.leaveHandler);
+            if (pxt.BrowserUtils.isTouchEnabled() && !pxt.BrowserUtils.hasPointerEvents()) {
+                document.removeEventListener("touchend", this.upHandler);
+                document.removeEventListener("touchcancel", this.leaveHandler);
+            }
+            else {
+                document.removeEventListener(pxt.BrowserUtils.pointerEvents.leave, this.leaveHandler);
+            }
+        };
+        CanvasGrid.prototype.layoutCanvas = function (canvas, top, left, width, height) {
+            canvas.style.position = "absolute";
+            if (this.image.width === this.image.height) {
+                canvas.style.top = top + "px";
+                canvas.style.left = left + "px";
+            }
+            else if (this.image.width > this.image.height) {
+                canvas.style.top = (top + dropdownPaddding + (height - canvas.height) / 2) + "px";
+                canvas.style.left = left + "px";
+            }
+            else {
+                canvas.style.top = top + "px";
+                canvas.style.left = (left + dropdownPaddding + (width - canvas.width) / 2) + "px";
+            }
+        };
+        return CanvasGrid;
+    }());
+    pxtsprite.CanvasGrid = CanvasGrid;
+    var InputEvent;
+    (function (InputEvent) {
+        InputEvent[InputEvent["Up"] = 0] = "Up";
+        InputEvent[InputEvent["Down"] = 1] = "Down";
+        InputEvent[InputEvent["Move"] = 2] = "Move";
+        InputEvent[InputEvent["Leave"] = 3] = "Leave";
+    })(InputEvent || (InputEvent = {}));
+    var GestureType;
+    (function (GestureType) {
+        GestureType[GestureType["Up"] = 0] = "Up";
+        GestureType[GestureType["Down"] = 1] = "Down";
+        GestureType[GestureType["Move"] = 2] = "Move";
+        GestureType[GestureType["Drag"] = 3] = "Drag";
+        GestureType[GestureType["Leave"] = 4] = "Leave";
+    })(GestureType || (GestureType = {}));
+    var GestureState = /** @class */ (function () {
+        function GestureState() {
+            this.isDown = false;
+            this.isHover = false;
+            this.handlers = {};
+        }
+        GestureState.prototype.handle = function (event, col, row) {
+            switch (event) {
+                case InputEvent.Up:
+                    this.update(col, row);
+                    this.isDown = false;
+                    this.fire(GestureType.Up);
+                    break;
+                case InputEvent.Down:
+                    if (!this.isDown) {
+                        this.update(col, row);
+                        this.isDown = true;
+                        this.fire(GestureType.Down);
+                    }
+                    break;
+                case InputEvent.Move:
+                    if (col === this.lastCol && row === this.lastRow)
+                        return;
+                    this.update(col, row);
+                    if (this.isDown) {
+                        this.fire(GestureType.Drag);
+                    }
+                    else {
+                        this.fire(GestureType.Move);
+                    }
+                    break;
+                case InputEvent.Leave:
+                    this.update(col, row);
+                    this.isDown = false;
+                    this.fire(GestureType.Leave);
+                    break;
+            }
+        };
+        GestureState.prototype.subscribe = function (type, handler) {
+            this.handlers[type] = handler;
+        };
+        GestureState.prototype.update = function (col, row) {
+            this.lastCol = col;
+            this.lastRow = row;
+        };
+        GestureState.prototype.fire = function (type) {
+            if (this.handlers[type]) {
+                this.handlers[type](this.lastCol, this.lastRow);
+            }
+        };
+        return GestureState;
+    }());
+    var Fade = /** @class */ (function () {
+        function Fade(draw, delay, duration) {
+            var _this = this;
+            this.draw = draw;
+            this.start = Date.now() + delay;
+            this.end = this.start + duration;
+            this.slope = 1 / duration;
+            this.dead = false;
+            draw(1, false);
+            setTimeout(function () { return requestAnimationFrame(function () { return _this.frame(); }); }, delay);
+        }
+        Fade.prototype.frame = function () {
+            var _this = this;
+            if (this.dead)
+                return;
+            var now = Date.now();
+            if (now < this.end) {
+                var v = 1 - (this.slope * (now - this.start));
+                this.draw(v, false);
+                requestAnimationFrame(function () { return _this.frame(); });
+            }
+            else {
+                this.draw(0, true);
+                this.kill();
+            }
+        };
+        Fade.prototype.kill = function () {
+            this.dead = true;
+        };
+        return Fade;
+    }());
+    function clientCoord(ev) {
+        if (ev.touches) {
+            var te = ev;
+            if (te.touches.length) {
+                return te.touches[0];
+            }
+            return te.changedTouches[0];
+        }
+        return ev;
+    }
+})(pxtsprite || (pxtsprite = {}));
+var pxtsprite;
+(function (pxtsprite) {
+    var COLUMNS = 4;
+    var Gallery = /** @class */ (function () {
+        function Gallery(info) {
+            var _this = this;
+            this.visible = false;
+            this.info = info;
+            this.containerDiv = document.createElement("div");
+            this.containerDiv.setAttribute("id", "sprite-editor-gallery-outer");
+            this.contentDiv = document.createElement("div");
+            this.contentDiv.setAttribute("id", "sprite-editor-gallery");
+            this.itemBackgroundColor = "#ffffff";
+            this.itemBorderColor = "#000000";
+            this.initStyles();
+            this.containerDiv.appendChild(this.contentDiv);
+            this.containerDiv.style.display = "none";
+            this.contentDiv.addEventListener("animationend", function () {
+                if (!_this.visible) {
+                    _this.containerDiv.style.display = "none";
+                }
+            });
+        }
+        Gallery.prototype.getElement = function () {
+            return this.containerDiv;
+        };
+        Gallery.prototype.show = function (cb) {
+            if (this.pending) {
+                this.reject("Error: multiple calls");
+            }
+            this.pending = cb;
+            this.containerDiv.style.display = "block";
+            this.buildDom();
+            this.visible = true;
+            this.contentDiv.setAttribute("class", "shown");
+        };
+        Gallery.prototype.hide = function () {
+            if (this.pending) {
+                this.reject("cancelled");
+            }
+            this.visible = false;
+            this.contentDiv.setAttribute("class", "hidden-above");
+        };
+        Gallery.prototype.layout = function (left, top, height) {
+            this.containerDiv.style.left = left + "px";
+            this.containerDiv.style.top = top + "px";
+            this.containerDiv.style.height = height + "px";
+        };
+        Gallery.prototype.buildDom = function () {
+            var _this = this;
+            while (this.contentDiv.firstChild)
+                this.contentDiv.removeChild(this.contentDiv.firstChild);
+            var totalWidth = this.containerDiv.clientWidth - 17;
+            var buttonWidth = (Math.floor(totalWidth / COLUMNS) - 8) + "px";
+            this.getGalleryItems("Image").forEach(function (item, i) { return _this.mkButton(item.src, item.alt, item.qName, i, buttonWidth); });
+        };
+        Gallery.prototype.initStyles = function () {
+            var style = document.createElement("style");
+            style.textContent = "\n            #sprite-editor-gallery {\n                margin-top: -100%;\n            }\n\n            #sprite-editor-gallery.hidden-above {\n                margin-top: -100%;\n                animation: slide-up 0.2s 0s ease;\n            }\n\n            #sprite-editor-gallery.shown {\n                margin-top: 0px;\n                animation: slide-down 0.2s 0s ease;\n            }\n\n            @keyframes slide-down {\n                0% {\n                    margin-top: -100%;\n                }\n                100% {\n                    margin-top: 0px;\n                }\n            }\n\n            @keyframes slide-up {\n                0% {\n                    margin-top: 0px;\n                }\n                100% {\n                    margin-top: -100%;\n                }\n            }\n            ";
+            this.containerDiv.appendChild(style);
+        };
+        Gallery.prototype.mkButton = function (src, alt, value, i, width) {
+            var _this = this;
+            var button = document.createElement('button');
+            button.setAttribute('id', ':' + i); // For aria-activedescendant
+            button.setAttribute('role', 'menuitem');
+            button.setAttribute('class', 'sprite-gallery-button sprite-editor-card');
+            button.title = alt;
+            button.style.width = width;
+            button.style.height = width;
+            var backgroundColor = this.itemBackgroundColor;
+            button.style.backgroundColor = backgroundColor;
+            button.style.borderColor = this.itemBorderColor;
+            var parentDiv = this.contentDiv;
+            button.addEventListener("click", function () { return _this.handleSelection(value); });
+            button.addEventListener(pxt.BrowserUtils.pointerEvents.move, function () {
+                button.setAttribute('class', 'sprite-gallery-button sprite-gallery-button-hover sprite-editor-card');
+                parentDiv.setAttribute('aria-activedescendant', button.id);
+            });
+            button.addEventListener(pxt.BrowserUtils.pointerEvents.leave, function () {
+                button.setAttribute('class', 'sprite-gallery-button sprite-editor-card');
+                parentDiv.removeAttribute('aria-activedescendant');
+            });
+            var buttonImg = document.createElement('img');
+            buttonImg.src = src;
+            button.setAttribute('data-value', value);
+            buttonImg.setAttribute('data-value', value);
+            button.appendChild(buttonImg);
+            this.contentDiv.appendChild(button);
+        };
+        Gallery.prototype.resolve = function (bitmap) {
+            if (this.pending) {
+                var cb = this.pending;
+                this.pending = undefined;
+                cb(bitmap);
+            }
+        };
+        Gallery.prototype.reject = function (reason) {
+            if (this.pending) {
+                var cb = this.pending;
+                this.pending = undefined;
+                cb(undefined, reason);
+            }
+        };
+        Gallery.prototype.handleSelection = function (value) {
+            this.resolve(this.getBitmap(value));
+        };
+        Gallery.prototype.getBitmap = function (qName) {
+            var sym = this.info.apis.byQName[qName];
+            var jresURL = sym.attributes.jresURL;
+            var data = atob(jresURL.slice(jresURL.indexOf(",") + 1));
+            var magic = data.charCodeAt(0);
+            var w = data.charCodeAt(1);
+            var h = data.charCodeAt(2);
+            var out = new pxtsprite.Bitmap(w, h);
+            var index = 4;
+            if (magic === 0xe1) {
+                // Monochrome
+                var mask = 0x01;
+                var v = data.charCodeAt(index++);
+                for (var x = 0; x < w; ++x) {
+                    for (var y = 0; y < h; ++y) {
+                        out.set(x, y, (v & mask) ? 1 : 0);
+                        mask <<= 1;
+                        if (mask == 0x100) {
+                            mask = 0x01;
+                            v = data.charCodeAt(index++);
+                        }
+                    }
+                }
+            }
+            else {
+                // Color
+                for (var x = 0; x < w; x++) {
+                    for (var y = 0; y < h; y += 2) {
+                        var v = data.charCodeAt(index++);
+                        out.set(x, y, v & 0xf);
+                        if (y != h - 1) {
+                            out.set(x, y + 1, (v >> 4) & 0xf);
+                        }
+                    }
+                    while (index & 3)
+                        index++;
+                }
+            }
+            return out;
+        };
+        Gallery.prototype.getGalleryItems = function (qName) {
+            var syms = getFixedInstanceDropdownValues(this.info.apis, qName);
+            generateIcons(syms);
+            return syms.map(function (sym) {
+                return {
+                    qName: sym.qName,
+                    src: sym.attributes.iconURL,
+                    alt: sym.qName
+                };
+            });
+        };
+        return Gallery;
+    }());
+    pxtsprite.Gallery = Gallery;
+    function getFixedInstanceDropdownValues(apis, qName) {
+        return pxt.Util.values(apis.byQName).filter(function (sym) { return sym.kind === 4 /* Variable */
+            && sym.attributes.fixedInstance
+            && isSubtype(apis, sym.retType, qName); });
+    }
+    function isSubtype(apis, specific, general) {
+        if (specific == general)
+            return true;
+        var inf = apis.byQName[specific];
+        if (inf && inf.extendsTypes)
+            return inf.extendsTypes.indexOf(general) >= 0;
+        return false;
+    }
+    function generateIcons(instanceSymbols) {
+        var imgConv = new pxt.ImageConverter();
+        instanceSymbols.forEach(function (v) {
+            if (v.attributes.jresURL && !v.attributes.iconURL && v.attributes.jresURL.indexOf("data:image/x-mkcd-f") == 0) {
+                v.attributes.iconURL = imgConv.convert(v.attributes.jresURL);
+            }
+        });
+    }
+})(pxtsprite || (pxtsprite = {}));
+/// <reference path="./buttons.ts" />
+var pxtsprite;
+(function (pxtsprite) {
+    var svg = pxt.svgUtil;
+    var SpriteHeader = /** @class */ (function () {
+        function SpriteHeader(host) {
+            var _this = this;
+            this.host = host;
+            this.div = document.createElement("div");
+            this.div.setAttribute("id", "sprite-editor-header");
+            this.root = new svg.SVG(this.div).id("sprite-editor-header-controls");
+            this.toggle = new pxtsprite.Toggle(this.root, { leftText: "Editor", rightText: "Gallery", baseColor: "#4B7BEC" });
+            this.toggle.onStateChange(function (isLeft) {
+                if (isLeft) {
+                    _this.host.hideGallery();
+                }
+                else {
+                    _this.host.showGallery();
+                }
+            });
+        }
+        SpriteHeader.prototype.getElement = function () {
+            return this.div;
+        };
+        SpriteHeader.prototype.layout = function () {
+            this.toggle.layout();
+            this.toggle.translate((pxtsprite.TOTAL_HEIGHT - this.toggle.width()) / 2, (pxtsprite.HEADER_HEIGHT - this.toggle.height()) / 2);
+        };
+        return SpriteHeader;
+    }());
+    pxtsprite.SpriteHeader = SpriteHeader;
+})(pxtsprite || (pxtsprite = {}));
+// <div role="button" class="closeIcon" tabindex="0">
+// <i class="icon close remove circle " aria-hidden="true" role="presentation"></i>
+// </div>
+function makeCloseButton() {
+    var i = document.createElement("i");
+    i.className = "icon close remove circle sprite-focus-hover";
+    i.setAttribute("role", "presentation");
+    i.setAttribute("aria-hidden", "true");
+    var d = document.createElement("div");
+    d.className = "closeIcon";
+    d.setAttribute("tabindex", "0");
+    d.setAttribute("role", "button");
+    d.appendChild(i);
+    return d;
+}
+/// <reference path="./buttons.ts" />
+var pxtsprite;
+(function (pxtsprite) {
+    var UNDO_REDO_WIDTH = 65;
+    var SIZE_BUTTON_WIDTH = 65;
+    var SIZE_CURSOR_MARGIN = 10;
+    var ReporterBar = /** @class */ (function () {
+        function ReporterBar(parent, host, height) {
+            var _this = this;
+            this.host = host;
+            this.height = height;
+            this.root = parent.group().id("sprite-editor-reporter-bar");
+            this.undoRedo = new pxtsprite.UndoRedoGroup(this.root, host, UNDO_REDO_WIDTH, height);
+            this.sizeButton = pxtsprite.mkTextButton("16x16", SIZE_BUTTON_WIDTH, height);
+            this.sizeButton.onClick(function () {
+                _this.nextSize();
+            });
+            this.root.appendChild(this.sizeButton.getElement());
+            this.doneButton = new pxtsprite.StandaloneTextButton(lf("Done"), height);
+            this.doneButton.addClass("sprite-editor-confirm-button");
+            this.doneButton.onClick(function () { return _this.host.closeEditor(); });
+            this.root.appendChild(this.doneButton.getElement());
+            this.sizePresets = [
+                [16, 16]
+            ];
+            this.cursorText = this.root.draw("text")
+                .appendClass("sprite-editor-text")
+                .appendClass("sprite-editor-label")
+                .setAttribute("dominant-baseline", "middle")
+                .setAttribute("dy", 2.5);
+        }
+        ReporterBar.prototype.updateDimensions = function (width, height) {
+            this.sizeButton.setText(width + "x" + height);
+        };
+        ReporterBar.prototype.hideCursor = function () {
+            this.cursorText.text("");
+        };
+        ReporterBar.prototype.updateCursor = function (col, row) {
+            this.cursorText.text(col + "," + row);
+        };
+        ReporterBar.prototype.updateUndoRedo = function (undo, redo) {
+            this.undoRedo.updateState(undo, redo);
+        };
+        ReporterBar.prototype.layout = function (top, left, width) {
+            this.root.translate(left, top);
+            this.doneButton.layout();
+            var doneWidth = this.doneButton.width();
+            this.undoRedo.translate(width - UNDO_REDO_WIDTH - SIZE_CURSOR_MARGIN - doneWidth, 0);
+            this.doneButton.getElement().translate(width - doneWidth, 0);
+            this.cursorText.moveTo(SIZE_BUTTON_WIDTH + SIZE_CURSOR_MARGIN, this.height / 2);
+        };
+        ReporterBar.prototype.setSizePresets = function (presets, currentWidth, currentHeight) {
+            this.sizePresets = presets;
+            this.sizeIndex = undefined;
+            for (var i = 0; i < presets.length; i++) {
+                var _a = presets[i], w = _a[0], h = _a[1];
+                if (w === currentWidth && h === currentHeight) {
+                    this.sizeIndex = i;
+                    break;
+                }
+            }
+            this.updateDimensions(currentWidth, currentHeight);
+        };
+        ReporterBar.prototype.nextSize = function () {
+            if (this.sizeIndex == undefined) {
+                this.sizeIndex = 0;
+            }
+            else {
+                this.sizeIndex = (this.sizeIndex + 1) % this.sizePresets.length;
+            }
+            var _a = this.sizePresets[this.sizeIndex], w = _a[0], h = _a[1];
+            this.host.resize(w, h);
+        };
+        return ReporterBar;
+    }());
+    pxtsprite.ReporterBar = ReporterBar;
+})(pxtsprite || (pxtsprite = {}));
+/// <reference path="./buttons.ts" />
+var pxtsprite;
+(function (pxtsprite) {
+    var lf = pxt.Util.lf;
+    var TOOLBAR_WIDTH = 65;
+    var INNER_BUTTON_MARGIN = 3;
+    var PALETTE_BORDER_WIDTH = 1;
+    var BUTTON_GROUP_SPACING = 3;
+    var SELECTED_BORDER_WIDTH = 2;
+    var COLOR_PREVIEW_HEIGHT = 30;
+    var COLOR_MARGIN = 7;
+    var TOOL_BUTTON_WIDTH = (TOOLBAR_WIDTH - INNER_BUTTON_MARGIN) / 2;
+    var PALLETTE_SWATCH_WIDTH = (TOOLBAR_WIDTH - PALETTE_BORDER_WIDTH * 3) / 2;
+    var TOOL_BUTTON_TOP = TOOLBAR_WIDTH / 3 + BUTTON_GROUP_SPACING;
+    var PALETTE_TOP = TOOL_BUTTON_TOP + TOOL_BUTTON_WIDTH * 2 + INNER_BUTTON_MARGIN + COLOR_MARGIN;
+    var SideBar = /** @class */ (function () {
+        function SideBar(palette, host, parent) {
+            this.palette = palette;
+            this.host = host;
+            this.root = parent.group().id("sprite-editor-sidebar");
+            this.initSizes();
+            this.initTools();
+            this.initPalette();
+        }
+        SideBar.prototype.setTool = function (tool) {
+            this.host.setActiveTool(tool);
+            if (this.selectedTool) {
+                this.selectedTool.removeClass("selected");
+            }
+            this.selectedTool = this.getButtonForTool(tool);
+            if (this.selectedTool) {
+                this.selectedTool.addClass("selected");
+            }
+        };
+        SideBar.prototype.setColor = function (color) {
+            this.host.setActiveColor(color);
+            if (this.selectedSwatch) {
+                this.selectedSwatch.stroke("none");
+            }
+            this.selectedSwatch = this.colorSwatches[color];
+            if (this.selectedSwatch) {
+                // Border is multiplied by 2 and the excess is clipped away
+                this.selectedSwatch.stroke("orange", SELECTED_BORDER_WIDTH * 2);
+                this.colorPreview.fill(this.palette[color]);
+            }
+            // FIXME: Switch the tool to pencil
+        };
+        SideBar.prototype.setCursorSize = function (size) {
+            this.host.setToolWidth(size);
+        };
+        SideBar.prototype.setWidth = function (width) {
+            this.root.scale(width / TOOLBAR_WIDTH);
+        };
+        SideBar.prototype.translate = function (left, top) {
+            this.root.translate(left, top);
+        };
+        SideBar.prototype.initSizes = function () {
+            var _this = this;
+            this.sizeGroup = this.root.group().id("sprite-editor-cursor-buttons");
+            var buttonGroup = new pxtsprite.CursorMultiButton(this.sizeGroup, TOOLBAR_WIDTH);
+            buttonGroup.onSelected(function (index) {
+                _this.setCursorSize(1 + (index * 2));
+            });
+            // Sets the first button to show as selected
+            buttonGroup.selected = 0;
+            buttonGroup.buttons[0].setSelected(true);
+        };
+        SideBar.prototype.initTools = function () {
+            this.buttonGroup = this.root.group()
+                .id("sprite-editor-tools")
+                .translate(0, TOOL_BUTTON_TOP);
+            this.pencilTool = this.initButton(lf("Pencil"), "\uf040", pxtsprite.PaintTool.Normal);
+            this.eraseTool = this.initButton(lf("Erase"), "\uf12d", pxtsprite.PaintTool.Erase);
+            this.eraseTool.translate(1 + TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN, 0);
+            this.fillTool = this.initButton(lf("Fill"), "\uf102", pxtsprite.PaintTool.Fill, true);
+            this.fillTool.translate(0, TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN);
+            this.rectangleTool = this.initButton(lf("Rectangle"), "\uf096", pxtsprite.PaintTool.Rectangle);
+            this.rectangleTool.translate(1 + TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN, TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN);
+            this.setTool(pxtsprite.PaintTool.Normal);
+        };
+        SideBar.prototype.initPalette = function () {
+            var _this = this;
+            this.paletteGroup = this.root.group().id("sprite-editor-palette")
+                .translate(0, PALETTE_TOP);
+            // Draw the background/borders for the entire palette
+            var bgHeight = COLOR_PREVIEW_HEIGHT + PALETTE_BORDER_WIDTH * 2;
+            this.paletteGroup.draw("rect")
+                .fill("#000000")
+                .size(TOOLBAR_WIDTH, bgHeight);
+            this.paletteGroup.draw("rect")
+                .fill("#000000")
+                .at(0, bgHeight + COLOR_MARGIN)
+                .size(TOOLBAR_WIDTH, PALETTE_BORDER_WIDTH + (this.palette.length >> 1) * (PALLETTE_SWATCH_WIDTH + PALETTE_BORDER_WIDTH));
+            // The highlighted swatch has an inner border. The only way to do that in SVG
+            // is to set the stroke to double the border width and clip the excess away
+            var clip = this.paletteGroup.def().create("clipPath", "sprite-editor-selected-color")
+                .clipPathUnits(true);
+            clip.draw("rect")
+                .at(0, 0)
+                .size(1, 1);
+            // Draw a preview of the current color
+            this.colorPreview = this.paletteGroup.draw("rect")
+                .at(PALETTE_BORDER_WIDTH, PALETTE_BORDER_WIDTH)
+                .size(TOOLBAR_WIDTH - PALETTE_BORDER_WIDTH * 2, COLOR_PREVIEW_HEIGHT);
+            // Draw the swatches for each color
+            this.colorSwatches = [];
+            var _loop_7 = function (i) {
+                var col = i % 2;
+                var row = Math.floor(i / 2);
+                var swatch = this_2.paletteGroup
+                    .draw("rect")
+                    .size(PALLETTE_SWATCH_WIDTH, PALLETTE_SWATCH_WIDTH)
+                    .at(col ? PALETTE_BORDER_WIDTH * 2 + PALLETTE_SWATCH_WIDTH : PALETTE_BORDER_WIDTH, bgHeight + COLOR_MARGIN + PALETTE_BORDER_WIDTH + row * (PALETTE_BORDER_WIDTH + PALLETTE_SWATCH_WIDTH))
+                    .fill(this_2.palette[i])
+                    .clipPath("url(#sprite-editor-selected-color)")
+                    .onClick(function () { return _this.setColor(i); });
+                swatch.title("" + i);
+                this_2.colorSwatches.push(swatch);
+            };
+            var this_2 = this;
+            for (var i = 0; i < this.palette.length; i++) {
+                _loop_7(i);
+            }
+            this.setColor(0);
+        };
+        SideBar.prototype.initButton = function (title, icon, tool, xicon) {
+            var _this = this;
+            if (xicon === void 0) { xicon = false; }
+            var btn = xicon ? pxtsprite.mkXIconButton(icon, TOOL_BUTTON_WIDTH) : pxtsprite.mkIconButton(icon, TOOL_BUTTON_WIDTH);
+            btn.title(title);
+            btn.onClick(function () { return _this.setTool(tool); });
+            this.buttonGroup.appendChild(btn.getElement());
+            return btn;
+        };
+        SideBar.prototype.getButtonForTool = function (tool) {
+            switch (tool) {
+                case pxtsprite.PaintTool.Normal:
+                case pxtsprite.PaintTool.Line: return this.pencilTool;
+                case pxtsprite.PaintTool.Erase: return this.eraseTool;
+                case pxtsprite.PaintTool.Fill: return this.fillTool;
+                case pxtsprite.PaintTool.Rectangle:
+                case pxtsprite.PaintTool.Circle: return this.rectangleTool;
+                default: return undefined;
+            }
+        };
+        return SideBar;
+    }());
+    pxtsprite.SideBar = SideBar;
+})(pxtsprite || (pxtsprite = {}));
+/// <reference path="./bitmap.ts" />
+var pxtsprite;
+(function (pxtsprite) {
+    var PaintTool;
+    (function (PaintTool) {
+        PaintTool[PaintTool["Normal"] = 0] = "Normal";
+        PaintTool[PaintTool["Rectangle"] = 1] = "Rectangle";
+        PaintTool[PaintTool["Outline"] = 2] = "Outline";
+        PaintTool[PaintTool["Circle"] = 3] = "Circle";
+        PaintTool[PaintTool["Fill"] = 4] = "Fill";
+        PaintTool[PaintTool["Line"] = 5] = "Line";
+        PaintTool[PaintTool["Erase"] = 6] = "Erase";
+    })(PaintTool = pxtsprite.PaintTool || (pxtsprite.PaintTool = {}));
+    var Cursor = /** @class */ (function () {
+        function Cursor() {
+        }
+        return Cursor;
+    }());
+    pxtsprite.Cursor = Cursor;
+    var Edit = /** @class */ (function () {
+        function Edit(canvasWidth, canvasHeight, color, toolWidth) {
+            this.canvasWidth = canvasWidth;
+            this.canvasHeight = canvasHeight;
+            this.color = color;
+            this.toolWidth = toolWidth;
+        }
+        Edit.prototype.doEdit = function (bitmap) {
+            if (this.isStarted) {
+                this.doEditCore(bitmap);
+            }
+        };
+        Edit.prototype.start = function (cursorCol, cursorRow) {
+            this.isStarted = true;
+            this.startCol = cursorCol;
+            this.startRow = cursorRow;
+        };
+        Edit.prototype.drawCursor = function (col, row, draw) {
+            draw(col, row);
+        };
+        return Edit;
+    }());
+    pxtsprite.Edit = Edit;
+    var SelectionEdit = /** @class */ (function (_super) {
+        __extends(SelectionEdit, _super);
+        function SelectionEdit() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        SelectionEdit.prototype.update = function (col, row) {
+            this.endCol = col;
+            this.endRow = row;
+        };
+        SelectionEdit.prototype.topLeft = function () {
+            return [Math.min(this.startCol, this.endCol), Math.min(this.startRow, this.endRow)];
+        };
+        SelectionEdit.prototype.bottomRight = function () {
+            return [Math.max(this.startCol, this.endCol), Math.max(this.startRow, this.endRow)];
+        };
+        return SelectionEdit;
+    }(Edit));
+    pxtsprite.SelectionEdit = SelectionEdit;
+    /**
+     * Regular old drawing tool
+     */
+    var PaintEdit = /** @class */ (function (_super) {
+        __extends(PaintEdit, _super);
+        function PaintEdit(canvasWidth, canvasHeight, color, toolWidth) {
+            var _this = _super.call(this, canvasWidth, canvasHeight, color, toolWidth) || this;
+            _this.mask = new pxtsprite.Bitmask(canvasWidth, canvasHeight);
+            return _this;
+        }
+        PaintEdit.prototype.update = function (col, row) {
+            // Interpolate (Draw a line) from startCol, startRow to col, row
+            this.interpolate(this.startCol, this.startRow, col, row);
+            this.startCol = col;
+            this.startRow = row;
+        };
+        // https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
+        PaintEdit.prototype.interpolate = function (x0, y0, x1, y1) {
+            var _this = this;
+            var dx = x1 - x0;
+            var dy = y1 - y0;
+            var draw = function (c, r) { return _this.mask.set(c, r); };
+            if (dx === 0) {
+                var startY = dy >= 0 ? y0 : y1;
+                var endY = dy >= 0 ? y1 : y0;
+                for (var y_1 = startY; y_1 <= endY; y_1++) {
+                    this.drawCore(x0, y_1, draw);
+                }
+                return;
+            }
+            var xStep = dx > 0 ? 1 : -1;
+            var yStep = dy > 0 ? 1 : -1;
+            var dErr = Math.abs(dy / dx);
+            var err = 0;
+            var y = y0;
+            for (var x = x0; xStep > 0 ? x <= x1 : x >= x1; x += xStep) {
+                this.drawCore(x, y, draw);
+                err += dErr;
+                while (err >= 0.5) {
+                    if (yStep > 0 ? y <= y1 : y >= y1) {
+                        this.drawCore(x, y, draw);
+                    }
+                    y += yStep;
+                    err -= 1;
+                }
+            }
+        };
+        PaintEdit.prototype.drawCursor = function (col, row, draw) {
+            this.drawCore(col, row, draw);
+        };
+        PaintEdit.prototype.doEditCore = function (bitmap) {
+            for (var c = 0; c < bitmap.width; c++) {
+                for (var r = 0; r < bitmap.height; r++) {
+                    if (this.mask.get(c, r)) {
+                        bitmap.set(c, r, this.color);
+                    }
+                }
+            }
+        };
+        PaintEdit.prototype.drawCore = function (col, row, setPixel) {
+            col = col - Math.floor(this.toolWidth / 2);
+            row = row - Math.floor(this.toolWidth / 2);
+            for (var i = 0; i < this.toolWidth; i++) {
+                for (var j = 0; j < this.toolWidth; j++) {
+                    var c = col + i;
+                    var r = row + j;
+                    if (c >= 0 && c < this.canvasWidth && r >= 0 && r < this.canvasHeight) {
+                        setPixel(col + i, row + j);
+                    }
+                }
+            }
+        };
+        return PaintEdit;
+    }(Edit));
+    pxtsprite.PaintEdit = PaintEdit;
+    /**
+     * Tool for drawing filled rectangles
+     */
+    var RectangleEdit = /** @class */ (function (_super) {
+        __extends(RectangleEdit, _super);
+        function RectangleEdit() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        RectangleEdit.prototype.doEditCore = function (bitmap) {
+            var tl = this.topLeft();
+            var br = this.bottomRight();
+            for (var c = tl[0]; c <= br[0]; c++) {
+                for (var r = tl[1]; r <= br[1]; r++) {
+                    bitmap.set(c, r, this.color);
+                }
+            }
+        };
+        return RectangleEdit;
+    }(SelectionEdit));
+    pxtsprite.RectangleEdit = RectangleEdit;
+    /**
+     * Tool for drawing empty rectangles
+     */
+    var OutlineEdit = /** @class */ (function (_super) {
+        __extends(OutlineEdit, _super);
+        function OutlineEdit() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        OutlineEdit.prototype.doEditCore = function (bitmap) {
+            var tl = this.topLeft();
+            var br = this.bottomRight();
+            for (var i = 0; i < this.toolWidth; i++) {
+                this.drawRectangle(bitmap, [tl[0] + i, tl[1] + i], [br[0] - i, br[1] - i]);
+            }
+        };
+        OutlineEdit.prototype.drawRectangle = function (bitmap, tl, br) {
+            if (tl[0] > br[0] || tl[1] > br[1])
+                return;
+            for (var c = tl[0]; c <= br[0]; c++) {
+                bitmap.set(c, tl[1], this.color);
+                bitmap.set(c, br[1], this.color);
+            }
+            for (var r = tl[1]; r <= br[1]; r++) {
+                bitmap.set(tl[0], r, this.color);
+                bitmap.set(br[0], r, this.color);
+            }
+        };
+        return OutlineEdit;
+    }(SelectionEdit));
+    pxtsprite.OutlineEdit = OutlineEdit;
+    /**
+     * Tool for drawing straight lines
+     */
+    var LineEdit = /** @class */ (function (_super) {
+        __extends(LineEdit, _super);
+        function LineEdit() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        LineEdit.prototype.doEditCore = function (bitmap) {
+            this.bresenham(this.startCol, this.startRow, this.endCol, this.endRow, bitmap);
+        };
+        LineEdit.prototype.drawCursor = function (col, row, draw) {
+            this.drawCore(col, row, draw);
+        };
+        // https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
+        LineEdit.prototype.bresenham = function (x0, y0, x1, y1, bitmap) {
+            var _this = this;
+            var dx = x1 - x0;
+            var dy = y1 - y0;
+            var draw = function (c, r) { return bitmap.set(c, r, _this.color); };
+            if (dx === 0) {
+                var startY = dy >= 0 ? y0 : y1;
+                var endY = dy >= 0 ? y1 : y0;
+                for (var y_2 = startY; y_2 <= endY; y_2++) {
+                    this.drawCore(x0, y_2, draw);
+                }
+                return;
+            }
+            var xStep = dx > 0 ? 1 : -1;
+            var yStep = dy > 0 ? 1 : -1;
+            var dErr = Math.abs(dy / dx);
+            var err = 0;
+            var y = y0;
+            for (var x = x0; xStep > 0 ? x <= x1 : x >= x1; x += xStep) {
+                this.drawCore(x, y, draw);
+                err += dErr;
+                while (err >= 0.5) {
+                    if (yStep > 0 ? y <= y1 : y >= y1) {
+                        this.drawCore(x, y, draw);
+                    }
+                    y += yStep;
+                    err -= 1;
+                }
+            }
+        };
+        // This is surely not the most efficient approach for drawing thick lines...
+        LineEdit.prototype.drawCore = function (col, row, draw) {
+            col = col - Math.floor(this.toolWidth / 2);
+            row = row - Math.floor(this.toolWidth / 2);
+            for (var i = 0; i < this.toolWidth; i++) {
+                for (var j = 0; j < this.toolWidth; j++) {
+                    var c = col + i;
+                    var r = row + j;
+                    draw(c, r);
+                }
+            }
+        };
+        return LineEdit;
+    }(SelectionEdit));
+    pxtsprite.LineEdit = LineEdit;
+    /**
+     * Tool for circular outlines
+     */
+    var CircleEdit = /** @class */ (function (_super) {
+        __extends(CircleEdit, _super);
+        function CircleEdit() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        CircleEdit.prototype.doEditCore = function (bitmap) {
+            var tl = this.topLeft();
+            var br = this.bottomRight();
+            var dx = br[0] - tl[0];
+            var dy = br[1] - tl[1];
+            var radius = Math.floor(Math.hypot(dx, dy));
+            var cx = this.startCol;
+            var cy = this.startRow;
+            this.midpoint(cx, cy, radius, bitmap);
+        };
+        // https://en.wikipedia.org/wiki/Midpoint_circle_algorithm
+        CircleEdit.prototype.midpoint = function (cx, cy, radius, bitmap) {
+            var x = radius - 1;
+            var y = 0;
+            var dx = 1;
+            var dy = 1;
+            var err = dx - (radius * 2);
+            while (x >= y) {
+                bitmap.set(cx + x, cy + y, this.color);
+                bitmap.set(cx + x, cy - y, this.color);
+                bitmap.set(cx + y, cy + x, this.color);
+                bitmap.set(cx + y, cy - x, this.color);
+                bitmap.set(cx - y, cy + x, this.color);
+                bitmap.set(cx - y, cy - x, this.color);
+                bitmap.set(cx - x, cy + y, this.color);
+                bitmap.set(cx - x, cy - y, this.color);
+                if (err <= 0) {
+                    y++;
+                    err += dy;
+                    dy += 2;
+                }
+                if (err > 0) {
+                    x--;
+                    dx += 2;
+                    err += dx - (radius * 2);
+                }
+            }
+        };
+        return CircleEdit;
+    }(SelectionEdit));
+    pxtsprite.CircleEdit = CircleEdit;
+    var FillEdit = /** @class */ (function (_super) {
+        __extends(FillEdit, _super);
+        function FillEdit() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        FillEdit.prototype.start = function (col, row) {
+            this.isStarted = true;
+            this.col = col;
+            this.row = row;
+        };
+        FillEdit.prototype.update = function (col, row) {
+            this.col = col;
+            this.row = row;
+        };
+        FillEdit.prototype.doEditCore = function (bitmap) {
+            var replColor = bitmap.get(this.col, this.row);
+            if (replColor === this.color) {
+                return;
+            }
+            var mask = new pxtsprite.Bitmask(bitmap.width, bitmap.height);
+            mask.set(this.col, this.row);
+            var q = [[this.col, this.row]];
+            while (q.length) {
+                var _a = q.pop(), c = _a[0], r = _a[1];
+                if (bitmap.get(c, r) === replColor) {
+                    bitmap.set(c, r, this.color);
+                    tryPush(c + 1, r);
+                    tryPush(c - 1, r);
+                    tryPush(c, r + 1);
+                    tryPush(c, r - 1);
+                }
+            }
+            function tryPush(x, y) {
+                if (x >= 0 && x < mask.width && y >= 0 && y < mask.height && !mask.get(x, y)) {
+                    mask.set(x, y);
+                    q.push([x, y]);
+                }
+            }
+        };
+        return FillEdit;
+    }(Edit));
+    pxtsprite.FillEdit = FillEdit;
+})(pxtsprite || (pxtsprite = {}));
+/// <reference path="./bitmap.ts" />
+/// <reference path="./tools.ts" />
+/// <reference path="./reporterBar.ts" />
+/// <reference path="./sidebar.ts" />
+/// <reference path="./gallery.ts" />
+/// <reference path="./header.ts" />
+var pxtsprite;
+(function (pxtsprite) {
+    var svg = pxt.svgUtil;
+    var lf = pxt.Util.lf;
+    pxtsprite.TOTAL_HEIGHT = 500;
+    var PADDING = 10;
+    var DROP_DOWN_PADDING = 4;
+    // Height of toolbar (the buttons above the canvas)
+    pxtsprite.HEADER_HEIGHT = 50;
+    // Spacing between the toolbar and the canvas
+    var HEADER_CANVAS_MARGIN = 10;
+    // Height of the bar that displays editor size and info below the canvas
+    var REPORTER_BAR_HEIGHT = 31;
+    // Spacing between the canvas and reporter bar
+    var REPORTER_BAR_CANVAS_MARGIN = 5;
+    // Spacing between palette and paint surface
+    var SIDEBAR_CANVAS_MARGIN = 10;
+    var SIDEBAR_WIDTH = 65;
+    // Total allowed height of paint surface
+    var CANVAS_HEIGHT = pxtsprite.TOTAL_HEIGHT - pxtsprite.HEADER_HEIGHT - HEADER_CANVAS_MARGIN
+        - REPORTER_BAR_HEIGHT - REPORTER_BAR_CANVAS_MARGIN - PADDING + DROP_DOWN_PADDING * 2;
+    var WIDTH = PADDING + SIDEBAR_WIDTH + SIDEBAR_CANVAS_MARGIN + CANVAS_HEIGHT + PADDING - DROP_DOWN_PADDING * 2;
+    var SpriteEditor = /** @class */ (function () {
+        function SpriteEditor(bitmap, blocksInfo, lightMode) {
+            if (lightMode === void 0) { lightMode = false; }
+            var _this = this;
+            this.lightMode = lightMode;
+            this.activeTool = pxtsprite.PaintTool.Normal;
+            this.toolWidth = 1;
+            this.color = 1;
+            this.cursorCol = 0;
+            this.cursorRow = 0;
+            this.undoStack = [];
+            this.redoStack = [];
+            this.columns = 16;
+            this.rows = 16;
+            this.shiftDown = false;
+            this.mouseDown = false;
+            this.keyDown = function (event) {
+                if (event.keyCode == 16) {
+                    if (!_this.shiftDown) {
+                        var btn = _this.sidebar.getButtonForTool(pxtsprite.PaintTool.Normal);
+                        btn.setText("\uf07e");
+                        btn.title(lf("Line"));
+                        btn.onClick(function () { return _this.sidebar.setTool(pxtsprite.PaintTool.Line); });
+                        if (_this.activeTool == pxtsprite.PaintTool.Normal) {
+                            _this.setActiveTool(pxtsprite.PaintTool.Line);
+                        }
+                        btn = _this.sidebar.getButtonForTool(pxtsprite.PaintTool.Rectangle);
+                        btn.setText("\uf10c");
+                        btn.title(lf("Circle"));
+                        btn.onClick(function () { return _this.sidebar.setTool(pxtsprite.PaintTool.Circle); });
+                        if (_this.activeTool == pxtsprite.PaintTool.Rectangle) {
+                            _this.setActiveTool(pxtsprite.PaintTool.Circle);
+                        }
+                    }
+                    _this.shiftDown = true;
+                }
+            };
+            this.keyUp = function (event) {
+                // If not drawing a circle, switch back to Rectangle and Pencil
+                if (event.keyCode == 16) {
+                    _this.shiftDown = false;
+                    if (_this.mouseDown) {
+                        if (_this.activeTool != pxtsprite.PaintTool.Line) {
+                            _this.switchIconBack(pxtsprite.PaintTool.Normal);
+                        }
+                        if (_this.activeTool != pxtsprite.PaintTool.Circle) {
+                            _this.switchIconBack(pxtsprite.PaintTool.Rectangle);
+                        }
+                    }
+                    else {
+                        _this.switchIconBack(pxtsprite.PaintTool.Normal);
+                        _this.switchIconBack(pxtsprite.PaintTool.Rectangle);
+                    }
+                }
+            };
+            this.colors = pxt.appTarget.runtime.palette.slice(1);
+            this.columns = bitmap.width;
+            this.rows = bitmap.height;
+            this.state = bitmap.copy();
+            this.root = new svg.SVG();
+            this.root.setClass("sprite-canvas-controls");
+            this.group = this.root.group();
+            this.createDefs();
+            this.paintSurface = new pxtsprite.CanvasGrid(this.colors, this.state.copy(), this.lightMode);
+            this.paintSurface.drag(function (col, row) {
+                _this.debug("gesture (" + pxtsprite.PaintTool[_this.activeTool] + ")");
+                _this.setCell(col, row, _this.color, false);
+                _this.bottomBar.updateCursor(col, row);
+            });
+            this.paintSurface.up(function (col, row) {
+                _this.debug("gesture end (" + pxtsprite.PaintTool[_this.activeTool] + ")");
+                _this.commit();
+                _this.mouseDown = false;
+                if (_this.activeTool == pxtsprite.PaintTool.Circle && !_this.shiftDown) {
+                    _this.switchIconBack(pxtsprite.PaintTool.Rectangle);
+                }
+                if (_this.activeTool == pxtsprite.PaintTool.Line && !_this.shiftDown) {
+                    _this.switchIconBack(pxtsprite.PaintTool.Normal);
+                }
+            });
+            this.paintSurface.down(function (col, row) {
+                _this.setCell(col, row, _this.color, false);
+                _this.mouseDown = true;
+            });
+            this.paintSurface.move(function (col, row) {
+                _this.drawCursor(col, row);
+                _this.bottomBar.updateCursor(col, row);
+            });
+            this.paintSurface.leave(function () {
+                if (_this.edit) {
+                    _this.paintSurface.repaint();
+                }
+                if (_this.edit.isStarted) {
+                    _this.commit();
+                }
+                _this.bottomBar.hideCursor();
+            });
+            this.sidebar = new pxtsprite.SideBar(['url("#alpha-background")'].concat(this.colors), this, this.group);
+            this.sidebar.setColor(1);
+            this.header = new pxtsprite.SpriteHeader(this);
+            this.gallery = new pxtsprite.Gallery(blocksInfo);
+            this.bottomBar = new pxtsprite.ReporterBar(this.group, this, REPORTER_BAR_HEIGHT);
+            this.updateUndoRedo();
+            document.addEventListener("keydown", function (ev) {
+                if (ev.key === "Undo" || (ev.ctrlKey && ev.key === "z")) {
+                    _this.undo();
+                }
+                else if (ev.key === "Redo" || (ev.ctrlKey && ev.key === "y")) {
+                    _this.redo();
+                }
+            });
+        }
+        SpriteEditor.prototype.setCell = function (col, row, color, commit) {
+            if (commit) {
+                this.state.set(col, row, color);
+                this.paintCell(col, row, color);
+            }
+            else {
+                if (!this.edit.isStarted) {
+                    this.edit.start(col, row);
+                }
+                this.edit.update(col, row);
+                this.cursorCol = col;
+                this.cursorRow = row;
+                this.paintEdit(this.edit, col, row);
+            }
+        };
+        SpriteEditor.prototype.render = function (el) {
+            el.appendChild(this.header.getElement());
+            el.appendChild(this.gallery.getElement());
+            this.paintSurface.render(el);
+            el.appendChild(this.root.el);
+            this.layout();
+            this.root.attr({ "width": this.outerWidth() + "px", "height": this.outerHeight() + "px" });
+            this.root.el.style.position = "absolute";
+            this.root.el.style.top = "0px";
+            this.root.el.style.left = "0px";
+        };
+        SpriteEditor.prototype.layout = function () {
+            if (!this.root) {
+                return;
+            }
+            this.paintSurface.setGridDimensions(CANVAS_HEIGHT);
+            // The width of the palette + editor
+            var paintAreaTop = pxtsprite.HEADER_HEIGHT + HEADER_CANVAS_MARGIN;
+            var paintAreaLeft = PADDING + SIDEBAR_WIDTH + SIDEBAR_CANVAS_MARGIN;
+            this.sidebar.translate(PADDING, paintAreaTop);
+            this.paintSurface.updateBounds(paintAreaTop, paintAreaLeft, CANVAS_HEIGHT, CANVAS_HEIGHT);
+            this.bottomBar.layout(paintAreaTop + CANVAS_HEIGHT + REPORTER_BAR_CANVAS_MARGIN, paintAreaLeft, CANVAS_HEIGHT);
+            this.gallery.layout(0, pxtsprite.HEADER_HEIGHT, pxtsprite.TOTAL_HEIGHT - pxtsprite.HEADER_HEIGHT);
+            this.header.layout();
+        };
+        SpriteEditor.prototype.rePaint = function () {
+            this.paintSurface.repaint();
+        };
+        SpriteEditor.prototype.setActiveColor = function (color, setPalette) {
+            if (setPalette === void 0) { setPalette = false; }
+            if (setPalette) {
+            }
+            else {
+                this.color = color;
+                // If the user is erasing, go back to pencil
+                if (this.activeTool === pxtsprite.PaintTool.Erase) {
+                    this.sidebar.setTool(pxtsprite.PaintTool.Normal);
+                }
+                else {
+                    this.edit = this.newEdit(this.color);
+                }
+            }
+        };
+        SpriteEditor.prototype.setActiveTool = function (tool) {
+            this.activeTool = tool;
+            this.edit = this.newEdit(this.color);
+        };
+        SpriteEditor.prototype.setToolWidth = function (width) {
+            this.toolWidth = width;
+            this.edit = this.newEdit(this.color);
+        };
+        SpriteEditor.prototype.undo = function () {
+            if (this.undoStack.length) {
+                this.debug("undo");
+                var todo = this.undoStack.pop();
+                this.pushState(false);
+                // The current state is at the top of the stack unless the user has pressed redo, so
+                // we need to discard it
+                if (todo.equals(this.state)) {
+                    this.undo();
+                    return;
+                }
+                this.restore(todo);
+            }
+            this.updateUndoRedo();
+        };
+        SpriteEditor.prototype.redo = function () {
+            if (this.redoStack.length) {
+                this.debug("redo");
+                var todo = this.redoStack.pop();
+                this.pushState(true);
+                this.restore(todo);
+            }
+            this.updateUndoRedo();
+        };
+        SpriteEditor.prototype.resize = function (width, height) {
+            if (!this.cachedState) {
+                this.cachedState = this.state.copy();
+                this.undoStack.push(this.cachedState);
+                this.redoStack = [];
+            }
+            this.state = pxtsprite.resizeBitmap(this.cachedState, width, height);
+            this.afterResize(true);
+        };
+        SpriteEditor.prototype.setSizePresets = function (presets) {
+            this.bottomBar.setSizePresets(presets, this.columns, this.rows);
+        };
+        SpriteEditor.prototype.canvasWidth = function () {
+            return this.columns;
+        };
+        SpriteEditor.prototype.canvasHeight = function () {
+            return this.rows;
+        };
+        SpriteEditor.prototype.outerWidth = function () {
+            return WIDTH;
+        };
+        SpriteEditor.prototype.outerHeight = function () {
+            return pxtsprite.TOTAL_HEIGHT;
+        };
+        SpriteEditor.prototype.bitmap = function () {
+            return this.state;
+        };
+        SpriteEditor.prototype.showGallery = function () {
+            var _this = this;
+            this.gallery.show(function (result, err) {
+                if (err && err !== "cancelled") {
+                    console.error(err);
+                }
+                else if (result) {
+                    _this.redoStack = [];
+                    _this.pushState(true);
+                    _this.restore(result);
+                    _this.hideGallery();
+                    _this.header.toggle.toggle(true);
+                }
+            });
+        };
+        SpriteEditor.prototype.hideGallery = function () {
+            this.gallery.hide();
+        };
+        SpriteEditor.prototype.closeEditor = function () {
+            if (this.closeHandler) {
+                this.closeHandler();
+            }
+        };
+        SpriteEditor.prototype.onClose = function (handler) {
+            this.closeHandler = handler;
+        };
+        SpriteEditor.prototype.switchIconBack = function (tool) {
+            var _this = this;
+            var btn = this.sidebar.getButtonForTool(tool);
+            if (tool == pxtsprite.PaintTool.Rectangle) {
+                //Change icon back to square
+                btn.setText("\uf096");
+                btn.title(lf("Rectangle"));
+            }
+            else if (tool == pxtsprite.PaintTool.Normal) {
+                //Change icon back to pencil
+                btn.setText("\uf040");
+                btn.title(lf("Pencil"));
+            }
+            btn.onClick(function () { return _this.sidebar.setTool(tool); });
+            if ((this.activeTool == pxtsprite.PaintTool.Circle && tool == pxtsprite.PaintTool.Rectangle)
+                || (this.activeTool == pxtsprite.PaintTool.Line && tool == pxtsprite.PaintTool.Normal)) {
+                this.setActiveTool(tool);
+            }
+        };
+        SpriteEditor.prototype.addKeyListeners = function () {
+            document.addEventListener("keydown", this.keyDown);
+            document.addEventListener("keyup", this.keyUp);
+        };
+        SpriteEditor.prototype.removeKeyListeners = function () {
+            document.removeEventListener("keydown", this.keyDown);
+            document.removeEventListener("keyup", this.keyUp);
+            this.paintSurface.removeMouseListeners();
+        };
+        SpriteEditor.prototype.afterResize = function (showOverlay) {
+            this.columns = this.state.width;
+            this.rows = this.state.height;
+            this.paintSurface.restore(this.state, true);
+            this.bottomBar.updateDimensions(this.columns, this.rows);
+            this.layout();
+            if (showOverlay)
+                this.paintSurface.showOverlay();
+            // Canvas size changed and some edits rely on that (like paint)
+            this.edit = this.newEdit(this.color);
+        };
+        SpriteEditor.prototype.drawCursor = function (col, row) {
+            if (this.edit) {
+                this.paintSurface.drawCursor(this.edit, col, row);
+            }
+        };
+        SpriteEditor.prototype.paintEdit = function (edit, col, row) {
+            this.paintSurface.restore(this.state);
+            this.paintSurface.applyEdit(edit, col, row);
+        };
+        SpriteEditor.prototype.commit = function () {
+            if (this.edit) {
+                if (this.cachedState) {
+                    this.cachedState = undefined;
+                }
+                this.pushState(true);
+                this.paintEdit(this.edit, this.cursorCol, this.cursorRow);
+                this.state.apply(this.paintSurface.image);
+                this.edit = this.newEdit(this.color);
+                this.redoStack = [];
+            }
+        };
+        SpriteEditor.prototype.pushState = function (undo) {
+            var stack = undo ? this.undoStack : this.redoStack;
+            if (stack.length && this.state.equals(stack[stack.length - 1])) {
+                // Don't push empty commits
+                return;
+            }
+            stack.push(this.state.copy());
+            this.updateUndoRedo();
+        };
+        SpriteEditor.prototype.restore = function (bitmap) {
+            if (bitmap.width !== this.state.width || bitmap.height !== this.state.height) {
+                this.state = bitmap;
+                this.afterResize(false);
+            }
+            else {
+                this.state.apply(bitmap);
+                this.paintSurface.restore(bitmap, true);
+            }
+        };
+        SpriteEditor.prototype.updateUndoRedo = function () {
+            this.bottomBar.updateUndoRedo(this.undoStack.length === 0, this.redoStack.length === 0);
+        };
+        SpriteEditor.prototype.paintCell = function (col, row, color) {
+            this.paintSurface.writeColor(col, row, color);
+        };
+        SpriteEditor.prototype.newEdit = function (color) {
+            switch (this.activeTool) {
+                case pxtsprite.PaintTool.Normal: return new pxtsprite.PaintEdit(this.columns, this.rows, color, this.toolWidth);
+                case pxtsprite.PaintTool.Rectangle: return new pxtsprite.OutlineEdit(this.columns, this.rows, color, this.toolWidth);
+                case pxtsprite.PaintTool.Outline: return new pxtsprite.OutlineEdit(this.columns, this.rows, color, this.toolWidth);
+                case pxtsprite.PaintTool.Line: return new pxtsprite.LineEdit(this.columns, this.rows, color, this.toolWidth);
+                case pxtsprite.PaintTool.Circle: return new pxtsprite.CircleEdit(this.columns, this.rows, color, this.toolWidth);
+                case pxtsprite.PaintTool.Erase: return new pxtsprite.PaintEdit(this.columns, this.rows, 0, this.toolWidth);
+                case pxtsprite.PaintTool.Fill: return new pxtsprite.FillEdit(this.columns, this.rows, color, this.toolWidth);
+            }
+        };
+        SpriteEditor.prototype.debug = function (msg) {
+            // if (this.debugText) {
+            //     this.debugText.text("DEBUG: " + msg);
+            // }
+        };
+        SpriteEditor.prototype.createDefs = function () {
+            this.root.define(function (defs) {
+                var p = defs.create("pattern", "alpha-background")
+                    .size(10, 10)
+                    .units(svg.PatternUnits.userSpaceOnUse);
+                p.draw("rect")
+                    .at(0, 0)
+                    .size(10, 10)
+                    .fill("white");
+                p.draw("rect")
+                    .at(0, 0)
+                    .size(5, 5)
+                    .fill("#dedede");
+                p.draw("rect")
+                    .at(5, 5)
+                    .size(5, 5)
+                    .fill("#dedede");
+            });
+        };
+        return SpriteEditor;
+    }());
+    pxtsprite.SpriteEditor = SpriteEditor;
+})(pxtsprite || (pxtsprite = {}));

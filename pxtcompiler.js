@@ -225,6 +225,172 @@ var ts;
 (function (ts) {
     var pxtc;
     (function (pxtc) {
+        /**
+         * Traverses the AST and injects information about function calls into the expression
+         * nodes. The decompiler consumes this information later
+         *
+         * @param program The TypeScript Program representing the code to compile
+         * @param entryPoint The name of the source file to annotate the AST of
+         * @param compileTarget The compilation of the target
+         */
+        function annotate(program, entryPoint, compileTarget) {
+            var oldTarget = pxtc.target;
+            pxtc.target = compileTarget;
+            var src = program.getSourceFiles().filter(function (f) { return pxtc.Util.endsWith(f.fileName, entryPoint); })[0];
+            var checker = program.getTypeChecker();
+            recurse(src);
+            pxtc.target = oldTarget;
+            function recurse(parent) {
+                ts.forEachChild(parent, function (child) {
+                    switch (child.kind) {
+                        case ts.SyntaxKind.CallExpression:
+                            mkCallInfo(child, child.arguments.slice(0), null, getDecl(child.expression));
+                            break;
+                        case ts.SyntaxKind.PropertyAccessExpression:
+                            mkCallInfo(child, []);
+                            break;
+                        case ts.SyntaxKind.TaggedTemplateExpression:
+                            mkCallInfo(child, [child.template], true, getDecl(child.tag));
+                            break;
+                        case ts.SyntaxKind.BinaryExpression:
+                            annotateBinaryExpression(child);
+                            break;
+                    }
+                    recurse(child);
+                });
+            }
+            function annotateBinaryExpression(node) {
+                var trg = node.left;
+                var expr = node.right;
+                var lt = typeOf(node.left);
+                var rt = typeOf(node.right);
+                if (node.operatorToken.kind == pxtc.SK.PlusToken || node.operatorToken.kind == pxtc.SK.PlusEqualsToken) {
+                    if (pxtc.isStringType(lt) || (pxtc.isStringType(rt) && node.operatorToken.kind == pxtc.SK.PlusToken)) {
+                        node.exprInfo = { leftType: checker.typeToString(lt), rightType: checker.typeToString(rt) };
+                    }
+                }
+                switch (node.operatorToken.kind) {
+                    case ts.SyntaxKind.EqualsToken:
+                    case ts.SyntaxKind.PlusEqualsToken:
+                    case ts.SyntaxKind.MinusEqualsToken:
+                        if (trg.kind == pxtc.SK.PropertyAccessExpression) {
+                            // Getter/Setter
+                            var decl = getDecl(trg);
+                            if (decl && decl.kind == pxtc.SK.GetAccessor) {
+                                decl = ts.getDeclarationOfKind(decl.symbol, pxtc.SK.SetAccessor);
+                                mkCallInfo(trg, [expr], false, decl);
+                            }
+                            else if (decl && (decl.kind == pxtc.SK.PropertySignature || decl.kind == pxtc.SK.PropertyAssignment || (pxtc.target && pxtc.target.switches.slowFields))) {
+                                mkCallInfo(trg, [expr]);
+                            }
+                        }
+                        break;
+                }
+            }
+            function mkCallInfo(node, args, isExpression, d) {
+                if (isExpression === void 0) { isExpression = false; }
+                if (d === void 0) { d = null; }
+                var hasRet = isExpression || !(typeOf(node).flags & ts.TypeFlags.Void);
+                var decl = d || getDecl(node);
+                if (node.expression && decl) {
+                    var isMethod = false;
+                    switch (decl.kind) {
+                        // we treat properties via calls
+                        // so we say they are "methods"
+                        case pxtc.SK.PropertySignature:
+                        case pxtc.SK.PropertyAssignment:
+                        case pxtc.SK.PropertyDeclaration:
+                            if (!pxtc.isStatic(decl)) {
+                                isMethod = true;
+                            }
+                            break;
+                        case pxtc.SK.Parameter:
+                            if (pxtc.isCtorField(decl)) {
+                                isMethod = true;
+                            }
+                            break;
+                        // TOTO case: case SK.ShorthandPropertyAssignment
+                        // these are the real methods
+                        case pxtc.SK.GetAccessor:
+                        case pxtc.SK.SetAccessor:
+                        case pxtc.SK.MethodDeclaration:
+                        case pxtc.SK.MethodSignature:
+                            isMethod = true;
+                            break;
+                        default:
+                            break;
+                    }
+                    if (isMethod) {
+                        var expr = node.expression;
+                        // Add the "this" parameter to the call info
+                        if (expr.kind === pxtc.SK.PropertyAccessExpression) {
+                            // If the node is a property access, the right hand side is just
+                            // the function name so grab the left instead
+                            args.unshift(expr.expression);
+                        }
+                        else {
+                            args.unshift(node.expression);
+                        }
+                    }
+                }
+                var callInfo = {
+                    decl: decl,
+                    qName: decl ? pxtc.getFullName(checker, decl.symbol) : "?",
+                    args: args,
+                    isExpression: hasRet
+                };
+                node.callInfo = callInfo;
+            }
+            function getDecl(node) {
+                if (!node)
+                    return null;
+                var sym = checker.getSymbolAtLocation(node);
+                var decl;
+                if (sym) {
+                    decl = sym.valueDeclaration;
+                    if (!decl && sym.declarations) {
+                        var decl0 = sym.declarations[0];
+                        if (decl0 && decl0.kind == ts.SyntaxKind.ImportEqualsDeclaration) {
+                            sym = checker.getSymbolAtLocation(decl0.moduleReference);
+                            if (sym)
+                                decl = sym.valueDeclaration;
+                        }
+                    }
+                }
+                if (!decl && node.kind == pxtc.SK.PropertyAccessExpression) {
+                    var namedNode = node;
+                    decl = {
+                        kind: pxtc.SK.PropertySignature,
+                        symbol: { isBogusSymbol: true, name: namedNode.name.getText() },
+                        isBogusFunction: true,
+                        name: namedNode.name,
+                    };
+                }
+                return decl;
+            }
+            function typeOf(node) {
+                var r;
+                if (node.typeOverride)
+                    return node.typeOverride;
+                if (ts.isExpression(node))
+                    r = checker.getContextualType(node);
+                if (!r) {
+                    r = checker.getTypeAtLocation(node);
+                }
+                if (!r)
+                    return r;
+                if (ts.isStringLiteral(node))
+                    return r; // skip checkType() - type is any for literal fragments
+                return pxtc.checkType(r);
+            }
+        }
+        pxtc.annotate = annotate;
+    })(pxtc = ts.pxtc || (ts.pxtc = {}));
+})(ts || (ts = {}));
+var ts;
+(function (ts) {
+    var pxtc;
+    (function (pxtc) {
         function asmStringLiteral(s) {
             var r = "\"";
             for (var i = 0; i < s.length; ++i) {
@@ -311,8 +477,26 @@ var ts;
                 else
                     return ".short " + pxt.REFCNT_FLASH + ", " + vt + ">>" + pxtc.target.vtableShift;
             };
-            AssemblerSnippets.prototype.string_literal = function (lbl, s) {
-                return "\n.balign 4\n" + lbl + "meta: " + this.obj_header("pxt::string_vt") + "\n        .short " + s.length + "\n" + lbl + ": .string " + asmStringLiteral(s) + "\n";
+            AssemblerSnippets.prototype.string_literal = function (lbl, strLit) {
+                var SKIP_INCR = 16;
+                var vt = "pxt::string_inline_ascii_vt";
+                var utfLit = pxtc.target.utf8 ? pxtc.U.toUTF8(strLit, true) : strLit;
+                if (utfLit !== strLit) {
+                    if (utfLit.length > SKIP_INCR) {
+                        vt = "pxt::string_skiplist16_vt";
+                        var skipList = [];
+                        var off = 0;
+                        for (var i = 0; i + SKIP_INCR <= strLit.length; i += SKIP_INCR) {
+                            off += pxtc.U.toUTF8(strLit.slice(i, i + SKIP_INCR), true).length;
+                            skipList.push(off);
+                        }
+                        return "\n.balign 4\n" + lbl + "meta: " + this.obj_header(vt) + "\n        .short " + utfLit.length + ", " + strLit.length + "\n        .word " + lbl + "data\n" + lbl + "data:\n        .short " + skipList.map(function (s) { return s.toString(); }).join(", ") + "\n" + lbl + ": .string " + asmStringLiteral(utfLit) + "\n";
+                    }
+                    else {
+                        vt = "pxt::string_inline_utf8_vt";
+                    }
+                }
+                return "\n.balign 4\n" + lbl + "meta: " + this.obj_header(vt) + "\n        .short " + utfLit.length + "\n" + lbl + ": .string " + asmStringLiteral(utfLit) + "\n";
             };
             AssemblerSnippets.prototype.hex_literal = function (lbl, data) {
                 return "\n.balign 4\n" + lbl + ": " + this.obj_header("pxt::buffer_vt") + "\n        .short " + (data.length >> 1) + ", 0x0000\n        .hex " + data + (data.length % 4 == 0 ? "" : "00") + "\n";
@@ -1299,36 +1483,42 @@ var ts;
                     this.ifaceCallCore(numargs, op, true);
                 }
             };
+            ProctoAssembler.prototype.emitArrayMethod = function (op, isBuffer) {
+                this.write("\n            .section code\n            _pxt_" + (isBuffer ? "buffer" : "array") + "_" + op + ":\n            ");
+                this.loadVTable(false, "r4");
+                var classNo = this.builtInClassNo(!isBuffer ?
+                    pxt.BuiltInType.RefCollection : pxt.BuiltInType.BoxedBuffer);
+                if (!pxtc.target.switches.skipClassCheck)
+                    this.checkSubtype(classNo, ".fail", "r4");
+                // on linux we use 32 bits for array size
+                var ldrSize = pxtc.target.stackAlign || isBuffer ? "ldr" : "ldrh";
+                this.write("\n                asrs r1, r1, #1\n                bcc .notint\n                " + ldrSize + " r4, [r0, #" + (isBuffer ? 4 : 8) + "]\n                cmp r1, r4\n                bhs .oob\n            ");
+                var off = "r1";
+                if (isBuffer) {
+                    off = "#8";
+                    this.write("\n                    adds r4, r0, r1\n                ");
+                }
+                else {
+                    this.write("\n                    lsls r1, r1, #2\n                    ldr r4, [r0, #4]\n                ");
+                }
+                var suff = isBuffer ? "b" : "";
+                var conv = isBuffer && op == "get" ? "lsls r0, r0, #1\nadds r0, #1" : "";
+                if (op == "set") {
+                    this.write("\n                        str" + suff + " r2, [r4, " + off + "]\n                        bx lr\n                    ");
+                }
+                else {
+                    this.write("\n                        ldr" + suff + " r0, [r4, " + off + "]\n                        " + conv + "\n                        bx lr\n                    ");
+                }
+                this.write("\n            .notint:\n                lsls r1, r1, #1\n                push {r0, r2}\n                mov r0, r1\n                " + this.t.callCPP("pxt::toInt") + "\n                mov r1, r0\n                pop {r0, r2}\n            " + (op == "set" ? ".oob:" : "") + "\n                " + this.t.pushLR() + "\n                " + this.t.callCPP("Array_::" + op + "At") + "\n                " + conv + "\n                " + this.t.popPC() + "\n\n            .fail:\n                bl pxt::failedCast\n            ");
+                if (op == "get") {
+                    this.write("\n                    .oob:\n                        movs r0, #" + (isBuffer ? 1 : 0) + " ; 0 or undefined\n                        bx lr\n                ");
+                }
+            };
             ProctoAssembler.prototype.emitArrayMethods = function () {
                 for (var _i = 0, _a = ["get", "set"]; _i < _a.length; _i++) {
                     var op = _a[_i];
-                    this.write("\n                .section code\n                _pxt_array_" + op + ":\n                ");
-                    this.loadVTable(false, "r4");
-                    if (!pxtc.target.switches.skipClassCheck)
-                        this.checkSubtype(this.builtInClassNo(pxt.BuiltInType.RefCollection), ".fail", "r4");
-                    // on linux we use 32 bits for array size
-                    var ldrSize = pxtc.target.stackAlign ? "ldr" : "ldrh";
-                    this.write("\n                    asrs r1, r1, #1\n                    bcc .notint\n                    " + ldrSize + " r4, [r0, #8]\n                    cmp r1, r4\n                    bhs .oob\n                    lsls r1, r1, #2\n                    ldr r4, [r0, #4]\n                ");
-                    if (pxtc.target.gc) {
-                        if (op == "set") {
-                            this.write("\n                            str r2, [r4, r1]\n                            bx lr\n                        ");
-                        }
-                        else {
-                            this.write("\n                            ldr r0, [r4, r1]\n                            bx lr\n                        ");
-                        }
-                    }
-                    else {
-                        if (op == "set") {
-                            this.write("\n                            ldr r0, [r4, r1]\n                            str r2, [r4, r1]\n                            mov r4, r2\n                            push {lr}\n                            bl _pxt_decr\n                            mov r0, r4\n                            bl _pxt_incr\n                            pop {pc}\n                        ");
-                        }
-                        else {
-                            this.write("\n                            ldr r0, [r4, r1]\n                            push {lr}\n                            bl _pxt_incr\n                            pop {pc}\n                        ");
-                        }
-                    }
-                    this.write("\n                .notint:\n                    lsls r1, r1, #1\n                    push {r0, r2}\n                    mov r0, r1\n                    " + this.t.callCPP("pxt::toInt") + "\n                    mov r1, r0\n                    pop {r0, r2}\n                " + (op == "set" ? ".oob:" : "") + "\n                    " + this.t.pushLR() + "\n                    " + this.t.callCPP("Array_::" + op + "At") + "\n                    " + this.t.popPC() + "\n\n                .fail:\n                    bl pxt::failedCast\n                ");
-                    if (op == "get") {
-                        this.write("\n                        .oob:\n                            movs r0, #0 ; undefined\n                            bx lr\n                    ");
-                    }
+                    this.emitArrayMethod(op, true);
+                    this.emitArrayMethod(op, false);
                 }
             };
             ProctoAssembler.prototype.emitLambdaTrampoline = function () {
@@ -1338,7 +1528,7 @@ var ts;
                 this.write("\n            .section code\n            _pxt_lambda_trampoline:\n                push {" + r3 + " r4, r5, r6, r7, lr}\n                mov r4, r1\n                mov r5, r2\n                mov r6, r3\n                mov r7, r0");
                 // TODO should inline this?
                 this.emitInstanceOf(this.builtInClassNo(pxt.BuiltInType.RefAction), "validate");
-                this.write("\n                " + rfNo + "mov r0, sp\n                " + rfNo + "bl pxt::pushThreadContext\n                " + gcNo + "bl pxtrt::getGlobalsPtr\n                push {r4, r5, r6, r7} ; push args and the lambda\n                mov r6, r0          ; save ctx or globals\n                mov r5, r7          ; save lambda for closure\n                " + gcNo + "mov r0, r7\n                " + gcNo + "bl _pxt_incr        ; make sure lambda stays alive\n                ldr r0, [r5, #8]    ; ld fnptr\n                movs r4, #3         ; 3 args\n                blx r0              ; execute the actual lambda\n                mov r7, r0          ; save result\n                @dummystack 4\n                add sp, #4*4        ; remove arguments and lambda\n                " + gcNo + "mov r0, r5   ; decrement lambda\n                " + gcNo + "bl _pxt_decr\n                " + rfNo + "mov r0, r6   ; or pop the thread context\n                " + rfNo + "bl pxt::popThreadContext\n                mov r0, r7 ; restore result\n                pop {" + r3 + " r4, r5, r6, r7, pc}");
+                this.write("\n                " + rfNo + "mov r0, sp\n                push {r4, r5, r6, r7} ; push args and the lambda\n                " + rfNo + "mov r1, sp\n                " + rfNo + "bl pxt::pushThreadContext\n                " + gcNo + "bl pxtrt::getGlobalsPtr\n                mov r6, r0          ; save ctx or globals\n                mov r5, r7          ; save lambda for closure\n                " + gcNo + "mov r0, r7\n                " + gcNo + "bl _pxt_incr        ; make sure lambda stays alive\n                ldr r0, [r5, #8]    ; ld fnptr\n                movs r4, #3         ; 3 args\n                blx r0              ; execute the actual lambda\n                mov r7, r0          ; save result\n                @dummystack 4\n                add sp, #4*4        ; remove arguments and lambda\n                " + gcNo + "mov r0, r5   ; decrement lambda\n                " + gcNo + "bl _pxt_decr\n                " + rfNo + "mov r0, r6   ; or pop the thread context\n                " + rfNo + "bl pxt::popThreadContext\n                mov r0, r7 ; restore result\n                pop {" + r3 + " r4, r5, r6, r7, pc}");
                 this.write("\n            .section code\n            _pxt_stringConv:\n            ");
                 this.loadVTable();
                 this.checkSubtype(this.builtInClassNo(pxt.BuiltInType.BoxedString), ".notstring");
@@ -1773,6 +1963,10 @@ var ts;
                 write("  s.lambdaArgs = null;");
                 write("}");
             }
+            if (proc.classInfo && proc.info.thisParameter) {
+                write("r0 = s.arg0;");
+                emitInstanceOf(proc.classInfo, "validate");
+            }
             var jumpToNextInstructionMarker = -1;
             var exprStack = [];
             var lblIdx = 0;
@@ -2013,7 +2207,7 @@ var ts;
                     text = args.length == 2 ? "(" + args[0] + " " + pxtc.U.lookup(jsOpMap, name) + " " + args[1] + ")" : "(" + pxtc.U.lookup(jsOpMap, name) + " " + args[0] + ")";
                 else
                     text = shimToJs(name) + "(" + args.join(", ") + ")";
-                if (topExpr.callingConvention == pxtc.ir.CallingConvention.Plain) {
+                if (topExpr.callingConvention == 0 /* Plain */) {
                     write("r0 = " + text + ";");
                 }
                 else {
@@ -2022,7 +2216,7 @@ var ts;
                     if (name == "String_::stringConv") {
                         write("if ((" + args[0] + ") && (" + args[0] + ").vtable) {");
                     }
-                    if (topExpr.callingConvention == pxtc.ir.CallingConvention.Promise) {
+                    if (topExpr.callingConvention == 2 /* Promise */) {
                         write("(function(cb) { " + text + ".done(cb) })(buildResume(s, " + loc + "));");
                     }
                     else {
@@ -2504,6 +2698,7 @@ var ts;
             var maxCommentWidth = 480;
             var maxCommentHeight = 360;
             var validStringRegex = /^[^\f\n\r\t\v\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*$/;
+            var arrayTypeRegex = /^(?:Array<(.+)>)|(?:(.+)\[\])$/;
             var numberType = "math_number";
             var minmaxNumberType = "math_number_minmax";
             var integerNumberType = "math_integer";
@@ -2581,42 +2776,13 @@ var ts;
                 return RenameMap;
             }());
             decompiler.RenameMap = RenameMap;
-            var LSHost = /** @class */ (function () {
-                function LSHost(p) {
-                    this.p = p;
-                }
-                LSHost.prototype.getCompilationSettings = function () {
-                    var opts = this.p.getCompilerOptions();
-                    opts.noLib = true;
-                    return opts;
-                };
-                LSHost.prototype.getNewLine = function () { return "\n"; };
-                LSHost.prototype.getScriptFileNames = function () {
-                    return this.p.getSourceFiles().map(function (f) { return f.fileName; });
-                };
-                LSHost.prototype.getScriptVersion = function (fileName) {
-                    return "0";
-                };
-                LSHost.prototype.getScriptSnapshot = function (fileName) {
-                    var f = this.p.getSourceFile(fileName);
-                    return {
-                        getLength: function () { return f.getFullText().length; },
-                        getText: function () { return f.getFullText(); },
-                        getChangeRange: function () { return undefined; }
-                    };
-                };
-                LSHost.prototype.getCurrentDirectory = function () { return "."; };
-                LSHost.prototype.getDefaultLibFileName = function (options) { return ""; };
-                LSHost.prototype.useCaseSensitiveFileNames = function () { return true; };
-                return LSHost;
-            }());
             /**
              * Uses the language service to ensure that there are no duplicate variable
              * names in the given file. All variables in Blockly are global, so this is
              * necessary to prevent local variables from colliding.
              */
             function buildRenameMap(p, s) {
-                var service = ts.createLanguageService(new LSHost(p));
+                var service = ts.createLanguageService(new pxtc.LSHost(p));
                 var allRenames = [];
                 collectNameCollisions();
                 if (allRenames.length) {
@@ -2697,8 +2863,11 @@ var ts;
                     blocks: blocksInfo,
                     declaredFunctions: {},
                     declaredEnums: {},
+                    functionParamIds: {},
                     attrs: attrs,
-                    compInfo: compInfo
+                    compInfo: compInfo,
+                    localReporters: [],
+                    opts: options || {}
                 };
                 var fileText = file.getFullText();
                 var output = "";
@@ -2709,7 +2878,7 @@ var ts;
                 var getCommentRef = (function () { var currentCommentId = 0; return function () { return "" + currentCommentId++; }; })();
                 var checkTopNode = function (topLevelNode) {
                     if (topLevelNode.kind === SK.FunctionDeclaration && !checkStatement(topLevelNode, env, false, true)) {
-                        env.declaredFunctions[getVariableName(topLevelNode.name)] = true;
+                        env.declaredFunctions[getVariableName(topLevelNode.name)] = topLevelNode;
                     }
                     else if (topLevelNode.kind === SK.EnumDeclaration && !checkStatement(topLevelNode, env, false, true)) {
                         var enumName_1 = topLevelNode.name.text;
@@ -2730,6 +2899,15 @@ var ts;
                     }
                 };
                 ts.forEachChild(file, checkTopNode);
+                // Generate fresh param IDs for all user-declared functions, needed when decompiling
+                // function definition and calls. IDs don't need to be crypto secure.
+                var genId = function () { return (Math.PI * Math.random()).toString(36).slice(2); };
+                Object.keys(env.declaredFunctions).forEach(function (funcName) {
+                    env.functionParamIds[funcName] = {};
+                    env.declaredFunctions[funcName].parameters.forEach(function (p) {
+                        env.functionParamIds[funcName][p.name.getText()] = genId() + genId();
+                    });
+                });
                 if (enumMembers.length) {
                     write("<variables>");
                     enumMembers.forEach(function (e) {
@@ -2794,7 +2972,7 @@ var ts;
                     }
                     return {
                         paramDefl: {},
-                        callingConvention: pxtc.ir.CallingConvention.Plain
+                        callingConvention: 0 /* Plain */
                     };
                 }
                 function compInfo(callInfo) {
@@ -2872,18 +3050,31 @@ var ts;
                     }
                     closeBlockTag();
                 }
-                function emitMutation(mMap) {
+                function emitMutation(mMap, mChildren) {
                     write("<mutation ", "");
-                    for (var key in mMap) {
+                    Object.keys(mMap).forEach(function (key) {
                         if (mMap[key] !== undefined) {
                             write(key + "=\"" + mMap[key] + "\" ", "");
                         }
+                    });
+                    if (mChildren) {
+                        write(">");
+                        mChildren.forEach(function (c) {
+                            write("<" + c.nodeName + " ", "");
+                            Object.keys(c.attributes).forEach(function (attrName) {
+                                write(attrName + "=\"" + c.attributes[attrName] + "\" ", "");
+                            });
+                            write("/>");
+                        });
+                        write("</mutation>");
                     }
-                    write("/>");
+                    else {
+                        write("/>");
+                    }
                 }
                 function emitBlockNodeCore(n) {
                     if (n.mutation) {
-                        emitMutation(n.mutation);
+                        emitMutation(n.mutation, n.mutationChildren);
                     }
                     if (n.fields) {
                         n.fields.forEach(emitFieldNode);
@@ -3126,8 +3317,24 @@ var ts;
                 }
                 function getIdentifier(identifier) {
                     var name = getVariableName(identifier);
-                    trackVariableUsage(name, ReferenceType.InBlocksOnly);
-                    return getFieldBlock("variables_get", "VAR", name);
+                    var oldName = identifier.text;
+                    var localReporterArg = null;
+                    env.localReporters.some(function (scope) {
+                        for (var i = 0; i < scope.length; ++i) {
+                            if (scope[i].name === oldName) {
+                                localReporterArg = scope[i];
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                    if (localReporterArg) {
+                        return getDraggableReporterBlock(name, localReporterArg.type, false);
+                    }
+                    else {
+                        trackVariableUsage(name, ReferenceType.InBlocksOnly);
+                        return getFieldBlock("variables_get", "VAR", name);
+                    }
                 }
                 function getNumericLiteral(value) {
                     return getFieldBlock("math_number", "NUM", value);
@@ -3146,6 +3353,19 @@ var ts;
                 }
                 function getDraggableVariableBlock(valueName, varName) {
                     return mkValue(valueName, getFieldBlock("variables_get_reporter", "VAR", varName, true), "variables_get_reporter");
+                }
+                function mkDraggableReporterValue(valueName, varName, varType) {
+                    var reporterType = pxt.blocks.reporterTypeForArgType(varType);
+                    var reporterShadowBlock = getDraggableReporterBlock(varName, varType, true);
+                    return mkValue(valueName, reporterShadowBlock, reporterType);
+                }
+                function getDraggableReporterBlock(varName, varType, shadow) {
+                    var reporterType = pxt.blocks.reporterTypeForArgType(varType);
+                    var reporterShadowBlock = getFieldBlock(reporterType, "VALUE", varName, shadow);
+                    if (reporterType === "argument_reporter_custom") {
+                        reporterShadowBlock.mutation = { typename: varType };
+                    }
+                    return reporterShadowBlock;
                 }
                 function getField(name, value) {
                     return {
@@ -3253,13 +3473,38 @@ var ts;
                 }
                 function getTaggedTemplateExpression(t) {
                     var callInfo = t.callInfo;
-                    var api = env.blocks.apis.byQName[attrs(callInfo).blockIdentity];
+                    var api;
+                    var paramInfo = getParentParameterInfo(t);
+                    if (paramInfo && paramInfo.shadowBlockId) {
+                        var shadow = env.blocks.blocksById[paramInfo.shadowBlockId];
+                        if (shadow && shadow.attributes.shim === "TD_ID") {
+                            api = shadow;
+                        }
+                    }
+                    if (!api) {
+                        api = env.blocks.apis.byQName[attrs(callInfo).blockIdentity];
+                    }
                     var comp = pxt.blocks.compileInfo(api);
                     var r = mkExpr(api.attributes.blockId);
                     var text = t.template.text;
                     // This will always be a field and not a value because we only allow no-substitution templates
                     r.fields = [getField(comp.parameters[0].actualName, text)];
                     return r;
+                }
+                function getParentParameterInfo(n) {
+                    if (n.parent && n.parent.kind === SK.CallExpression) {
+                        var call = n.parent;
+                        var info = call.callInfo;
+                        var index = call.arguments.indexOf(n);
+                        if (info && index !== -1) {
+                            var blockInfo = blocksInfo.apis.byQName[info.qName];
+                            if (blockInfo) {
+                                var comp = pxt.blocks.compileInfo(blockInfo);
+                                return comp && comp.parameters[index];
+                            }
+                        }
+                    }
+                    return undefined;
                 }
                 function getStatementBlock(n, next, parent, asExpression, topLevel) {
                     if (asExpression === void 0) { asExpression = false; }
@@ -3548,11 +3793,9 @@ var ts;
                 }
                 function getForOfStatement(n) {
                     var initializer = n.initializer;
-                    var indexVar = initializer.declarations[0].name.text;
                     var renamed = getVariableName(initializer.declarations[0].name);
-                    var r = mkStmt("controls_for_of");
-                    r.inputs = [getValue("LIST", n.expression)];
-                    r.fields = [getField("VAR", renamed)];
+                    var r = mkStmt("pxt_controls_for_of");
+                    r.inputs = [getValue("LIST", n.expression), getDraggableVariableBlock("VAR", renamed)];
                     r.handlers = [{ name: "DO", statement: getStatementBlock(n.statement) }];
                     return r;
                 }
@@ -3624,9 +3867,33 @@ var ts;
                 }
                 function getFunctionDeclaration(n) {
                     var name = getVariableName(n.name);
+                    env.localReporters.push(n.parameters.map(function (p) {
+                        return {
+                            name: p.name.getText(),
+                            type: p.type.getText()
+                        };
+                    }));
                     var statements = getStatementBlock(n.body);
-                    var r = mkStmt("procedures_defnoreturn");
-                    r.fields = [getField("NAME", name)];
+                    env.localReporters.pop();
+                    var r;
+                    r = mkStmt("function_definition");
+                    r.mutation = {
+                        name: name
+                    };
+                    if (n.parameters) {
+                        r.mutationChildren = [];
+                        n.parameters.forEach(function (p) {
+                            var paramName = p.name.getText();
+                            r.mutationChildren.push({
+                                nodeName: "arg",
+                                attributes: {
+                                    name: paramName,
+                                    type: p.type.getText(),
+                                    id: env.functionParamIds[name][paramName]
+                                }
+                            });
+                        });
+                    }
                     r.handlers = [{ name: "STACK", statement: statements }];
                     return r;
                 }
@@ -3684,8 +3951,28 @@ var ts;
                         if (!builtin) {
                             var name_2 = getVariableName(node.expression);
                             if (env.declaredFunctions[name_2]) {
-                                var r_7 = mkStmt("procedures_callnoreturn");
-                                r_7.mutation = { "name": name_2 };
+                                var r_7;
+                                r_7 = mkStmt("function_call");
+                                if (info.args.length) {
+                                    r_7.mutationChildren = [];
+                                    r_7.inputs = [];
+                                    env.declaredFunctions[name_2].parameters.forEach(function (p, i) {
+                                        var paramName = p.name.getText();
+                                        var argId = env.functionParamIds[name_2][paramName];
+                                        r_7.mutationChildren.push({
+                                            nodeName: "arg",
+                                            attributes: {
+                                                name: paramName,
+                                                type: p.type.getText(),
+                                                id: argId
+                                            }
+                                        });
+                                        var argBlock = getOutputBlock(info.args[i]);
+                                        var value = mkValue(argId, argBlock);
+                                        r_7.inputs.push(value);
+                                    });
+                                }
+                                r_7.mutation = { name: name_2 };
                                 return r_7;
                             }
                             else {
@@ -3759,7 +4046,8 @@ var ts;
                             // are dropdown fields (not value inputs) so we want to decompile the
                             // inner enum value as a field and not the shim block as a value
                             var shimCall = e.callInfo;
-                            if (shimCall && attrs(shimCall).shim === "TD_ID") {
+                            var shimAttrs = shimCall && attrs(shimCall);
+                            if (shimAttrs && shimAttrs.shim === "TD_ID" && paramInfo.isEnum) {
                                 e = unwrapNode(shimCall.args[0]);
                             }
                         }
@@ -3767,6 +4055,7 @@ var ts;
                             case SK.FunctionExpression:
                             case SK.ArrowFunction:
                                 var m = getDestructuringMutation(e);
+                                var mustPopLocalScope = false;
                                 if (m) {
                                     r.mutation = m;
                                 }
@@ -3774,6 +4063,14 @@ var ts;
                                     var arrow = e;
                                     var sym = blocksInfo.blocksById[attributes.blockId];
                                     var paramDesc_1 = sym.parameters[comp.thisParameter ? i - 1 : i];
+                                    var addDraggableInput_1 = function (arg, varName) {
+                                        if (attributes.draggableParameters === "reporter") {
+                                            addInput(mkDraggableReporterValue("HANDLER_DRAG_PARAM_" + arg.name, varName, arg.type));
+                                        }
+                                        else {
+                                            addInput(getDraggableVariableBlock("HANDLER_DRAG_PARAM_" + arg.name, varName));
+                                        }
+                                    };
                                     if (arrow.parameters.length) {
                                         if (attributes.optionalVariableArgs) {
                                             r.mutation = {
@@ -3787,7 +4084,7 @@ var ts;
                                             arrow.parameters.forEach(function (parameter, i) {
                                                 var arg = paramDesc_1.handlerParameters[i];
                                                 if (attributes.draggableParameters) {
-                                                    addInput(getDraggableVariableBlock("HANDLER_DRAG_PARAM_" + arg.name, parameter.name.text));
+                                                    addDraggableInput_1(arg, parameter.name.text);
                                                 }
                                                 else {
                                                     addField(getField("HANDLER_" + arg.name, parameter.name.text));
@@ -3799,12 +4096,22 @@ var ts;
                                         if (arrow.parameters.length < paramDesc_1.handlerParameters.length) {
                                             for (var i_1 = arrow.parameters.length; i_1 < paramDesc_1.handlerParameters.length; i_1++) {
                                                 var arg_1 = paramDesc_1.handlerParameters[i_1];
-                                                addInput(getDraggableVariableBlock("HANDLER_DRAG_PARAM_" + arg_1.name, arg_1.name));
+                                                addDraggableInput_1(arg_1, arg_1.name);
                                             }
+                                        }
+                                        if (attributes.draggableParameters === "reporter") {
+                                            // Push the parameter descriptions onto the local scope stack
+                                            // so the getStatementBlock() below knows that these parameters
+                                            // should be decompiled as reporters instead of variables.
+                                            env.localReporters.push(paramDesc_1.handlerParameters);
+                                            mustPopLocalScope = true;
                                         }
                                     }
                                 }
                                 (r.handlers || (r.handlers = [])).push({ name: "HANDLER", statement: getStatementBlock(e) });
+                                if (mustPopLocalScope) {
+                                    env.localReporters.pop();
+                                }
                                 break;
                             case SK.PropertyAccessExpression:
                                 var callInfo = e.callInfo;
@@ -4321,9 +4628,13 @@ var ts;
                     if (!attributes.blockId || !attributes.block) {
                         var builtin = pxt.blocks.builtinFunctionInfo[info.qName];
                         if (!builtin) {
-                            if (n.arguments.length === 0 && n.expression.kind === SK.Identifier) {
-                                if (!env.declaredFunctions[n.expression.text]) {
+                            if (n.expression.kind === SK.Identifier) {
+                                var funcName = n.expression.text;
+                                if (!env.declaredFunctions[funcName]) {
                                     return pxtc.Util.lf("Call statements must have a valid declared function");
+                                }
+                                else if (env.declaredFunctions[funcName].parameters.length !== info.args.length) {
+                                    return pxtc.Util.lf("Function calls in blocks must have the same number of arguments as the function definition");
                                 }
                                 else {
                                     return undefined;
@@ -4553,7 +4864,21 @@ var ts;
                         return pxtc.Util.lf("Function declarations must be top level");
                     }
                     if (n.parameters.length > 0) {
-                        return pxtc.Util.lf("Functions with parameters not supported in blocks");
+                        if (env.opts.allowedArgumentTypes) {
+                            for (var _i = 0, _a = n.parameters; _i < _a.length; _i++) {
+                                var param = _a[_i];
+                                if (param.initializer || param.questionToken) {
+                                    return pxtc.Util.lf("Function parameters cannot be optional");
+                                }
+                                var type = param.type ? param.type.getText() : undefined;
+                                if (!type) {
+                                    return pxtc.Util.lf("Function parameters must declare a type");
+                                }
+                                if (env.opts.allowedArgumentTypes.indexOf(normalizeType(type)) === -1) {
+                                    return pxtc.Util.lf("Only types that can be added in blocks can be used for function arguments");
+                                }
+                            }
+                        }
                     }
                     var fail = false;
                     ts.forEachReturnStatement(n.body, function (stmt) {
@@ -4695,7 +5020,7 @@ var ts;
                     case SK.PropertyAccessExpression:
                         return checkPropertyAccessExpression(n, env);
                     case SK.CallExpression:
-                        return checkStatement(n, env, true);
+                        return checkStatement(n, env, true, undefined);
                     case SK.TaggedTemplateExpression:
                         return checkTaggedTemplateExpression(n, env);
                 }
@@ -4726,7 +5051,7 @@ var ts;
                                 var parentInfo = parent_2.callInfo;
                                 if (parentInfo && parentInfo.args) {
                                     var api_1 = env.blocks.apis.byQName[parentInfo.qName];
-                                    var instance_2 = api_1.kind == pxtc.SymbolKind.Method || api_1.kind == pxtc.SymbolKind.Property;
+                                    var instance_2 = api_1.kind == 1 /* Method */ || api_1.kind == 2 /* Property */;
                                     if (api_1) {
                                         parentInfo.args.forEach(function (arg, i) {
                                             if (arg === child_1) {
@@ -4963,6 +5288,13 @@ var ts;
             function isRoundingFunction(op) {
                 return pxt.blocks.ROUNDING_FUNCTIONS.indexOf(op) !== -1;
             }
+            function normalizeType(type) {
+                var match = arrayTypeRegex.exec(type);
+                if (match) {
+                    return (match[1] || match[2]) + "[]";
+                }
+                return type;
+            }
         })(decompiler = pxtc.decompiler || (pxtc.decompiler = {}));
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));
@@ -4987,6 +5319,27 @@ var ts;
     (function (pxtc) {
         var thumb;
         (function (thumb) {
+            var thumbRegs = {
+                "r0": 0,
+                "r1": 1,
+                "r2": 2,
+                "r3": 3,
+                "r4": 4,
+                "r5": 5,
+                "r6": 6,
+                "r7": 7,
+                "r8": 8,
+                "r9": 9,
+                "r10": 10,
+                "r11": 10,
+                "r12": 12,
+                "sp": 13,
+                "r13": 13,
+                "lr": 14,
+                "r14": 14,
+                "pc": 15,
+                "r15": 15,
+            };
             var ThumbProcessor = /** @class */ (function (_super) {
                 __extends(ThumbProcessor, _super);
                 function ThumbProcessor() {
@@ -5374,24 +5727,10 @@ var ts;
                     if (!actual)
                         return null;
                     actual = actual.toLowerCase();
-                    switch (actual) {
-                        case "pc":
-                            actual = "r15";
-                            break;
-                        case "lr":
-                            actual = "r14";
-                            break;
-                        case "sp":
-                            actual = "r13";
-                            break;
-                    }
-                    var m = /^r(\d+)$/.exec(actual);
-                    if (m) {
-                        var r = parseInt(m[1], 10);
-                        if (0 <= r && r < 16)
-                            return r;
-                    }
-                    return null;
+                    var r = thumbRegs[actual];
+                    if (r === undefined)
+                        return null;
+                    return r;
                 };
                 ThumbProcessor.prototype.testAssembler = function () {
                     pxtc.assembler.expectError(this, "lsl r0, r0, #8");
@@ -5554,7 +5893,7 @@ var ts;
                     _this.exprKind = exprKind;
                     _this.args = args;
                     _this.data = data;
-                    _this.callingConvention = ir.CallingConvention.Plain;
+                    _this.callingConvention = 0 /* Plain */;
                     return _this;
                 }
                 Expr.clone = function (e) {
@@ -6350,6 +6689,16 @@ var ts;
                 argsFmt: ["T", "T", "T", "T"],
                 value: 0
             },
+            "BufferMethods::getByte": {
+                name: "_pxt_buffer_get",
+                argsFmt: ["T", "T", "T"],
+                value: 0
+            },
+            "BufferMethods::setByte": {
+                name: "_pxt_buffer_set",
+                argsFmt: ["T", "T", "T", "I"],
+                value: 0
+            },
             "pxtrt::mapGetGeneric": {
                 name: "_pxt_map_get",
                 argsFmt: ["T", "T", "S"],
@@ -6524,6 +6873,7 @@ var ts;
         function isStatic(node) {
             return node.modifiers && node.modifiers.some(function (m) { return m.kind == pxtc.SK.StaticKeyword; });
         }
+        pxtc.isStatic = isStatic;
         function classFunctionPref(node) {
             if (!node)
                 return null;
@@ -6592,7 +6942,7 @@ var ts;
         function getRefTagToValidate(tp) {
             switch (tp) {
                 case "_Buffer": return pxt.BuiltInType.BoxedBuffer;
-                case "_Image": return pxt.BuiltInType.RefImage;
+                case "_Image": return pxtc.target.imageRefTag || pxt.BuiltInType.RefImage;
                 case "_Action": return pxt.BuiltInType.RefAction;
                 case "_RefCollection": return pxt.BuiltInType.RefCollection;
                 default:
@@ -6744,6 +7094,7 @@ var ts;
             }
             return t;
         }
+        pxtc.checkType = checkType;
         function typeOf(node) {
             var r;
             if (node.typeOverride)
@@ -6762,6 +7113,8 @@ var ts;
                 return r;
             if (isStringLiteral(node))
                 return r; // skip checkType() - type is any for literal fragments
+            // save for future use; this cuts around 10% of emit() time
+            node.typeOverride = r;
             return checkType(r);
         }
         function checkUnionOfLiterals(t) {
@@ -7134,7 +7487,11 @@ var ts;
                         value: configEntries[k].value
                     });
                 }
+                res.configData.sort(function (a, b) { return a.key - b.key; });
                 catchErrors(rootFunction, finalEmit);
+            }
+            if (opts.ast) {
+                pxtc.annotate(program, entryPoint, pxtc.target);
             }
             return {
                 diagnostics: diagnostics.getDiagnostics(),
@@ -7384,79 +7741,81 @@ var ts;
                 inf.derivedClasses = [];
                 if (inf.baseClassInfo)
                     inf.baseClassInfo.derivedClasses.push(inf);
-                scope(function () {
-                    for (var _i = 0, _a = inf.methods; _i < _a.length; _i++) {
-                        var m = _a[_i];
-                        bin.numMethods++;
-                        var minf = getFunctionInfo(m);
-                        if (isToString(m)) {
-                            inf.toStringMethod = lookupProc(m);
-                            inf.toStringMethod.info.usedAsIface = true;
-                        }
-                        if (minf.virtualParent) {
-                            bin.numVirtMethods++;
-                            var key = classFunctionKey(m);
-                            var done = false;
-                            var proc_1 = lookupProc(m);
-                            pxtc.U.assert(!!proc_1);
-                            for (var i = 0; i < tbl.length; ++i) {
-                                if (classFunctionKey(tbl[i].action) == key) {
-                                    tbl[i] = proc_1;
-                                    minf.virtualIndex = i;
-                                    done = true;
-                                }
-                            }
-                            if (!done) {
-                                minf.virtualIndex = tbl.length;
-                                tbl.push(proc_1);
+                for (var _i = 0, _a = inf.methods; _i < _a.length; _i++) {
+                    var m = _a[_i];
+                    bin.numMethods++;
+                    var minf = getFunctionInfo(m);
+                    var attrs = parseComments(m);
+                    if (isToString(m) && !attrs.shim) {
+                        inf.toStringMethod = lookupProc(m);
+                        inf.toStringMethod.info.usedAsIface = true;
+                    }
+                    if (minf.virtualParent) {
+                        bin.numVirtMethods++;
+                        var key = classFunctionKey(m);
+                        var done = false;
+                        var proc_1 = lookupProc(m);
+                        pxtc.U.assert(!!proc_1);
+                        for (var i = 0; i < tbl.length; ++i) {
+                            if (classFunctionKey(tbl[i].action) == key) {
+                                tbl[i] = proc_1;
+                                minf.virtualIndex = i;
+                                done = true;
                             }
                         }
-                    }
-                    inf.vtable = tbl;
-                    inf.itable = [];
-                    for (var _b = 0, _c = inf.allfields; _b < _c.length; _b++) {
-                        var fld = _c[_b];
-                        var fname = getName(fld);
-                        var finfo = fieldIndexCore(inf, fld, false);
-                        inf.itable.push({
-                            name: fname,
-                            info: (finfo.idx + 1) * 4,
-                            idx: getIfaceMemberId(fname),
-                            proc: null
-                        });
-                    }
-                    for (var curr = inf; curr; curr = curr.baseClassInfo) {
-                        var _loop_2 = function (m) {
-                            var n = getName(m);
-                            if (isIfaceMemberUsed(n) || isUsed(m)) {
-                                var proc_2 = lookupProc(m);
-                                var ex = inf.itable.find(function (e) { return e.name == n; });
-                                var isSet = m.kind == pxtc.SK.SetAccessor;
-                                var isGet = m.kind == pxtc.SK.GetAccessor;
-                                if (ex) {
-                                    if (isSet && !ex.setProc)
-                                        ex.setProc = proc_2;
-                                    else if (isGet && !ex.proc)
-                                        ex.proc = proc_2;
-                                }
-                                else {
-                                    inf.itable.push({
-                                        name: n,
-                                        info: 0,
-                                        idx: getIfaceMemberId(n),
-                                        proc: !isSet ? proc_2 : null,
-                                        setProc: isSet ? proc_2 : null
-                                    });
-                                }
-                                proc_2.info.usedAsIface = true;
-                            }
-                        };
-                        for (var _d = 0, _e = curr.methods; _d < _e.length; _d++) {
-                            var m = _e[_d];
-                            _loop_2(m);
+                        if (!done) {
+                            minf.virtualIndex = tbl.length;
+                            tbl.push(proc_1);
                         }
                     }
-                });
+                }
+                inf.vtable = tbl;
+                inf.itable = [];
+                for (var _b = 0, _c = inf.allfields; _b < _c.length; _b++) {
+                    var fld = _c[_b];
+                    var fname = getName(fld);
+                    var finfo = fieldIndexCore(inf, fld, false);
+                    inf.itable.push({
+                        name: fname,
+                        info: (finfo.idx + 1) * 4,
+                        idx: getIfaceMemberId(fname),
+                        proc: null
+                    });
+                }
+                for (var curr = inf; curr; curr = curr.baseClassInfo) {
+                    var _loop_2 = function (m) {
+                        var n = getName(m);
+                        if (isIfaceMemberUsed(n) || isUsed(m)) {
+                            var attrs = parseComments(m);
+                            if (attrs.shim)
+                                return "continue";
+                            var proc_2 = lookupProc(m);
+                            var ex = inf.itable.find(function (e) { return e.name == n; });
+                            var isSet = m.kind == pxtc.SK.SetAccessor;
+                            var isGet = m.kind == pxtc.SK.GetAccessor;
+                            if (ex) {
+                                if (isSet && !ex.setProc)
+                                    ex.setProc = proc_2;
+                                else if (isGet && !ex.proc)
+                                    ex.proc = proc_2;
+                            }
+                            else {
+                                inf.itable.push({
+                                    name: n,
+                                    info: 0,
+                                    idx: getIfaceMemberId(n),
+                                    proc: !isSet ? proc_2 : null,
+                                    setProc: isSet ? proc_2 : null
+                                });
+                            }
+                            proc_2.info.usedAsIface = true;
+                        }
+                    };
+                    for (var _d = 0, _e = curr.methods; _d < _e.length; _d++) {
+                        var m = _e[_d];
+                        _loop_2(m);
+                    }
+                }
                 return inf.vtable;
             }
             // this code determines if we will need a vtable entry
@@ -7507,20 +7866,6 @@ var ts;
                         computeVtableInfo(classInfos[ci]);
                 }
             }
-            function isCtorField(p) {
-                if (!p.modifiers)
-                    return false;
-                if (p.parent.kind != pxtc.SK.Constructor)
-                    return false;
-                for (var _i = 0, _a = p.modifiers; _i < _a.length; _i++) {
-                    var m = _a[_i];
-                    if (m.kind == pxtc.SK.PrivateKeyword ||
-                        m.kind == pxtc.SK.PublicKeyword ||
-                        m.kind == pxtc.SK.ProtectedKeyword)
-                        return true;
-                }
-                return false;
-            }
             function getClassInfo(t, decl) {
                 if (decl === void 0) { decl = null; }
                 if (!decl)
@@ -7541,31 +7886,29 @@ var ts;
                     classInfos[id] = info;
                     // only do it after storing our in case we run into cycles (which should be errors)
                     info.baseClassInfo = getBaseClassInfo(decl);
-                    scope(function () {
-                        for (var _i = 0, _a = decl.members; _i < _a.length; _i++) {
-                            var mem = _a[_i];
-                            if (mem.kind == pxtc.SK.PropertyDeclaration) {
-                                var pdecl = mem;
-                                info.allfields.push(pdecl);
-                            }
-                            else if (mem.kind == pxtc.SK.Constructor) {
-                                for (var _b = 0, _c = mem.parameters; _b < _c.length; _b++) {
-                                    var p = _c[_b];
-                                    if (isCtorField(p))
-                                        info.allfields.push(p);
-                                }
-                            }
-                            else if (isClassFunction(mem)) {
-                                var minf = getFunctionInfo(mem);
-                                minf.parentClassInfo = info;
-                                info.methods.push(mem);
+                    for (var _i = 0, _a = decl.members; _i < _a.length; _i++) {
+                        var mem = _a[_i];
+                        if (mem.kind == pxtc.SK.PropertyDeclaration) {
+                            var pdecl = mem;
+                            info.allfields.push(pdecl);
+                        }
+                        else if (mem.kind == pxtc.SK.Constructor) {
+                            for (var _b = 0, _c = mem.parameters; _b < _c.length; _b++) {
+                                var p = _c[_b];
+                                if (isCtorField(p))
+                                    info.allfields.push(p);
                             }
                         }
-                        if (info.baseClassInfo) {
-                            info.allfields = info.baseClassInfo.allfields.concat(info.allfields);
-                            computeVtableInfo(info);
+                        else if (isClassFunction(mem)) {
+                            var minf = getFunctionInfo(mem);
+                            minf.parentClassInfo = info;
+                            info.methods.push(mem);
                         }
-                    });
+                    }
+                    if (info.baseClassInfo) {
+                        info.allfields = info.baseClassInfo.allfields.concat(info.allfields);
+                        computeVtableInfo(info);
+                    }
                 }
                 return info;
             }
@@ -7756,7 +8099,7 @@ var ts;
                 var expr = emitExpr(e);
                 if (pxtc.target.isNative || isStringLiteral(e))
                     return irToNode(expr, isRef);
-                expr = pxtc.ir.rtcallMask("String_::stringConv", 1, pxtc.ir.CallingConvention.Async, [expr]);
+                expr = pxtc.ir.rtcallMask("String_::stringConv", 1, 1 /* Async */, [expr]);
                 return irToNode(expr, true);
             }
             function emitTemplateExpression(node) {
@@ -7843,13 +8186,6 @@ var ts;
                     return emitCallCore(node, node, [], null);
                 }
                 var attrs = parseComments(decl);
-                var callInfo = {
-                    decl: decl,
-                    qName: pxtc.getFullName(checker, decl.symbol),
-                    args: [],
-                    isExpression: true
-                };
-                node.callInfo = callInfo;
                 if (decl.kind == pxtc.SK.EnumMember) {
                     var ev = attrs.enumval;
                     if (!ev) {
@@ -7882,7 +8218,6 @@ var ts;
                     }
                     else {
                         var idx = fieldIndex(node);
-                        callInfo.args.push(node.expression);
                         return pxtc.ir.op(EK.FieldAccess, [emitExpr(node.expression)], idx);
                     }
                 }
@@ -7903,7 +8238,7 @@ var ts;
                 if (assign === void 0) { assign = null; }
                 var t = typeOf(node.expression);
                 var attrs = {
-                    callingConvention: pxtc.ir.CallingConvention.Plain,
+                    callingConvention: 0 /* Plain */,
                     paramDefl: {},
                 };
                 var indexer = null;
@@ -7918,7 +8253,7 @@ var ts;
                     attrs = parseCommentsOnSymbol(t.symbol);
                     indexer = assign ? attrs.indexerSet : attrs.indexerGet;
                 }
-                else if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.StructuredOrTypeVariable)) {
+                if (!indexer && (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.StructuredOrTypeVariable))) {
                     indexer = assign ? "pxtrt::mapSetGeneric" : "pxtrt::mapGetGeneric";
                     stringOk = true;
                 }
@@ -8186,17 +8521,8 @@ var ts;
                 var attrs = parseComments(decl);
                 var hasRet = !(typeOf(node).flags & ts.TypeFlags.Void);
                 var args = callArgs.slice(0);
-                var callInfo = {
-                    decl: decl,
-                    qName: decl ? pxtc.getFullName(checker, decl.symbol) : "?",
-                    args: args.slice(0),
-                    isExpression: hasRet
-                };
-                node.callInfo = callInfo;
                 if (isMethod && !recv && !isStatic(decl) && funcExpr.kind == pxtc.SK.PropertyAccessExpression)
                     recv = funcExpr.expression;
-                if (callInfo.args.length == 0 && pxtc.U.lookup(autoCreateFunctions, callInfo.qName))
-                    callInfo.isAutoCreate = true;
                 if (res.usedArguments && attrs.trackArgs) {
                     var targs_1 = recv ? [recv].concat(args) : args;
                     var tracked = attrs.trackArgs.map(function (n) { return targs_1[n]; }).map(function (e) {
@@ -8223,9 +8549,7 @@ var ts;
                         pp.isThis = args[0].kind == pxtc.SK.ThisKeyword;
                     return r;
                 }
-                scope(function () {
-                    addDefaultParametersAndTypeCheck(sig, args, attrs);
-                });
+                addDefaultParametersAndTypeCheck(sig, args, attrs);
                 // first we handle a set of direct cases, note that
                 // we are not recursing on funcExpr here, but looking
                 // at the associated decl
@@ -8257,7 +8581,6 @@ var ts;
                             isSuper = true;
                         }
                         args.unshift(recv);
-                        callInfo.args.unshift(recv);
                     }
                     else
                         unhandled(node, lf("strange method call"), 9241);
@@ -8339,7 +8662,6 @@ var ts;
                             // so the receiver is not needed, as we have already done
                             // the property lookup to get the lambda
                             args.shift();
-                            callInfo.args.shift();
                         }
                     }
                     else if (decl.kind == pxtc.SK.MethodSignature || (pxtc.target.switches.slowMethods && !isStatic(decl) && !isSuper)) {
@@ -8359,7 +8681,6 @@ var ts;
                 }
                 // here's where we will recurse to generate funcExpr
                 args.unshift(funcExpr);
-                callInfo.args.unshift(funcExpr);
                 return mkMethodCall(null, -1, null, args.map(function (x) { return emitExpr(x); }));
             }
             function mkProcCallCore(proc, vidx, args, ifaceIdx) {
@@ -8828,14 +9149,15 @@ var ts;
                 }
                 if (hasRet)
                     proc.emitLbl(lbl);
-                // once we have emitted code for this function,
-                // we should emit code for all decls that are used
-                // as a result
+                // nothing should be on work list in final pass - everything should be already marked as used
                 pxtc.assert(!bin.finalPass || usedWorkList.length == 0, "!bin.finalPass || usedWorkList.length == 0");
-                while (usedWorkList.length > 0) {
-                    var f = usedWorkList.pop();
-                    emit(f);
-                }
+                // otherwise, we emit everything that's left, but only at top level
+                // to avoid unbounded stack
+                if (proc.isRoot)
+                    while (usedWorkList.length > 0) {
+                        var f = usedWorkList.pop();
+                        emit(f);
+                    }
                 return lit;
             }
             function sharedDef(e) {
@@ -8871,9 +9193,13 @@ var ts;
                 if (!node.body)
                     return undefined;
                 var lit = null;
-                scope(function () {
+                var prevProc = proc;
+                try {
                     lit = emitFuncCore(node);
-                });
+                }
+                finally {
+                    proc = prevProc;
+                }
                 return lit;
             }
             function emitDeleteExpression(node) { }
@@ -9199,7 +9525,7 @@ var ts;
                 return isNumberLikeType(typeOf(e));
             }
             function rtcallMaskDirect(name, args) {
-                return pxtc.ir.rtcallMask(name, (1 << args.length) - 1, pxtc.ir.CallingConvention.Plain, args);
+                return pxtc.ir.rtcallMask(name, (1 << args.length) - 1, 0 /* Plain */, args);
             }
             function rtcallMask(name, args, attrs, append) {
                 if (append === void 0) { append = null; }
@@ -9287,7 +9613,7 @@ var ts;
                         throw pxtc.U.oops("invalid format specifier: " + f);
                     }
                 });
-                var r = pxtc.ir.rtcallMask(name, mask, attrs ? attrs.callingConvention : pxtc.ir.CallingConvention.Plain, args2);
+                var r = pxtc.ir.rtcallMask(name, mask, attrs ? attrs.callingConvention : 0 /* Plain */, args2);
                 if (!r.mask)
                     r.mask = { refMask: 0 };
                 r.mask.conversions = convInfos;
@@ -9431,7 +9757,7 @@ var ts;
                 var shim = function (n) {
                     n = mapIntOpName(n);
                     var args = [node.left, node.right];
-                    return pxtc.ir.rtcallMask(n, getMask(args), pxtc.ir.CallingConvention.Plain, args.map(function (x) { return emitExpr(x); }));
+                    return pxtc.ir.rtcallMask(n, getMask(args), 0 /* Plain */, args.map(function (x) { return emitExpr(x); }));
                 };
                 if (node.operatorToken.kind == pxtc.SK.CommaToken) {
                     if (isNoopExpr(node.left))
@@ -9761,7 +10087,7 @@ var ts;
                         // we assume the value we're switching over will stay alive
                         // so, the mask only applies to the case expression if needed
                         // switch_eq() will decr(expr) if result is true
-                        var cmpCall = pxtc.ir.rtcallMask(mapIntOpName("pxt::switch_eq"), mask, pxtc.ir.CallingConvention.Plain, [cmpExpr, expr]);
+                        var cmpCall = pxtc.ir.rtcallMask(mapIntOpName("pxt::switch_eq"), mask, 0 /* Plain */, [cmpExpr, expr]);
                         proc.emitJmp(lbl, cmpCall, pxtc.ir.JmpMode.IfNotZero, expr);
                     }
                     else if (cl.kind == pxtc.SK.DefaultClause) {
@@ -9800,6 +10126,26 @@ var ts;
             function emitCatchClause(node) { }
             function emitDebuggerStatement(node) {
                 emitBrk(node);
+            }
+            function isLoop(node) {
+                switch (node.kind) {
+                    case pxtc.SK.WhileStatement:
+                    case pxtc.SK.ForInStatement:
+                    case pxtc.SK.ForOfStatement:
+                    case pxtc.SK.ForStatement:
+                    case pxtc.SK.DoStatement:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+            function inLoop(node) {
+                while (node) {
+                    if (isLoop(node))
+                        return true;
+                    node = node.parent;
+                }
+                return false;
             }
             function emitVariableDeclaration(node) {
                 if (node.name.kind === pxtc.SK.ObjectBindingPattern) {
@@ -9850,6 +10196,12 @@ var ts;
                     typeCheckSubtoSup(node.initializer, node);
                     proc.emitExpr(loc.storeByRef(emitExpr(node.initializer)));
                     currJres = null;
+                    proc.stackEmpty();
+                }
+                else if (inLoop(node)) {
+                    // the variable is declared in a loop - we need to clear it on each iteration
+                    emitBrk(node);
+                    proc.emitExpr(loc.storeByRef(emitLit(undefined)));
                     proc.stackEmpty();
                 }
                 return loc;
@@ -10102,6 +10454,7 @@ var ts;
         function isStringType(t) {
             return checkPrimitiveType(t, ts.TypeFlags.String | ts.TypeFlags.StringLiteral, HasLiteralType.String);
         }
+        pxtc.isStringType = isStringType;
         function isNumberType(t) {
             return checkPrimitiveType(t, ts.TypeFlags.Number | ts.TypeFlags.NumberLiteral, HasLiteralType.Number);
         }
@@ -10182,6 +10535,21 @@ var ts;
             return Binary;
         }());
         pxtc.Binary = Binary;
+        function isCtorField(p) {
+            if (!p.modifiers)
+                return false;
+            if (p.parent.kind != pxtc.SK.Constructor)
+                return false;
+            for (var _i = 0, _a = p.modifiers; _i < _a.length; _i++) {
+                var m = _a[_i];
+                if (m.kind == pxtc.SK.PrivateKeyword ||
+                    m.kind == pxtc.SK.PublicKeyword ||
+                    m.kind == pxtc.SK.ProtectedKeyword)
+                    return true;
+            }
+            return false;
+        }
+        pxtc.isCtorField = isCtorField;
         function isNumberLikeType(type) {
             return !!(type.flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.EnumLike | ts.TypeFlags.BooleanLike));
         }
@@ -10269,6 +10637,15 @@ var ts;
             });
         }
         pxtc.patchUpDiagnostics = patchUpDiagnostics;
+        function runConversions(opts) {
+            var diags = [];
+            for (var _i = 0, _a = pxt.conversionPasses; _i < _a.length; _i++) {
+                var pass = _a[_i];
+                pxtc.U.pushRange(diags, pass(opts));
+            }
+            return diags;
+        }
+        pxtc.runConversions = runConversions;
         function compile(opts) {
             var startTime = Date.now();
             var res = {
@@ -10277,6 +10654,16 @@ var ts;
                 success: false,
                 times: {},
             };
+            var convDiag = runConversions(opts);
+            // save files first, in case we generated some .ts files that fail to compile
+            for (var _i = 0, _a = opts.generatedFiles || []; _i < _a.length; _i++) {
+                var f = _a[_i];
+                res.outfiles[f] = opts.fileSystem[f];
+            }
+            if (convDiag.length > 0) {
+                res.diagnostics = convDiag;
+                return res;
+            }
             var fileText = {};
             for (var fileName in opts.fileSystem) {
                 fileText[normalizePath(fileName)] = opts.fileSystem[fileName];
@@ -10367,8 +10754,8 @@ var ts;
             }
             if (res.diagnostics.length == 0)
                 res.success = true;
-            for (var _i = 0, _a = opts.sourceFiles; _i < _a.length; _i++) {
-                var f = _a[_i];
+            for (var _b = 0, _c = opts.sourceFiles; _b < _c.length; _b++) {
+                var f = _c[_b];
                 if (pxtc.Util.startsWith(f, "built/"))
                     res.outfiles[f.slice(6)] = opts.fileSystem[f];
             }
@@ -10379,16 +10766,82 @@ var ts;
         pxtc.compile = compile;
         function decompile(opts, fileName, includeGreyBlockMessages, bannedCategories) {
             if (includeGreyBlockMessages === void 0) { includeGreyBlockMessages = false; }
-            var resp = compile(opts);
-            if (!resp.success)
-                return resp;
-            var file = resp.ast.getSourceFile(fileName);
-            var apis = pxtc.getApiInfo(opts, resp.ast);
+            var program = getTSProgram(opts);
+            var file = program.getSourceFile(fileName);
+            pxtc.annotate(program, fileName, pxtc.target || (pxt.appTarget && pxt.appTarget.compile));
+            var apis = pxtc.getApiInfo(opts, program);
             var blocksInfo = pxtc.getBlocksInfo(apis, bannedCategories);
-            var bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, file, { snippetMode: false, alwaysEmitOnStart: opts.alwaysDecompileOnStart, includeGreyBlockMessages: includeGreyBlockMessages }, pxtc.decompiler.buildRenameMap(resp.ast, file));
+            var decompileOpts = {
+                snippetMode: false,
+                alwaysEmitOnStart: opts.alwaysDecompileOnStart,
+                includeGreyBlockMessages: includeGreyBlockMessages,
+                allowedArgumentTypes: opts.allowedArgumentTypes || ["number", "boolean", "string"]
+            };
+            var bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, file, decompileOpts, pxtc.decompiler.buildRenameMap(program, file));
             return bresp;
         }
         pxtc.decompile = decompile;
+        function getTSProgram(opts, old) {
+            var outfiles = {};
+            var fileText = {};
+            for (var fileName in opts.fileSystem) {
+                fileText[normalizePath(fileName)] = opts.fileSystem[fileName];
+            }
+            var setParentNodes = true;
+            var options = getTsCompilerOptions(opts);
+            var host = {
+                getSourceFile: function (fn, v, err) {
+                    fn = normalizePath(fn);
+                    var text = "";
+                    if (fileText.hasOwnProperty(fn)) {
+                        text = fileText[fn];
+                    }
+                    else {
+                        if (err)
+                            err("File not found: " + fn);
+                    }
+                    if (text == null) {
+                        err("File not found: " + fn);
+                        text = "";
+                    }
+                    return ts.createSourceFile(fn, text, v, setParentNodes);
+                },
+                fileExists: function (fn) {
+                    fn = normalizePath(fn);
+                    return fileText.hasOwnProperty(fn);
+                },
+                getCanonicalFileName: function (fn) { return fn; },
+                getDefaultLibFileName: function () { return "no-default-lib.d.ts"; },
+                writeFile: function (fileName, data, writeByteOrderMark, onError) {
+                    outfiles[fileName] = data;
+                },
+                getCurrentDirectory: function () { return "."; },
+                useCaseSensitiveFileNames: function () { return true; },
+                getNewLine: function () { return "\n"; },
+                readFile: function (fn) {
+                    fn = normalizePath(fn);
+                    return fileText[fn] || "";
+                },
+                directoryExists: function (dn) { return true; },
+                getDirectories: function () { return []; }
+            };
+            if (!opts.sourceFiles)
+                opts.sourceFiles = Object.keys(opts.fileSystem);
+            var tsFiles = opts.sourceFiles.filter(function (f) { return pxtc.U.endsWith(f, ".ts"); });
+            // ensure that main.ts is last of TS files
+            var tsFilesNoMain = tsFiles.filter(function (f) { return f != "main.ts"; });
+            var hasMain = false;
+            if (tsFiles.length > tsFilesNoMain.length) {
+                tsFiles = tsFilesNoMain;
+                tsFiles.push("main.ts");
+                hasMain = true;
+            }
+            // TODO: ensure that main.ts is last???
+            var program = ts.createProgram(tsFiles, options, host, old);
+            pxtc.annotate(program, "main.ts", pxtc.target || (pxt.appTarget && pxt.appTarget.compile));
+            return program;
+        }
+        pxtc.getTSProgram = getTSProgram;
         function normalizePath(path) {
             path = path.replace(/\\/g, "/");
             var parts = [];
@@ -11736,7 +12189,7 @@ var ts;
                         isBuffer = true;
                     else
                         return null;
-                    var vt = lookupFunctionAddr(isString ? "pxt::string_vt" : "pxt::buffer_vt");
+                    var vt = lookupFunctionAddr(isString ? "pxt::string_inline_ascii_vt" : "pxt::buffer_vt");
                     var headerBytes = new Uint8Array(6);
                     if (!vt)
                         pxtc.oops("missing vt: " + isString);
@@ -11873,7 +12326,7 @@ var ts;
                 var tmp = hexTemplateHash();
                 for (var i = 0; i < 4; ++i)
                     hd.push(parseInt(swapBytes(tmp.slice(i * 4, i * 4 + 4)), 16));
-                var uf2 = useuf2 ? pxtc.UF2.newBlockFile() : null;
+                var uf2 = useuf2 ? pxtc.UF2.newBlockFile(pxtc.target.uf2Family) : null;
                 if (elfInfo) {
                     var prog = new Uint8Array(buf.length * 2);
                     for (var i = 0; i < buf.length; ++i) {
@@ -12177,8 +12630,10 @@ var ts;
             asmsource += "    .word 0\n";
             asmsource += "_vtables_end:\n\n";
             asmsource += "\n.balign 4\n_pxt_config_data:\n";
-            for (var _b = 0, _c = bin.res.configData || []; _b < _c.length; _b++) {
-                var d = _c[_b];
+            var cfg = bin.res.configData || [];
+            // asmsource += `    .word ${cfg.length}, 0 ; num. entries`
+            for (var _b = 0, cfg_1 = cfg; _b < cfg_1.length; _b++) {
+                var d = cfg_1[_b];
                 asmsource += "    .word " + d.key + ", " + d.value + "  ; " + d.name + "=" + d.value + "\n";
             }
             asmsource += "    .word 0\n\n";
@@ -12330,6 +12785,20 @@ var ts;
                 bin.commSize = res.thumbFile.commPtr - hex.commBase;
             if (res.src)
                 bin.writeFile(pxtc.BINARY_ASM, res.src);
+            var cfg = cres.configData || [];
+            // When BOOTLOADER_BOARD_ID is present in project, it means it's meant as configuration
+            // for bootloader. Spit out config.c file in that case, so it can be included in bootloader.
+            if (cfg.some(function (e) { return e.name == "BOOTLOADER_BOARD_ID"; })) {
+                var c = "const uint32_t configData[] = {\n";
+                c += "    0x1e9e10f1, 0x20227a79, // magic\n";
+                c += "    " + cfg.length + ", 0, // num. entries; reserved\n";
+                for (var _i = 0, cfg_2 = cfg; _i < cfg_2.length; _i++) {
+                    var e = cfg_2[_i];
+                    c += "    " + e.key + ", 0x" + e.value.toString(16) + ", // " + e.name + "\n";
+                }
+                c += "    0, 0\n};\n";
+                bin.writeFile("config.c", c);
+            }
             if (res.buf) {
                 if (opts.target.flashChecksumAddr) {
                     var pos = res.thumbFile.lookupLabel("__flash_checksums") / 2;
@@ -12349,14 +12818,14 @@ var ts;
                     bin.writeFile(pxt.outputName(pxtc.target), myhex);
                 }
             }
-            for (var _i = 0, _a = cres.breakpoints; _i < _a.length; _i++) {
-                var bkpt = _a[_i];
+            for (var _a = 0, _b = cres.breakpoints; _a < _b.length; _a++) {
+                var bkpt = _b[_a];
                 var lbl = pxtc.U.lookup(res.thumbFile.getLabels(), "__brkp_" + bkpt.id);
                 if (lbl != null)
                     bkpt.binAddr = lbl;
             }
-            for (var _b = 0, _c = bin.procs; _b < _c.length; _b++) {
-                var proc = _c[_b];
+            for (var _c = 0, _d = bin.procs; _c < _d.length; _c++) {
+                var proc = _d[_c];
                 proc.fillDebugInfo(res.thumbFile);
             }
             cres.procDebugInfo = bin.procs.map(function (p) { return p.debugInfo; });
@@ -12402,70 +12871,132 @@ var ts;
 (function (ts) {
     var pxtc;
     (function (pxtc) {
+        var LSHost = /** @class */ (function () {
+            function LSHost(p) {
+                this.p = p;
+            }
+            LSHost.prototype.getCompilationSettings = function () {
+                var opts = this.p.getCompilerOptions();
+                opts.noLib = true;
+                return opts;
+            };
+            LSHost.prototype.getNewLine = function () { return "\n"; };
+            LSHost.prototype.getScriptFileNames = function () {
+                return this.p.getSourceFiles().map(function (f) { return f.fileName; });
+            };
+            LSHost.prototype.getScriptVersion = function (fileName) {
+                return "0";
+            };
+            LSHost.prototype.getScriptSnapshot = function (fileName) {
+                var f = this.p.getSourceFile(fileName);
+                return {
+                    getLength: function () { return f.getFullText().length; },
+                    getText: function () { return f.getFullText(); },
+                    getChangeRange: function () { return undefined; }
+                };
+            };
+            LSHost.prototype.getCurrentDirectory = function () { return "."; };
+            LSHost.prototype.getDefaultLibFileName = function (options) { return ""; };
+            LSHost.prototype.useCaseSensitiveFileNames = function () { return true; };
+            return LSHost;
+        }());
+        pxtc.LSHost = LSHost;
+    })(pxtc = ts.pxtc || (ts.pxtc = {}));
+})(ts || (ts = {}));
+var ts;
+(function (ts) {
+    var pxtc;
+    (function (pxtc) {
         var reportDiagnostic = reportDiagnosticSimply;
-        function reportDiagnostics(diagnostics, host) {
+        function reportDiagnostics(diagnostics) {
             for (var _i = 0, diagnostics_1 = diagnostics; _i < diagnostics_1.length; _i++) {
                 var diagnostic = diagnostics_1[_i];
-                reportDiagnostic(diagnostic, host);
+                reportDiagnostic(diagnostic);
             }
         }
-        function reportDiagnosticSimply(diagnostic, host) {
+        function reportDiagnosticSimply(diagnostic) {
+            var output = getDiagnosticString(diagnostic);
+            ts.sys.write(output);
+        }
+        function getDiagnosticString(diagnostic) {
+            var ksDiagnostic;
+            if ("file" in diagnostic) {
+                // convert ts.Diagnostic to KsDiagnostic
+                var tsDiag = diagnostic;
+                var _a = ts.getLineAndCharacterOfPosition(tsDiag.file, tsDiag.start), line = _a.line, character = _a.character;
+                var relativeFileName = tsDiag.file.fileName;
+                ksDiagnostic = Object.assign({
+                    fileName: relativeFileName,
+                    line: line,
+                    column: character
+                }, tsDiag);
+            }
+            else {
+                ksDiagnostic = Object.assign({
+                    fileName: undefined,
+                    line: undefined,
+                    column: undefined
+                }, diagnostic);
+            }
+            return getDiagnosticStringHelper(ksDiagnostic);
+        }
+        pxtc.getDiagnosticString = getDiagnosticString;
+        function getDiagnosticStringHelper(diagnostic) {
             var output = "";
-            if (diagnostic.file) {
-                var _a = ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start), line = _a.line, character = _a.character;
-                var relativeFileName = diagnostic.file.fileName;
-                output += relativeFileName + "(" + (line + 1) + "," + (character + 1) + "): ";
+            if (diagnostic.fileName) {
+                output += diagnostic.fileName + "(" + (diagnostic.line + 1) + "," + (diagnostic.column + 1) + "): ";
             }
             var category = pxtc.DiagnosticCategory[diagnostic.category].toLowerCase();
             output += category + " TS" + diagnostic.code + ": " + pxtc.flattenDiagnosticMessageText(diagnostic.messageText, ts.sys.newLine) + ts.sys.newLine;
-            ts.sys.write(output);
+            return output;
         }
-        function plainTsc(dir) {
+        function plainTscCompileDir(dir) {
             var commandLine = ts.parseCommandLine([]);
             var configFileName = ts.findConfigFile(dir, ts.sys.fileExists);
-            return performCompilation();
+            var configParseResult = parseConfigFile();
+            var program = plainTscCompileFiles(configParseResult.fileNames, configParseResult.options);
+            var diagnostics = getProgramDiagnostics(program);
+            diagnostics.forEach(reportDiagnostic);
+            return program;
             function parseConfigFile() {
                 var cachedConfigFileText = ts.sys.readFile(configFileName);
                 var result = ts.parseConfigFileTextToJson(configFileName, cachedConfigFileText);
                 var configObject = result.config;
                 if (!configObject) {
-                    reportDiagnostics([result.error], /* compilerHost */ undefined);
+                    reportDiagnostics([result.error]);
                     ts.sys.exit(ts.ExitStatus.DiagnosticsPresent_OutputsSkipped);
                     return undefined;
                 }
                 var configParseResult = ts.parseJsonConfigFileContent(configObject, ts.sys, dir, commandLine.options, configFileName);
                 if (configParseResult.errors.length > 0) {
-                    reportDiagnostics(configParseResult.errors, /* compilerHost */ undefined);
+                    reportDiagnostics(configParseResult.errors);
                     ts.sys.exit(ts.ExitStatus.DiagnosticsPresent_OutputsSkipped);
                     return undefined;
                 }
                 return configParseResult;
             }
-            function performCompilation() {
-                var configParseResult = parseConfigFile();
-                var compilerHost = ts.createCompilerHost(configParseResult.options);
-                compilerHost.getDefaultLibFileName = function () { return "node_modules/typescript/lib/lib.d.ts"; };
-                return compile(configParseResult.fileNames, configParseResult.options, compilerHost);
-            }
         }
-        pxtc.plainTsc = plainTsc;
-        function compile(fileNames, compilerOptions, compilerHost) {
-            var program = ts.createProgram(fileNames, compilerOptions, compilerHost);
-            compileProgram();
-            return program;
-            function compileProgram() {
-                var diagnostics = program.getSyntacticDiagnostics();
+        pxtc.plainTscCompileDir = plainTscCompileDir;
+        function plainTscCompileFiles(fileNames, compilerOpts) {
+            var compilerHost = ts.createCompilerHost(compilerOpts);
+            compilerHost.getDefaultLibFileName = function () { return "node_modules/typescript/lib/lib.d.ts"; };
+            var prog = ts.createProgram(fileNames, compilerOpts, compilerHost);
+            return prog;
+            //const emitOutput = program.emit();
+            //diagnostics = diagnostics.concat(emitOutput.diagnostics);
+        }
+        pxtc.plainTscCompileFiles = plainTscCompileFiles;
+        function getProgramDiagnostics(program) {
+            var diagnostics = program.getSyntacticDiagnostics();
+            if (diagnostics.length === 0) {
+                diagnostics = program.getOptionsDiagnostics().concat(pxtc.Util.toArray(program.getGlobalDiagnostics()));
                 if (diagnostics.length === 0) {
-                    diagnostics = program.getOptionsDiagnostics().concat(pxtc.Util.toArray(program.getGlobalDiagnostics()));
-                    if (diagnostics.length === 0) {
-                        diagnostics = program.getSemanticDiagnostics();
-                    }
+                    diagnostics = program.getSemanticDiagnostics();
                 }
-                reportDiagnostics(diagnostics, compilerHost);
-                //const emitOutput = program.emit();
-                //diagnostics = diagnostics.concat(emitOutput.diagnostics);
             }
+            return diagnostics;
         }
+        pxtc.getProgramDiagnostics = getProgramDiagnostics;
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));
 var ts;
@@ -12491,7 +13022,7 @@ var ts;
                 return "\"" + cursorMarker + "\"";
             }
             var si = apis ? pxtc.Util.lookup(apis.byQName, p.type) : undefined;
-            if (si && si.kind == pxtc.SymbolKind.Enum) {
+            if (si && si.kind == 6 /* Enum */) {
                 var en = pxtc.Util.values(apis.byQName).filter(function (e) { return e.namespace == p.type; })[0];
                 if (en)
                     return en.namespace + "." + en.name;
@@ -12516,32 +13047,76 @@ var ts;
             return '';
         }
         pxtc.renderParameters = renderParameters;
+        function snakify(s) {
+            var up = s.toUpperCase();
+            var lo = s.toLowerCase();
+            // if the name is all lowercase or all upper case don't do anything
+            if (s == up || s == lo)
+                return s;
+            // if the name already has underscores (not as first character), leave it alone
+            if (s.lastIndexOf("_") > 0)
+                return s;
+            var isUpper = function (i) { return s[i] != lo[i]; };
+            var isLower = function (i) { return s[i] != up[i]; };
+            //const isDigit = (i: number) => /\d/.test(s[i])
+            var r = "";
+            var i = 0;
+            while (i < s.length) {
+                var upperMode = isUpper(i);
+                var j = i;
+                while (j < s.length) {
+                    if (upperMode && isLower(j)) {
+                        // ABCd -> AB_Cd
+                        if (j - i > 2) {
+                            j--;
+                            break;
+                        }
+                        else {
+                            // ABdefQ -> ABdef_Q
+                            upperMode = false;
+                        }
+                    }
+                    // abcdE -> abcd_E
+                    if (!upperMode && isUpper(j)) {
+                        break;
+                    }
+                    j++;
+                }
+                if (r)
+                    r += "_";
+                r += s.slice(i, j);
+                i = j;
+            }
+            return r;
+        }
+        pxtc.snakify = snakify;
         function getSymbolKind(node) {
             switch (node.kind) {
                 case pxtc.SK.MethodDeclaration:
                 case pxtc.SK.MethodSignature:
-                    return pxtc.SymbolKind.Method;
+                    return 1 /* Method */;
                 case pxtc.SK.PropertyDeclaration:
                 case pxtc.SK.PropertySignature:
                 case pxtc.SK.GetAccessor:
                 case pxtc.SK.SetAccessor:
-                    return pxtc.SymbolKind.Property;
+                    return 2 /* Property */;
+                case pxtc.SK.Constructor:
                 case pxtc.SK.FunctionDeclaration:
-                    return pxtc.SymbolKind.Function;
+                    return 3 /* Function */;
                 case pxtc.SK.VariableDeclaration:
-                    return pxtc.SymbolKind.Variable;
+                    return 4 /* Variable */;
                 case pxtc.SK.ModuleDeclaration:
-                    return pxtc.SymbolKind.Module;
+                    return 5 /* Module */;
                 case pxtc.SK.EnumDeclaration:
-                    return pxtc.SymbolKind.Enum;
+                    return 6 /* Enum */;
                 case pxtc.SK.EnumMember:
-                    return pxtc.SymbolKind.EnumMember;
+                    return 7 /* EnumMember */;
                 case pxtc.SK.ClassDeclaration:
-                    return pxtc.SymbolKind.Class;
+                    return 8 /* Class */;
                 case pxtc.SK.InterfaceDeclaration:
-                    return pxtc.SymbolKind.Interface;
+                    return 9 /* Interface */;
                 default:
-                    return pxtc.SymbolKind.None;
+                    return 0 /* None */;
             }
         }
         function isExported(decl) {
@@ -12578,7 +13153,7 @@ var ts;
         function isReadonly(decl) {
             return decl.modifiers && decl.modifiers.some(function (m) { return m.kind == pxtc.SK.ReadonlyKeyword; });
         }
-        function createSymbolInfo(typechecker, qName, stmt) {
+        function createSymbolInfo(typechecker, qName, stmt, opts) {
             function typeOf(tn, n, stripParams) {
                 if (stripParams === void 0) { stripParams = false; }
                 var t = typechecker.getTypeAtLocation(n);
@@ -12590,19 +13165,23 @@ var ts;
                 var readableName = typechecker.typeToString(t, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
                 // TypeScript 2.0.0+ will assign constant variables numeric literal types which breaks the
                 // type checking we do in the blocks
-                if (!isNaN(Number(readableName))) {
+                // This can be a number literal '7' or a union type of them '0 | 1 | 2'
+                if (/^\d/.test(readableName)) {
                     return "number";
+                }
+                if (readableName == "this") {
+                    return getFullName(typechecker, t.symbol);
                 }
                 return readableName;
             }
             var kind = getSymbolKind(stmt);
-            if (kind != pxtc.SymbolKind.None) {
+            if (kind != 0 /* None */) {
                 var decl = stmt;
                 var attributes_2 = pxtc.parseComments(decl);
                 if (attributes_2.weight < 0)
                     return null;
                 var m = /^(.*)\.(.*)/.exec(qName);
-                var hasParams = kind == pxtc.SymbolKind.Function || kind == pxtc.SymbolKind.Method;
+                var hasParams = kind == 3 /* Function */ || kind == 1 /* Method */;
                 var pkg = null;
                 var src = ts.getSourceFileOfNode(stmt);
                 if (src) {
@@ -12611,7 +13190,7 @@ var ts;
                         pkg = m_1[1];
                 }
                 var extendsTypes = undefined;
-                if (kind == pxtc.SymbolKind.Class || kind == pxtc.SymbolKind.Interface) {
+                if (kind == 8 /* Class */ || kind == 9 /* Interface */) {
                     var cl = stmt;
                     extendsTypes = [];
                     if (cl.heritageClauses)
@@ -12625,17 +13204,20 @@ var ts;
                             }
                         }
                 }
-                if (kind == pxtc.SymbolKind.Enum || kind === pxtc.SymbolKind.EnumMember) {
+                if (kind == 6 /* Enum */ || kind === 7 /* EnumMember */) {
                     (extendsTypes || (extendsTypes = [])).push("Number");
                 }
                 var r = {
                     kind: kind,
+                    qName: qName,
                     namespace: m ? m[1] : "",
                     name: m ? m[2] : qName,
                     attributes: attributes_2,
                     pkg: pkg,
                     extendsTypes: extendsTypes,
-                    retType: kind == pxtc.SymbolKind.Module ? "" : typeOf(decl.type, decl, hasParams),
+                    retType: stmt.kind == ts.SyntaxKind.Constructor ? "void" :
+                        kind == 5 /* Module */ ? "" :
+                            typeOf(decl.type, decl, hasParams),
                     parameters: !hasParams ? null : pxtc.Util.toArray(decl.parameters).map(function (p, i) {
                         var n = pxtc.getName(p);
                         var desc = attributes_2.paramHelp[n] || "";
@@ -12683,7 +13265,8 @@ var ts;
                             name: n,
                             description: desc,
                             type: typeOf(p.type, p),
-                            initializer: p.initializer ? p.initializer.getText() : attributes_2.paramDefl[n],
+                            initializer: p.initializer ? p.initializer.getText() :
+                                attributes_2.paramDefl[n] || (p.questionToken ? "undefined" : undefined),
                             default: attributes_2.paramDefl[n],
                             properties: props,
                             handlerParameters: parameters,
@@ -12691,8 +13274,26 @@ var ts;
                             isEnum: isEnum
                         };
                     }),
-                    snippet: pxtc.service.getSnippet(decl, attributes_2)
+                    snippet: ts.isFunctionLike(stmt) ? null : undefined
                 };
+                switch (r.kind) {
+                    case 7 /* EnumMember */:
+                        r.pyName = snakify(r.name).toUpperCase();
+                        break;
+                    case 4 /* Variable */:
+                    case 5 /* Module */:
+                    case 1 /* Method */:
+                    case 2 /* Property */:
+                    case 3 /* Function */:
+                        r.pyName = snakify(r.name).toLowerCase();
+                        break;
+                    case 6 /* Enum */:
+                    case 8 /* Class */:
+                    case 9 /* Interface */:
+                    default:
+                        r.pyName = r.name;
+                        break;
+                }
                 if (stmt.kind === pxtc.SK.GetAccessor ||
                     ((stmt.kind === pxtc.SK.PropertyDeclaration || stmt.kind === pxtc.SK.PropertySignature) && isReadonly(stmt))) {
                     r.isReadOnly = true;
@@ -12707,7 +13308,8 @@ var ts;
             pxt.debug(JSON.stringify(Object.keys(apiInfo.byQName), null, 2));
             var files = {};
             var infos = pxtc.Util.values(apiInfo.byQName);
-            var enumMembers = infos.filter(function (si) { return si.kind == pxtc.SymbolKind.EnumMember; }).sort(compareSymbol);
+            var enumMembers = infos.filter(function (si) { return si.kind == 7 /* EnumMember */; })
+                .sort(compareSymbols);
             var locStrings = {};
             var jsdocStrings = {};
             var writeLoc = function (si) {
@@ -12718,7 +13320,7 @@ var ts;
                     return; // skip functions starting with __
                 pxt.debug("loc: " + si.qName);
                 // must match blockly loader
-                if (si.kind != pxtc.SymbolKind.EnumMember) {
+                if (si.kind != 7 /* EnumMember */) {
                     var ns = ts.pxtc.blocksCategory(si);
                     if (ns)
                         locStrings["{id:category}" + ns] = ns;
@@ -12744,7 +13346,7 @@ var ts;
                 files[pkg + name + "-strings.json"] = JSON.stringify(locs, null, 2);
             };
             var _loop_6 = function (info) {
-                var isNamespace = info.kind == pxtc.SymbolKind.Module;
+                var isNamespace = info.kind == 5 /* Module */;
                 if (isNamespace) {
                     if (!infos.filter(function (si) { return si.namespace == info.name && !!si.attributes.jsDoc; })[0])
                         return "continue"; // nothing in namespace
@@ -12767,29 +13369,50 @@ var ts;
             mapLocs(locStrings, "");
             mapLocs(jsdocStrings, "-jsdoc");
             return files;
-            function hasBlock(sym) {
-                return !!sym.attributes.block && !!sym.attributes.blockId;
-            }
-            function capitalize(name) {
-                return name[0].toUpperCase() + name.slice(1);
-            }
-            function compareSymbol(l, r) {
-                var c = -(hasBlock(l) ? 1 : -1) + (hasBlock(r) ? 1 : -1);
-                if (c)
-                    return c;
-                c = -(l.attributes.weight || 50) + (r.attributes.weight || 50);
-                if (c)
-                    return c;
-                return pxtc.U.strcmp(l.name, r.name);
-            }
         }
         pxtc.genDocs = genDocs;
+        function hasBlock(sym) {
+            return !!sym.attributes.block && !!sym.attributes.blockId;
+        }
+        pxtc.hasBlock = hasBlock;
+        var symbolKindWeight;
+        function compareSymbols(l, r) {
+            var c = -(hasBlock(l) ? 1 : -1) + (hasBlock(r) ? 1 : -1);
+            if (c)
+                return c;
+            if (!symbolKindWeight) {
+                symbolKindWeight = {};
+                symbolKindWeight[4 /* Variable */] = 100;
+                symbolKindWeight[5 /* Module */] = 101;
+                symbolKindWeight[3 /* Function */] = 99;
+                symbolKindWeight[2 /* Property */] = 98;
+                symbolKindWeight[1 /* Method */] = 97;
+                symbolKindWeight[8 /* Class */] = 89;
+                symbolKindWeight[6 /* Enum */] = 81;
+                symbolKindWeight[7 /* EnumMember */] = 80;
+            }
+            // favor functions
+            c = -(symbolKindWeight[l.kind] || 0) + (symbolKindWeight[r.kind] || 0);
+            if (c)
+                return c;
+            c = -(l.attributes.weight || 50) + (r.attributes.weight || 50);
+            if (c)
+                return c;
+            return pxtc.U.strcmp(l.name, r.name);
+        }
+        pxtc.compareSymbols = compareSymbols;
         function getApiInfo(opts, program, legacyOnly) {
+            if (legacyOnly === void 0) { legacyOnly = false; }
+            return internalGetApiInfo(opts, program, legacyOnly).apis;
+        }
+        pxtc.getApiInfo = getApiInfo;
+        function internalGetApiInfo(opts, program, legacyOnly) {
             if (legacyOnly === void 0) { legacyOnly = false; }
             var res = {
                 byQName: {},
                 jres: opts.jres
             };
+            var qNameToNode = {};
             var typechecker = program.getTypeChecker();
             var collectDecls = function (stmt) {
                 if (stmt.kind == pxtc.SK.VariableStatement) {
@@ -12805,21 +13428,37 @@ var ts;
                     var qName = getFullName(typechecker, stmt.symbol);
                     if (stmt.kind == pxtc.SK.SetAccessor)
                         qName += "@set"; // otherwise we get a clash with the getter
-                    var si_1 = createSymbolInfo(typechecker, qName, stmt);
+                    qNameToNode[qName] = stmt;
+                    var si_1 = createSymbolInfo(typechecker, qName, stmt, opts);
                     if (si_1) {
                         var existing = pxtc.U.lookup(res.byQName, qName);
                         if (existing) {
-                            si_1.attributes = pxtc.parseCommentString(existing.attributes._source + "\n" +
-                                si_1.attributes._source);
-                            if (existing.extendsTypes) {
-                                si_1.extendsTypes = si_1.extendsTypes || [];
-                                existing.extendsTypes.forEach(function (t) {
-                                    if (si_1.extendsTypes.indexOf(t) === -1) {
-                                        si_1.extendsTypes.push(t);
-                                    }
-                                });
+                            // we can have a function and an interface of the same name
+                            if (existing.kind == 9 /* Interface */ && si_1.kind != 9 /* Interface */) {
+                                // save existing entry
+                                res.byQName[qName + "@type"] = existing;
+                            }
+                            else if (existing.kind != 9 /* Interface */ && si_1.kind == 9 /* Interface */) {
+                                res.byQName[qName + "@type"] = si_1;
+                                si_1 = existing;
+                            }
+                            else {
+                                si_1.attributes = pxtc.parseCommentString(existing.attributes._source + "\n" +
+                                    si_1.attributes._source);
+                                if (existing.extendsTypes) {
+                                    si_1.extendsTypes = si_1.extendsTypes || [];
+                                    existing.extendsTypes.forEach(function (t) {
+                                        if (si_1.extendsTypes.indexOf(t) === -1) {
+                                            si_1.extendsTypes.push(t);
+                                        }
+                                    });
+                                }
                             }
                         }
+                        if (stmt.parent &&
+                            (stmt.parent.kind == pxtc.SK.ClassDeclaration || stmt.parent.kind == pxtc.SK.InterfaceDeclaration) &&
+                            !pxtc.isStatic(stmt))
+                            si_1.isInstance = true;
                         res.byQName[qName] = si_1;
                     }
                 }
@@ -12870,6 +13509,22 @@ var ts;
                         si.attributes.jresURL = "data:" + jr.mimeType + ";base64," + jr.data;
                     }
                 }
+                if (si.pyName) {
+                    if (si.namespace) {
+                        var par = res.byQName[si.namespace];
+                        if (par) {
+                            si.pyQName = par.pyQName + "." + si.pyName;
+                        }
+                        else {
+                            // shouldn't happen
+                            pxt.log("namespace missing: " + si.namespace);
+                            si.pyQName = si.namespace + "." + si.pyName;
+                        }
+                    }
+                    else {
+                        si.pyQName = si.pyName;
+                    }
+                }
             }
             // transitive closure of inheritance
             var closed = {};
@@ -12898,37 +13553,47 @@ var ts;
                 // conflicts with pins.map()
                 delete res.byQName["Array.map"];
             }
-            return res;
+            return {
+                apis: res,
+                decls: qNameToNode
+            };
         }
-        pxtc.getApiInfo = getApiInfo;
+        pxtc.internalGetApiInfo = internalGetApiInfo;
         function getFullName(typechecker, symbol) {
             if (symbol.isBogusSymbol)
                 return symbol.name;
             return typechecker.getFullyQualifiedName(symbol);
         }
         pxtc.getFullName = getFullName;
-        function fillCompletionEntries(program, symbols, r, apiInfo) {
-            var typechecker = program.getTypeChecker();
-            for (var _i = 0, symbols_1 = symbols; _i < symbols_1.length; _i++) {
-                var s = symbols_1[_i];
-                var qName = getFullName(typechecker, s);
-                if (!r.isMemberCompletion && pxtc.Util.lookup(apiInfo.byQName, qName))
+        /*
+        export function fillCompletionEntries(program: Program, symbols: Symbol[], r: CompletionInfo, apiInfo: ApisInfo, opts: CompileOptions) {
+            const typechecker = program.getTypeChecker()
+    
+            for (let s of symbols) {
+                let qName = getFullName(typechecker, s)
+                const gsi = Util.lookup(apiInfo.byQName, qName);
+    
+                // filter out symbols starting with __
+                if (gsi && /^__/.test(gsi.name))
+                    continue;
+    
+                if (!r.isMemberCompletion && gsi)
                     continue; // global symbol
-                if (pxtc.Util.lookup(r.entries, qName))
+    
+                if (Util.lookup(r.entries, qName))
                     continue;
-                var decl = s.valueDeclaration || (s.declarations || [])[0];
-                if (!decl)
-                    continue;
-                var si = createSymbolInfo(typechecker, qName, decl);
-                if (!si)
-                    continue;
+    
+                const decl = s.valueDeclaration || (s.declarations || [])[0]
+                if (!decl) continue;
+    
+                const si = createSymbolInfo(typechecker, qName, decl, opts)
+                if (!si) continue;
+    
                 si.isContextual = true;
-                //let tmp = ts.getLocalSymbolForExportDefault(s)
-                //let name = typechecker.symbolToString(tmp || s)
+    
                 r.entries[qName] = si;
             }
-        }
-        pxtc.fillCompletionEntries = fillCompletionEntries;
+        }*/
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));
 (function (ts) {
@@ -13024,51 +13689,136 @@ var ts;
                 }
                 else {
                     if (!lastBlocksInfo) {
-                        lastBlocksInfo = pxtc.getBlocksInfo(lastApiInfo, bannedCategories);
+                        lastBlocksInfo = pxtc.getBlocksInfo(lastApiInfo.apis, bannedCategories);
                     }
                     return lastBlocksInfo;
                 }
             };
+            function addApiInfo(opts) {
+                if (!opts.apisInfo && opts.target.preferredEditor == pxt.PYTHON_PROJECT_NAME) {
+                    if (!lastApiInfo)
+                        lastApiInfo = pxtc.internalGetApiInfo(opts, service.getProgram());
+                    opts.apisInfo = pxtc.U.clone(lastApiInfo.apis);
+                }
+            }
             var operations = {
                 reset: function () {
                     service.cleanupSemanticCache();
+                    lastApiInfo = null;
                     host.setOpts(emptyOptions);
                 },
                 setOptions: function (v) {
                     host.setOpts(v.options);
                 },
-                getCompletions: function (v) {
+                syntaxInfo: function (v) {
+                    var src = v.fileContent;
                     if (v.fileContent) {
                         host.setFile(v.fileName, v.fileContent);
                     }
-                    var program = service.getProgram(); // this synchornizes host data as well
-                    var data = service.getCompletionData(v.fileName, v.position);
-                    if (!data)
-                        return {};
-                    var typechecker = program.getTypeChecker();
-                    var r = {
-                        entries: {},
-                        isMemberCompletion: data.isMemberCompletion,
-                        isNewIdentifierLocation: data.isNewIdentifierLocation,
-                        isTypeLocation: false // TODO
+                    var opts = pxtc.U.flatClone(host.opts);
+                    opts.fileSystem[v.fileName] = src;
+                    addApiInfo(opts);
+                    opts.syntaxInfo = {
+                        position: v.position,
+                        type: v.infoType
                     };
-                    pxtc.fillCompletionEntries(program, data.symbols, r, lastApiInfo);
+                    pxt.py.py2ts(opts);
+                    return opts.syntaxInfo;
+                },
+                getCompletions: function (v) {
+                    var src = v.fileContent;
+                    if (v.fileContent) {
+                        host.setFile(v.fileName, v.fileContent);
+                    }
+                    var python = /\.py$/.test(v.fileName);
+                    var dotIdx = -1;
+                    var complPosition = -1;
+                    for (var i = v.position - 1; i >= 0; --i) {
+                        if (src[i] == ".") {
+                            dotIdx = i;
+                            break;
+                        }
+                        if (!/\w/.test(src[i]))
+                            break;
+                        if (complPosition == -1)
+                            complPosition = i;
+                    }
+                    if (dotIdx == v.position - 1) {
+                        // "foo.|" -> we add "_" as field name to minimize the risk of a parse error
+                        src = src.slice(0, v.position) + "_" + src.slice(v.position);
+                    }
+                    else if (complPosition == -1) {
+                        src = src.slice(0, v.position) + "_" + src.slice(v.position);
+                        complPosition = v.position;
+                    }
+                    if (dotIdx != -1)
+                        complPosition = dotIdx;
+                    //console.log(v.fileContent.slice(v.position - 20, v.position) + "<X>" + v.fileContent.slice(v.position, v.position + 20))
+                    var entries = {};
+                    var r = {
+                        entries: [],
+                        isMemberCompletion: dotIdx != -1,
+                        isNewIdentifierLocation: true,
+                        isTypeLocation: false
+                    };
+                    var opts = pxtc.U.flatClone(host.opts);
+                    opts.fileSystem[v.fileName] = src;
+                    addApiInfo(opts);
+                    opts.syntaxInfo = {
+                        position: complPosition,
+                        type: r.isMemberCompletion ? "memberCompletion" : "identifierCompletion"
+                    };
+                    pxt.py.py2ts(opts);
+                    var symbols = opts.syntaxInfo.symbols || [];
+                    for (var _i = 0, symbols_1 = symbols; _i < symbols_1.length; _i++) {
+                        var si = symbols_1[_i];
+                        if (/^__/.test(si.name) || // ignore members starting with __
+                            /^__/.test(si.namespace) || // ignore namespaces starting with _-
+                            si.attributes.hidden ||
+                            si.attributes.deprecated)
+                            continue; // ignore
+                        entries[si.qName] = si;
+                        var n = lastApiInfo.decls[si.qName];
+                        if (ts.isFunctionLike(n)) {
+                            if (python)
+                                si.pySnippet = getSnippet(lastApiInfo.apis.byQName, si, n, python);
+                            else
+                                si.snippet = getSnippet(lastApiInfo.apis.byQName, si, n, python);
+                        }
+                    }
+                    //fillCompletionEntries(program, data.symbols, r, lastApiInfo.apis, host.opts)
+                    // sort entries
+                    r.entries = pxt.Util.values(entries);
+                    r.entries.sort(pxtc.compareSymbols);
                     return r;
                 },
                 compile: function (v) {
+                    addApiInfo(v.options);
                     return pxtc.compile(v.options);
                 },
                 decompile: function (v) {
                     var bannedCategories = v.blocks ? v.blocks.bannedCategories : undefined;
                     return pxtc.decompile(v.options, v.fileName, false, bannedCategories);
                 },
+                pydecompile: function (v) {
+                    var program = pxtc.getTSProgram(v.options);
+                    return pxt.py.decompileToPython(program, v.fileName);
+                },
                 assemble: function (v) {
                     return {
                         words: pxtc.processorInlineAssemble(host.opts.target, v.fileContent)
                     };
                 },
+                py2ts: function (v) {
+                    addApiInfo(v.options);
+                    return pxt.py.py2ts(v.options);
+                },
                 fileDiags: function (v) { return pxtc.patchUpDiagnostics(fileDiags(v.fileName)); },
                 allDiags: function () {
+                    addApiInfo(host.opts);
+                    var convDiag = pxtc.runConversions(host.opts);
+                    if (convDiag.length > 0)
+                        return convDiag;
                     var global = service.getCompilerOptionsDiagnostics() || [];
                     var byFile = host.getScriptFileNames().map(fileDiags);
                     var allD = global.concat(pxtc.Util.concat(byFile));
@@ -13099,7 +13849,18 @@ var ts;
                         // Host was reset, don't load apis with empty options
                         return undefined;
                     }
-                    return lastApiInfo = pxtc.getApiInfo(host.opts, service.getProgram());
+                    lastApiInfo = pxtc.internalGetApiInfo(host.opts, service.getProgram());
+                    return lastApiInfo.apis;
+                },
+                snippet: function (v) {
+                    var o = v.snippet;
+                    if (!lastApiInfo)
+                        return undefined;
+                    var fn = lastApiInfo.apis.byQName[o.qName];
+                    var n = lastApiInfo.decls[o.qName];
+                    if (!fn || !n || !ts.isFunctionLike(n))
+                        return undefined;
+                    return ts.pxtc.service.getSnippet(lastApiInfo.apis.byQName, fn, n, !!o.python);
                 },
                 blocksInfo: function (v) { return blocksInfoOp(v); },
                 apiSearch: function (v) {
@@ -13172,7 +13933,7 @@ var ts;
                     };
                     if (!lastFuse || search.subset) {
                         var weights_1 = {};
-                        var builtinSearchSet = void 0;
+                        var builtinSearchSet = [];
                         if (search.subset) {
                             tbSubset = search.subset;
                             builtinSearchSet = builtinItems.filter(function (s) { return !!tbSubset[s.id]; });
@@ -13197,6 +13958,11 @@ var ts;
                             };
                             return mappedSi;
                         });
+                        // filter out built-ins from the main search set as those 
+                        // should come from the built-in search set 
+                        var builtinBlockIds_1 = {};
+                        builtinSearchSet.forEach(function (b) { return builtinBlockIds_1[b.id] = true; });
+                        searchSet = searchSet.filter(function (b) { return !(b.id in builtinBlockIds_1); });
                         var mw_1 = 0;
                         subset.forEach(function (b) {
                             var w = weights_1[b.qName] = fnweight(b);
@@ -13252,6 +14018,9 @@ var ts;
                     }
                     var fns = lastProjectFuse.search(search.term);
                     return fns;
+                },
+                projectSearchClear: function () {
+                    lastProjectFuse = undefined;
                 }
             };
             function performOperation(op, arg) {
@@ -13282,15 +14051,15 @@ var ts;
                 }
             }
             var defaultImgLit = "`\n. . . . .\n. . . . .\n. . # . .\n. . . . .\n. . . . .\n`";
-            function getSnippet(n, attrs) {
-                if (!ts.isFunctionLike(n)) {
-                    return undefined;
-                }
-                var checker = service ? service.getProgram().getTypeChecker() : undefined;
+            function getSnippet(apis, fn, n, python) {
+                var findex = 0;
+                var preStmt = "";
+                var attrs = fn.attributes;
+                var checker = service && service.getProgram().getTypeChecker();
                 var args = n.parameters ? n.parameters.filter(function (param) { return !param.initializer && !param.questionToken; }).map(function (param) {
                     var typeNode = param.type;
                     if (!typeNode)
-                        return "null";
+                        return python ? "None" : "null";
                     var name = param.name.kind === pxtc.SK.Identifier ? param.name.text : undefined;
                     if (attrs && attrs.paramDefl && attrs.paramDefl[name]) {
                         if (typeNode.kind == pxtc.SK.StringKeyword) {
@@ -13302,7 +14071,7 @@ var ts;
                     switch (typeNode.kind) {
                         case pxtc.SK.StringKeyword: return (name == "leds" ? defaultImgLit : "\"\"");
                         case pxtc.SK.NumberKeyword: return "0";
-                        case pxtc.SK.BooleanKeyword: return "false";
+                        case pxtc.SK.BooleanKeyword: return python ? "False" : "false";
                         case pxtc.SK.ArrayType: return "[]";
                         case pxtc.SK.TypeReference:
                             // handled below
@@ -13313,29 +14082,127 @@ var ts;
                             if (functionSignature) {
                                 return getFunctionString(functionSignature);
                             }
-                            return "function () {}";
+                            return emitFn(name);
                     }
-                    var type = checker ? checker.getTypeAtLocation(param) : undefined;
+                    var type = checker && checker.getTypeAtLocation(param);
                     if (type) {
                         if (pxtc.isObjectType(type)) {
+                            var typeSymbol = apis[checker.getFullyQualifiedName(type.symbol)];
+                            var snip = typeSymbol && typeSymbol.attributes && (python ? typeSymbol.attributes.pySnippet : typeSymbol.attributes.snippet);
+                            if (snip)
+                                return snip;
                             if (type.objectFlags & ts.ObjectFlags.Anonymous) {
                                 var sigs = checker.getSignaturesOfType(type, ts.SignatureKind.Call);
-                                if (sigs.length) {
+                                if (sigs && sigs.length) {
                                     return getFunctionString(sigs[0]);
                                 }
-                                return "function () {}";
+                                return emitFn(name);
                             }
                         }
                         if (type.flags & ts.TypeFlags.EnumLike) {
-                            return getDefaultEnumValue(type, checker);
+                            return getDefaultEnumValue(type);
                         }
                         if (type.flags & ts.TypeFlags.NumberLike) {
                             return "0";
                         }
                     }
-                    return "null";
+                    return python ? "None" : "null";
                 }) : [];
-                return n.name.getText() + "(" + args.join(', ') + ")";
+                var fnName = "";
+                if (n.kind == pxtc.SK.Constructor) {
+                    fnName = getSymbolName(n.symbol) || n.parent.name.getText();
+                }
+                else {
+                    fnName = getSymbolName(n.symbol) || n.name.getText();
+                }
+                var snippetPrefix = (fn.attributes.blockNamespace || fn.namespace);
+                var isInstance = false;
+                var addNamespace = false;
+                var namespaceToUse = "";
+                var element = fn;
+                if (element.attributes.block) {
+                    if (element.attributes.defaultInstance) {
+                        snippetPrefix = element.attributes.defaultInstance;
+                        if (python)
+                            snippetPrefix = pxtc.snakify(snippetPrefix);
+                    }
+                    else if (element.namespace) {
+                        var nsInfo_1 = apis[element.namespace];
+                        if (nsInfo_1.attributes.fixedInstances) {
+                            var instances_1 = pxtc.Util.values(apis);
+                            var getExtendsTypesFor_1 = function (name) {
+                                return instances_1
+                                    .filter(function (v) { return v.extendsTypes; })
+                                    .filter(function (v) { return v.extendsTypes.reduce(function (x, y) { return x || y.indexOf(name) != -1; }, false); })
+                                    .reduce(function (x, y) { return x.concat(y.extendsTypes); }, []);
+                            };
+                            // if blockNamespace exists, e.g., "pins", use it for snippet
+                            // else use nsInfo.namespace, e.g., "motors"
+                            namespaceToUse = element.attributes.blockNamespace || nsInfo_1.namespace || "";
+                            // all fixed instances for this namespace
+                            var fixedInstances = instances_1.filter(function (value) {
+                                return value.kind === 4 /* Variable */ &&
+                                    value.attributes.fixedInstance;
+                            });
+                            // first try to get fixed instances whose retType matches nsInfo.name
+                            // e.g., DigitalPin
+                            var exactInstances = fixedInstances.filter(function (value) {
+                                return value.retType == nsInfo_1.qName;
+                            })
+                                .sort(function (v1, v2) { return v1.name.localeCompare(v2.name); });
+                            if (exactInstances.length) {
+                                snippetPrefix = "" + getName(exactInstances[0]);
+                            }
+                            else {
+                                // second choice: use fixed instances whose retType extends type of nsInfo.name
+                                // e.g., nsInfo.name == AnalogPin and instance retType == PwmPin
+                                var extendedInstances = fixedInstances.filter(function (value) {
+                                    return getExtendsTypesFor_1(nsInfo_1.qName).indexOf(value.retType) !== -1;
+                                })
+                                    .sort(function (v1, v2) { return v1.name.localeCompare(v2.name); });
+                                if (extendedInstances.length) {
+                                    snippetPrefix = "" + getName(extendedInstances[0]);
+                                }
+                            }
+                            isInstance = true;
+                            addNamespace = true;
+                        }
+                        else if (element.kind == 1 /* Method */ || element.kind == 2 /* Property */) {
+                            var params = pxt.blocks.compileInfo(element);
+                            if (params.thisParameter) {
+                                snippetPrefix = params.thisParameter.defaultValue || params.thisParameter.definitionName;
+                                if (python)
+                                    snippetPrefix = pxtc.snakify(snippetPrefix);
+                            }
+                            isInstance = true;
+                        }
+                        else if (nsInfo_1.kind === 8 /* Class */) {
+                            return undefined;
+                        }
+                    }
+                }
+                var snippet = fnName + "(" + args.join(', ') + ")";
+                var insertText = snippetPrefix ? snippetPrefix + "." + snippet : snippet;
+                insertText = addNamespace ? firstWord(namespaceToUse) + "." + insertText : insertText;
+                if (attrs && attrs.blockSetVariable)
+                    insertText = "" + (python ? "" : "let ") + (python ? pxtc.snakify(attrs.blockSetVariable) : attrs.blockSetVariable) + " = " + insertText;
+                return preStmt + insertText;
+                function getSymbolName(symbol) {
+                    if (checker) {
+                        var qName = pxtc.getFullName(checker, symbol);
+                        var si = apis[qName];
+                        if (si)
+                            return getName(si);
+                    }
+                    return undefined;
+                }
+                function getName(si) {
+                    return python ? si.pyName : si.name;
+                }
+                function firstWord(s) {
+                    var i = s.indexOf('.');
+                    return i < 0 ? s : s.substring(0, i);
+                }
                 function getFunctionString(functionSignature) {
                     var functionArgument = "()";
                     var returnValue = "";
@@ -13344,38 +14211,53 @@ var ts;
                     });
                     var returnType = checker.getReturnTypeOfSignature(functionSignature);
                     if (returnType.flags & ts.TypeFlags.NumberLike)
-                        returnValue = "return 0;";
+                        returnValue = "return 0";
                     else if (returnType.flags & ts.TypeFlags.StringLike)
-                        returnValue = "return \"\";";
+                        returnValue = "return \"\"";
                     else if (returnType.flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral))
-                        returnValue = "return false;";
+                        returnValue = python ? "return False" : "return false";
                     var displayPartsStr = ts.displayPartsToString(displayParts);
                     functionArgument = displayPartsStr.substr(0, displayPartsStr.lastIndexOf(":"));
-                    return "function " + functionArgument + " {\n    " + returnValue + "\n}";
+                    if (python) {
+                        var n_2 = "fn" + (findex++) + functionArgument;
+                        preStmt += "def " + n_2 + ":\n  " + (returnValue || "pass") + "\n";
+                        return n_2.replace(/\(\)$/, '');
+                    }
+                    else
+                        return "function " + functionArgument + " {\n    " + returnValue + "\n}";
                 }
-            }
-            service_1.getSnippet = getSnippet;
-            function getDefaultEnumValue(t, checker) {
-                // Note: AFAIK this is NOT guranteed to get the same default as you get in
-                // blocks. That being said, it should get the first declared value. Only way
-                // to guarantee an API has the same default in blocks and in TS is to actually
-                // set a default on the parameter in its comment attributes
-                if (t.symbol && t.symbol.declarations && t.symbol.declarations.length) {
-                    for (var i = 0; i < t.symbol.declarations.length; i++) {
-                        var decl = t.symbol.declarations[i];
-                        if (decl.kind === pxtc.SK.EnumDeclaration) {
-                            var enumDeclaration = decl;
-                            for (var j = 0; j < enumDeclaration.members.length; j++) {
-                                var member = enumDeclaration.members[i];
-                                if (member.name.kind === pxtc.SK.Identifier) {
-                                    return checker.getFullyQualifiedName(checker.getSymbolAtLocation(member.name));
+                function emitFn(n) {
+                    if (python) {
+                        n = pxtc.snakify(n);
+                        preStmt += "def " + n + "():\n  pass\n";
+                        return n;
+                    }
+                    else
+                        return "function () {}";
+                }
+                function getDefaultEnumValue(t) {
+                    // Note: AFAIK this is NOT guranteed to get the same default as you get in
+                    // blocks. That being said, it should get the first declared value. Only way
+                    // to guarantee an API has the same default in blocks and in TS is to actually
+                    // set a default on the parameter in its comment attributes
+                    if (checker && t.symbol && t.symbol.declarations && t.symbol.declarations.length) {
+                        for (var i = 0; i < t.symbol.declarations.length; i++) {
+                            var decl = t.symbol.declarations[i];
+                            if (decl.kind === pxtc.SK.EnumDeclaration) {
+                                var enumDeclaration = decl;
+                                for (var j = 0; j < enumDeclaration.members.length; j++) {
+                                    var member = enumDeclaration.members[i];
+                                    if (member.name.kind === pxtc.SK.Identifier) {
+                                        return checker.getFullyQualifiedName(checker.getSymbolAtLocation(member.name));
+                                    }
                                 }
                             }
                         }
                     }
+                    return "0";
                 }
-                return "0";
             }
+            service_1.getSnippet = getSnippet;
         })(service = pxtc.service || (pxtc.service = {}));
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));

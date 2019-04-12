@@ -10,18 +10,17 @@
     {
       "name": "About",
       "subitems": [],
-      "path": "/about",
-      "nextName": "FAQ",
-      "nextPath": "/faq"
+      "path": "/about"
     },
     {
       "name": "FAQ",
       "subitems": [],
-      "path": "/faq",
-      "prevName": "About",
-      "prevPath": "/about",
-      "nextName": "Blocks",
-      "nextPath": "/blocks"
+      "path": "/faq"
+    },
+    {
+      "name": "Projects",
+      "subitems": [],
+      "path": "/projects"
     },
     {
       "name": "Blocks",
@@ -29,11 +28,7 @@
         {
           "name": "On Start",
           "subitems": [],
-          "path": "/blocks/on-start",
-          "prevName": "Blocks",
-          "prevPath": "/blocks",
-          "nextName": "Loops",
-          "nextPath": "/blocks/loops"
+          "path": "/blocks/on-start"
         },
         {
           "name": "Loops",
@@ -41,36 +36,25 @@
             {
               "name": "repeat",
               "subitems": [],
-              "path": "/blocks/loops/repeat",
-              "prevName": "Loops",
-              "prevPath": "/blocks/loops",
-              "nextName": "for",
-              "nextPath": "/blocks/loops/for"
+              "path": "/blocks/loops/repeat"
             },
             {
               "name": "for",
               "subitems": [],
-              "path": "/blocks/loops/for",
-              "prevName": "repeat",
-              "prevPath": "/blocks/loops/repeat",
-              "nextName": "while",
-              "nextPath": "/blocks/loops/while"
+              "path": "/blocks/loops/for"
             },
             {
               "name": "while",
               "subitems": [],
-              "path": "/blocks/loops/while",
-              "prevName": "for",
-              "prevPath": "/blocks/loops/for",
-              "nextName": "Logic",
-              "nextPath": "/blocks/logic"
+              "path": "/blocks/loops/while"
+            },
+            {
+              "name": "for of",
+              "subitems": [],
+              "path": "/blocks/loops/for-of"
             }
           ],
-          "path": "/blocks/loops",
-          "prevName": "On Start",
-          "prevPath": "/blocks/on-start",
-          "nextName": "repeat",
-          "nextPath": "/blocks/loops/repeat"
+          "path": "/blocks/loops"
         },
         {
           "name": "Logic",
@@ -78,27 +62,15 @@
             {
               "name": "if",
               "subitems": [],
-              "path": "/blocks/logic/if",
-              "prevName": "Logic",
-              "prevPath": "/blocks/logic",
-              "nextName": "Boolean",
-              "nextPath": "/blocks/logic/boolean"
+              "path": "/blocks/logic/if"
             },
             {
               "name": "Boolean",
               "subitems": [],
-              "path": "/blocks/logic/boolean",
-              "prevName": "if",
-              "prevPath": "/blocks/logic/if",
-              "nextName": "Variables",
-              "nextPath": "/blocks/variables"
+              "path": "/blocks/logic/boolean"
             }
           ],
-          "path": "/blocks/logic",
-          "prevName": "while",
-          "prevPath": "/blocks/loops/while",
-          "nextName": "if",
-          "nextPath": "/blocks/logic/if"
+          "path": "/blocks/logic"
         },
         {
           "name": "Variables",
@@ -106,70 +78,38 @@
             {
               "name": "assign",
               "subitems": [],
-              "path": "/blocks/variables/assign",
-              "prevName": "Variables",
-              "prevPath": "/blocks/variables",
-              "nextName": "change var",
-              "nextPath": "/blocks/variables/change"
+              "path": "/blocks/variables/assign"
             },
             {
               "name": "change var",
               "subitems": [],
-              "path": "/blocks/variables/change",
-              "prevName": "assign",
-              "prevPath": "/blocks/variables/assign",
-              "nextName": "var",
-              "nextPath": "/blocks/variables/var"
+              "path": "/blocks/variables/change"
             },
             {
               "name": "var",
               "subitems": [],
-              "path": "/blocks/variables/var",
-              "prevName": "change var",
-              "prevPath": "/blocks/variables/change",
-              "nextName": "Math",
-              "nextPath": "/blocks/math"
+              "path": "/blocks/variables/var"
             }
           ],
-          "path": "/blocks/variables",
-          "prevName": "Boolean",
-          "prevPath": "/blocks/logic/boolean",
-          "nextName": "assign",
-          "nextPath": "/blocks/variables/assign"
+          "path": "/blocks/variables"
         },
         {
           "name": "Math",
           "subitems": [],
-          "path": "/blocks/math",
-          "prevName": "var",
-          "prevPath": "/blocks/variables/var",
-          "nextName": "JavaScript blocks",
-          "nextPath": "/blocks/javascript-blocks"
+          "path": "/blocks/math"
         },
         {
           "name": "JavaScript blocks",
           "subitems": [],
-          "path": "/blocks/javascript-blocks",
-          "prevName": "Math",
-          "prevPath": "/blocks/math",
-          "nextName": "Custom blocks",
-          "nextPath": "/blocks/custom"
+          "path": "/blocks/javascript-blocks"
         },
         {
           "name": "Custom blocks",
           "subitems": [],
-          "path": "/blocks/custom",
-          "prevName": "JavaScript blocks",
-          "prevPath": "/blocks/javascript-blocks",
-          "nextName": "JavaScript",
-          "nextPath": "/javascript"
+          "path": "/blocks/custom"
         }
       ],
-      "path": "/blocks",
-      "prevName": "FAQ",
-      "prevPath": "/faq",
-      "nextName": "On Start",
-      "nextPath": "/blocks/on-start"
+      "path": "/blocks"
     },
     {
       "name": "JavaScript",
@@ -177,99 +117,55 @@
         {
           "name": "Calling",
           "subitems": [],
-          "path": "/javascript/call",
-          "prevName": "JavaScript",
-          "prevPath": "/javascript",
-          "nextName": "Sequencing",
-          "nextPath": "/javascript/sequence"
+          "path": "/javascript/call"
         },
         {
           "name": "Sequencing",
           "subitems": [],
-          "path": "/javascript/sequence",
-          "prevName": "Calling",
-          "prevPath": "/javascript/call",
-          "nextName": "Variables",
-          "nextPath": "/javascript/variables"
+          "path": "/javascript/sequence"
         },
         {
           "name": "Variables",
           "subitems": [],
-          "path": "/javascript/variables",
-          "prevName": "Sequencing",
-          "prevPath": "/javascript/sequence",
-          "nextName": "Operators",
-          "nextPath": "/javascript/operators"
+          "path": "/javascript/variables"
         },
         {
           "name": "Operators",
           "subitems": [],
-          "path": "/javascript/operators",
-          "prevName": "Variables",
-          "prevPath": "/javascript/variables",
-          "nextName": "Statements",
-          "nextPath": "/javascript/statements"
+          "path": "/javascript/operators"
         },
         {
           "name": "Statements",
           "subitems": [],
-          "path": "/javascript/statements",
-          "prevName": "Operators",
-          "prevPath": "/javascript/operators",
-          "nextName": "Functions",
-          "nextPath": "/javascript/functions"
+          "path": "/javascript/statements"
         },
         {
           "name": "Functions",
           "subitems": [],
-          "path": "/javascript/functions",
-          "prevName": "Statements",
-          "prevPath": "/javascript/statements",
-          "nextName": "Types",
-          "nextPath": "/javascript/types"
+          "path": "/javascript/functions"
         },
         {
           "name": "Types",
           "subitems": [],
-          "path": "/javascript/types",
-          "prevName": "Functions",
-          "prevPath": "/javascript/functions",
-          "nextName": "Classes",
-          "nextPath": "/javascript/classes"
+          "path": "/javascript/types"
         },
         {
           "name": "Classes",
           "subitems": [],
-          "path": "/javascript/classes",
-          "prevName": "Types",
-          "prevPath": "/javascript/types",
-          "nextName": "Interfaces",
-          "nextPath": "/javascript/interfaces"
+          "path": "/javascript/classes"
         },
         {
           "name": "Interfaces",
           "subitems": [],
-          "path": "/javascript/interfaces",
-          "prevName": "Classes",
-          "prevPath": "/javascript/classes",
-          "nextName": "Generics",
-          "nextPath": "/javascript/generics"
+          "path": "/javascript/interfaces"
         },
         {
           "name": "Generics",
           "subitems": [],
-          "path": "/javascript/generics",
-          "prevName": "Interfaces",
-          "prevPath": "/javascript/interfaces",
-          "nextName": "Types",
-          "nextPath": "/types"
+          "path": "/javascript/generics"
         }
       ],
-      "path": "/javascript",
-      "prevName": "Custom blocks",
-      "prevPath": "/blocks/custom",
-      "nextName": "Calling",
-      "nextPath": "/javascript/call"
+      "path": "/javascript"
     },
     {
       "name": "Types",
@@ -277,54 +173,30 @@
         {
           "name": "Number",
           "subitems": [],
-          "path": "/types/number",
-          "prevName": "Types",
-          "prevPath": "/types",
-          "nextName": "String",
-          "nextPath": "/types/string"
+          "path": "/types/number"
         },
         {
           "name": "String",
           "subitems": [],
-          "path": "/types/string",
-          "prevName": "Number",
-          "prevPath": "/types/number",
-          "nextName": "Boolean",
-          "nextPath": "/types/boolean"
+          "path": "/types/string"
         },
         {
           "name": "Boolean",
           "subitems": [],
-          "path": "/types/boolean",
-          "prevName": "String",
-          "prevPath": "/types/string",
-          "nextName": "Array",
-          "nextPath": "/types/array"
+          "path": "/types/boolean"
         },
         {
           "name": "Array",
           "subitems": [],
-          "path": "/types/array",
-          "prevName": "Boolean",
-          "prevPath": "/types/boolean",
-          "nextName": "Function",
-          "nextPath": "/types/function"
+          "path": "/types/array"
         },
         {
           "name": "Function",
           "subitems": [],
-          "path": "/types/function",
-          "prevName": "Array",
-          "prevPath": "/types/array",
-          "nextName": "About",
-          "nextPath": "/about"
+          "path": "/types/function"
         }
       ],
-      "path": "/types",
-      "prevName": "Generics",
-      "prevPath": "/javascript/generics",
-      "nextName": "Number",
-      "nextPath": "/types/number"
+      "path": "/types"
     },
     {
       "name": "",
@@ -332,60 +204,34 @@
         {
           "name": "About",
           "subitems": [],
-          "path": "/about",
-          "prevName": "Function",
-          "prevPath": "/types/function",
-          "nextName": "Support",
-          "nextPath": "/support"
+          "path": "/about"
         },
         {
           "name": "Support",
           "subitems": [],
-          "path": "/support",
-          "prevName": "About",
-          "prevPath": "/about",
-          "nextName": "Translate",
-          "nextPath": "/translate"
+          "path": "/support"
         },
         {
           "name": "Translate",
           "subitems": [],
-          "path": "/translate",
-          "prevName": "Support",
-          "prevPath": "/support",
-          "nextName": "Sharing projects",
-          "nextPath": "/share"
+          "path": "/translate"
         },
         {
           "name": "Sharing projects",
           "subitems": [],
-          "path": "/share",
-          "prevName": "Translate",
-          "prevPath": "/translate",
-          "nextName": "Offline support",
-          "nextPath": "/offline"
+          "path": "/share"
         },
         {
           "name": "Offline support",
           "subitems": [],
-          "path": "/offline",
-          "prevName": "Sharing projects",
-          "prevPath": "/share",
-          "nextName": "Save",
-          "nextPath": "/save"
+          "path": "/offline"
         },
         {
           "name": "Save",
           "subitems": [],
-          "path": "/save",
-          "prevName": "Offline support",
-          "prevPath": "/offline",
-          "nextName": "Command Line Interface",
-          "nextPath": "/cli"
+          "path": "/save"
         }
-      ],
-      "prevName": "Function",
-      "prevPath": "/types/function"
+      ]
     },
     {
       "name": "",
@@ -393,31 +239,19 @@
         {
           "name": "Command Line Interface",
           "subitems": [],
-          "path": "/cli",
-          "prevName": "Save",
-          "prevPath": "/save",
-          "nextName": "Visual Studio Code support",
-          "nextPath": "/code"
+          "path": "/cli"
         },
         {
           "name": "Visual Studio Code support",
           "subitems": [],
-          "path": "/code",
-          "prevName": "Command Line Interface",
-          "prevPath": "/cli",
-          "nextName": "Blocks Embed",
-          "nextPath": "/blocks-embed"
+          "path": "/code"
         },
         {
           "name": "Blocks Embed",
           "subitems": [],
-          "path": "/blocks-embed",
-          "prevName": "Visual Studio Code support",
-          "prevPath": "/code"
+          "path": "/blocks-embed"
         }
-      ],
-      "prevName": "Save",
-      "prevPath": "/save"
+      ]
     }
   ],
   "id": "turtle",

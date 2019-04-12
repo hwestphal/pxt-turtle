@@ -141,7 +141,7 @@ var pxt;
             if (b.type == "placeholder" || b.type === pxtc.TS_OUTPUT_TYPE)
                 return find(b.p);
             if (b.type == "variables_get")
-                return find(lookup(e, escapeVarName(b.getField("VAR").getText(), e)).type);
+                return find(lookup(e, b, b.getField("VAR").getText()).type);
             if (!b.outputConnection) {
                 return ground(pUnit.type);
             }
@@ -188,7 +188,7 @@ var pxt;
                         if (parentType.childType) {
                             return parentType.childType;
                         }
-                        var p = isArrayType(parentType.type) ? mkPoint(parentType.type.substr(-2)) : mkPoint(null);
+                        var p = isArrayType(parentType.type) ? mkPoint(parentType.type.substr(0, parentType.type.length - 2)) : mkPoint(null);
                         genericLink(parentType, p);
                         return p;
                     }
@@ -328,13 +328,12 @@ var pxt;
                             case "controls_for_of":
                                 unionParam(e, b, "LIST", ground("Array"));
                                 var listTp = returnType(e, getInputTargetBlock(b, "LIST"));
-                                var elementTp = lookup(e, escapeVarName(getLoopVariableField(b).getField("VAR").getText(), e)).type;
+                                var elementTp = lookup(e, b, getLoopVariableField(b).getField("VAR").getText()).type;
                                 genericLink(listTp, elementTp);
                                 break;
                             case "variables_set":
                             case "variables_change":
-                                var x = escapeVarName(b.getField("VAR").getText(), e);
-                                var p1 = lookup(e, x).type;
+                                var p1 = lookup(e, b, b.getField("VAR").getText()).type;
                                 attachPlaceholderIf(e, b, "VALUE");
                                 var rhs = getInputTargetBlock(b, "VALUE");
                                 if (rhs) {
@@ -365,6 +364,11 @@ var pxt;
                                 attachPlaceholderIf(e, b, "VALUE");
                                 handleGenericType(b, "LIST");
                                 unionParam(e, b, "INDEX", ground(pNumber.type));
+                                break;
+                            case 'function_call':
+                                b.getArguments().forEach(function (arg) {
+                                    unionParam(e, b, arg.id, ground(arg.type));
+                                });
                                 break;
                             case pxtc.PAUSE_UNTIL_TYPE:
                                 unionParam(e, b, "PREDICATE", pBoolean);
@@ -411,9 +415,9 @@ var pxt;
                 });
             // Last pass: if some variable has no type (because it was never used or
             // assigned to), just unify it with int...
-            e.bindings.forEach(function (b) {
-                if (getConcreteType(b.type).type == null)
-                    union(b.type, ground(pNumber.type));
+            e.allVariables.forEach(function (v) {
+                if (getConcreteType(v.type).type == null)
+                    union(v.type, ground(pNumber.type));
             });
             function connectionCheck(i) {
                 return i.name ? i.connection && i.connection.check_ && i.connection.check_.length ? i.connection.check_[0] : "T" : undefined;
@@ -439,13 +443,13 @@ var pxt;
             if (p.childType) {
                 union(p.childType, c);
             }
-            else {
+            else if (!p.type) {
                 p.childType = c;
             }
             if (c.parentType) {
                 union(c.parentType, p);
             }
-            else {
+            else if (!c.type) {
                 c.parentType = p;
             }
         }
@@ -620,6 +624,17 @@ var pxt;
             }
             return blocks_1.H.mathCall(op, args);
         }
+        function compileFunctionDefinition(e, b, comments) {
+            var name = escapeVarName(b.getFieldValue("function_name"), e, true);
+            var stmts = getInputTargetBlock(b, "STACK");
+            var argsDeclaration = b.getArguments().map(function (a) {
+                return escapeVarName(a.name, e) + ": " + a.type;
+            });
+            return [
+                blocks_1.mkText("function " + name + " (" + argsDeclaration.join(", ") + ")"),
+                compileStatements(e, stmts)
+            ];
+        }
         function compileProcedure(e, b, comments) {
             var name = escapeVarName(b.getFieldValue("NAME"), e, true);
             var stmts = getInputTargetBlock(b, "STACK");
@@ -631,6 +646,22 @@ var pxt;
         function compileProcedureCall(e, b, comments) {
             var name = escapeVarName(b.getFieldValue("NAME"), e, true);
             return blocks_1.mkStmt(blocks_1.mkText(name + "()"));
+        }
+        function compileFunctionCall(e, b, comments) {
+            var name = escapeVarName(b.getFieldValue("function_name"), e, true);
+            var externalInputs = !b.getInputsInline();
+            var args = b.getArguments().map(function (a) {
+                return {
+                    actualName: a.name,
+                    definitionName: a.id
+                };
+            });
+            var compiledArgs = args.map(function (a) { return compileArgument(e, b, a, comments); });
+            return blocks_1.mkStmt(blocks_1.H.stdCall(name, compiledArgs, externalInputs));
+        }
+        function compileArgumentReporter(e, b, comments) {
+            var name = escapeVarName(b.getFieldValue("VALUE"), e);
+            return blocks_1.mkText(name);
         }
         function compileWorkspaceComment(c) {
             var content = c.getContent();
@@ -737,6 +768,12 @@ var pxt;
                     case pxtc.TS_OUTPUT_TYPE:
                         expr = extractTsExpression(e, b, comments);
                         break;
+                    case "argument_reporter_boolean":
+                    case "argument_reporter_number":
+                    case "argument_reporter_string":
+                    case "argument_reporter_custom":
+                        expr = compileArgumentReporter(e, b, comments);
+                        break;
                     default:
                         var call = e.stdCallTable[b.type];
                         if (call) {
@@ -755,44 +792,12 @@ var pxt;
             return expr;
         }
         blocks_1.compileExpression = compileExpression;
-        var VarUsage;
-        (function (VarUsage) {
-            VarUsage[VarUsage["Unknown"] = 0] = "Unknown";
-            VarUsage[VarUsage["Read"] = 1] = "Read";
-            VarUsage[VarUsage["Assign"] = 2] = "Assign";
-        })(VarUsage = blocks_1.VarUsage || (blocks_1.VarUsage = {}));
-        function isCompiledAsLocalVariable(b) {
-            return b.declaredInLocalScope && !b.mustBeGlobal;
-        }
-        function extend(e, x, t) {
-            assert(lookup(e, x) == null);
-            return {
-                workspace: e.workspace,
-                bindings: [{ name: x, type: ground(t), declaredInLocalScope: 0 }].concat(e.bindings),
-                stdCallTable: e.stdCallTable,
-                errors: e.errors,
-                renames: e.renames,
-                stats: e.stats,
-                enums: e.enums
-            };
-        }
-        function lookup(e, n) {
-            for (var i = 0; i < e.bindings.length; ++i)
-                if (e.bindings[i].name == n)
-                    return e.bindings[i];
-            return null;
-        }
-        function fresh(e, s) {
-            var i = 0;
-            var unique = s;
-            while (lookup(e, unique) != null)
-                unique = s + i++;
-            return unique;
+        function lookup(e, b, name) {
+            return getVarInfo(name, e.idToScope[b.id]);
         }
         function emptyEnv(w) {
             return {
                 workspace: w,
-                bindings: [],
                 stdCallTable: {},
                 errors: [],
                 renames: {
@@ -801,7 +806,11 @@ var pxt;
                     oldToNewFunctions: {}
                 },
                 stats: {},
-                enums: []
+                enums: [],
+                idToScope: {},
+                blockDeclarations: {},
+                allVariables: [],
+                blocksInfo: null
             };
         }
         ;
@@ -837,21 +846,19 @@ var pxt;
             return stmts;
         }
         function compileControlsFor(e, b, comments) {
-            var bVar = escapeVarName(getLoopVariableField(b).getField("VAR").getText(), e);
             var bTo = getInputTargetBlock(b, "TO");
             var bDo = getInputTargetBlock(b, "DO");
             var bBy = getInputTargetBlock(b, "BY");
             var bFrom = getInputTargetBlock(b, "FROM");
             var incOne = !bBy || (bBy.type.match(/^math_number/) && extractNumber(bBy) == 1);
-            var binding = lookup(e, bVar);
-            assert(binding.declaredInLocalScope > 0);
+            var binding = lookup(e, b, getLoopVariableField(b).getField("VAR").getText());
             return [
-                blocks_1.mkText("for (let " + bVar + " = "),
+                blocks_1.mkText("for (let " + binding.escapedName + " = "),
                 bFrom ? compileExpression(e, bFrom, comments) : blocks_1.mkText("0"),
                 blocks_1.mkText("; "),
-                blocks_1.mkInfix(blocks_1.mkText(bVar), "<=", compileExpression(e, bTo, comments)),
+                blocks_1.mkInfix(blocks_1.mkText(binding.escapedName), "<=", compileExpression(e, bTo, comments)),
                 blocks_1.mkText("; "),
-                incOne ? blocks_1.mkText(bVar + "++") : blocks_1.mkInfix(blocks_1.mkText(bVar), "+=", compileExpression(e, bBy, comments)),
+                incOne ? blocks_1.mkText(binding.escapedName + "++") : blocks_1.mkInfix(blocks_1.mkText(binding.escapedName), "+=", compileExpression(e, bBy, comments)),
                 blocks_1.mkText(")"),
                 compileStatements(e, bDo)
             ];
@@ -859,7 +866,7 @@ var pxt;
         function compileControlsRepeat(e, b, comments) {
             var bound = compileExpression(e, getInputTargetBlock(b, "TIMES"), comments);
             var body = compileStatements(e, getInputTargetBlock(b, "DO"));
-            var valid = function (x) { return !lookup(e, x); };
+            var valid = function (x) { return !e.renames.takenNames[x]; };
             var name = "i";
             for (var i = 0; !valid(name); i++)
                 name = "i" + i;
@@ -881,13 +888,11 @@ var pxt;
             ];
         }
         function compileControlsForOf(e, b, comments) {
-            var bVar = escapeVarName(getLoopVariableField(b).getField("VAR").getText(), e);
             var bOf = getInputTargetBlock(b, "LIST");
             var bDo = getInputTargetBlock(b, "DO");
-            var binding = lookup(e, bVar);
-            assert(binding.declaredInLocalScope > 0);
+            var binding = lookup(e, b, getLoopVariableField(b).getField("VAR").getText());
             return [
-                blocks_1.mkText("for (let " + bVar + " of "),
+                blocks_1.mkText("for (let " + binding.escapedName + " of "),
                 compileExpression(e, bOf, comments),
                 blocks_1.mkText(")"),
                 compileStatements(e, bDo)
@@ -921,47 +926,60 @@ var pxt;
             }
             if (isFunction) {
                 e.renames.oldToNewFunctions[name] = n;
+                e.renames.takenNames[n] = true;
             }
             else {
                 e.renames.oldToNew[name] = n;
             }
-            e.renames.takenNames[n] = true;
             return n;
         }
         blocks_1.escapeVarName = escapeVarName;
         function compileVariableGet(e, b) {
-            var name = escapeVarName(b.getField("VAR").getText(), e);
-            var binding = lookup(e, name);
-            if (!binding.assigned)
-                binding.assigned = VarUsage.Read;
+            var binding = lookup(e, b, b.getField("VAR").getText());
+            if (!binding.firstReference)
+                binding.firstReference = b;
             assert(binding != null && binding.type != null);
-            return blocks_1.mkText(name);
+            return blocks_1.mkText(binding.escapedName);
         }
         function compileSet(e, b, comments) {
-            var bVar = escapeVarName(b.getField("VAR").getText(), e);
             var bExpr = getInputTargetBlock(b, "VALUE");
-            var binding = lookup(e, bVar);
-            var isDef = false;
-            if (!binding.assigned)
-                if (b.getSurroundParent()) {
-                    // need to define this variable in the top-scope
-                    binding.assigned = VarUsage.Read;
-                }
-                else {
-                    binding.assigned = VarUsage.Assign;
-                    isDef = true;
-                }
+            var binding = lookup(e, b, b.getField("VAR").getText());
+            var currentScope = e.idToScope[b.id];
+            var isDef = currentScope.declaredVars[binding.name] === binding && !binding.firstReference && !binding.alreadyDeclared;
+            if (isDef) {
+                // Check the expression of the set block to determine if it references itself and needs
+                // to be hoisted
+                forEachChildExpression(b, function (child) {
+                    if (child.type === "variables_get") {
+                        var childBinding = lookup(e, child, child.getField("VAR").getText());
+                        if (childBinding === binding)
+                            isDef = false;
+                    }
+                }, true);
+            }
             var expr = compileExpression(e, bExpr, comments);
-            return blocks_1.mkStmt(blocks_1.mkText(isDef ? "let " : ""), blocks_1.mkText(bVar + " = "), expr);
+            var bindString = binding.escapedName + " = ";
+            if (isDef) {
+                binding.alreadyDeclared = true;
+                var declaredType = getConcreteType(binding.type);
+                bindString = "let " + binding.escapedName + " = ";
+                if (declaredType) {
+                    var expressionType = getConcreteType(returnType(e, bExpr));
+                    if (declaredType.type !== expressionType.type) {
+                        bindString = "let " + binding.escapedName + ": " + declaredType.type + " = ";
+                    }
+                }
+            }
+            else if (!binding.firstReference) {
+                binding.firstReference = b;
+            }
+            return blocks_1.mkStmt(blocks_1.mkText(bindString), expr);
         }
         function compileChange(e, b, comments) {
-            var bVar = escapeVarName(b.getField("VAR").getText(), e);
             var bExpr = getInputTargetBlock(b, "VALUE");
-            var binding = lookup(e, bVar);
-            if (!binding.assigned)
-                binding.assigned = VarUsage.Read;
+            var binding = lookup(e, b, b.getField("VAR").getText());
             var expr = compileExpression(e, bExpr, comments);
-            var ref = blocks_1.mkText(bVar);
+            var ref = blocks_1.mkText(binding.escapedName);
             return blocks_1.mkStmt(blocks_1.mkInfix(ref, "+=", expr));
         }
         function eventArgs(call, b) {
@@ -1160,8 +1178,14 @@ var pxt;
                 case 'procedures_defnoreturn':
                     r = compileProcedure(e, b, comments);
                     break;
+                case 'function_definition':
+                    r = compileFunctionDefinition(e, b, comments);
+                    break;
                 case 'procedures_callnoreturn':
                     r = [compileProcedureCall(e, b, comments)];
+                    break;
+                case 'function_call':
+                    r = [compileFunctionCall(e, b, comments)];
                     break;
                 case ts.pxtc.ON_START_TYPE:
                     r = compileStartEvent(e, b).children;
@@ -1198,10 +1222,17 @@ var pxt;
         }
         function compileStatements(e, b) {
             var stmts = [];
+            var firstBlock = b;
             while (b) {
                 if (!b.disabled)
                     append(stmts, compileStatementBlock(e, b));
                 b = b.getNextBlock();
+            }
+            if (firstBlock && e.blockDeclarations[firstBlock.id]) {
+                e.blockDeclarations[firstBlock.id].filter(function (v) { return !v.alreadyDeclared; }).forEach(function (varInfo) {
+                    stmts.unshift(mkVariableDeclaration(varInfo, e.blocksInfo));
+                    varInfo.alreadyDeclared = true;
+                });
             }
             return blocks_1.mkBlock(stmts);
         }
@@ -1213,26 +1244,6 @@ var pxt;
                 i++;
                 if (value !== null) {
                     res.push(blocks_1.mkText(value + "\n"));
-                    var declaredVars = b.declaredVariables;
-                    if (declaredVars) {
-                        var varNames = declaredVars.split(",");
-                        varNames.forEach(function (n) {
-                            var existing = lookup(e, n);
-                            if (existing) {
-                                existing.assigned = VarUsage.Assign;
-                                existing.mustBeGlobal = false;
-                            }
-                            else {
-                                e.bindings.push({
-                                    name: n,
-                                    type: mkPoint(null),
-                                    assigned: VarUsage.Assign,
-                                    declaredInLocalScope: 1,
-                                    mustBeGlobal: false
-                                });
-                            }
-                        });
-                    }
                 }
                 else {
                     break;
@@ -1272,16 +1283,21 @@ var pxt;
         // - All variables have been assigned an initial [Point] in the union-find.
         // - Variables have been marked to indicate if they are compatible with the
         //   TouchDevelop for-loop model.
-        function mkEnv(w, blockInfo, skipVariables) {
+        function mkEnv(w, blockInfo) {
             // The to-be-returned environment.
             var e = emptyEnv(w);
+            e.blocksInfo = blockInfo;
             // append functions in stdcalltable
             if (blockInfo) {
                 // Enums, tagged templates, and namespaces are not enclosed in namespaces,
                 // so add them to the taken names to avoid collision
                 Object.keys(blockInfo.apis.byQName).forEach(function (name) {
                     var info = blockInfo.apis.byQName[name];
-                    if (info.kind === pxtc.SymbolKind.Enum || info.kind === pxtc.SymbolKind.Function || info.kind === pxtc.SymbolKind.Module) {
+                    // Note: the check for info.pkg filters out functions defined in the user's project.
+                    // Otherwise, after the first compile the function will be renamed because it conflicts
+                    // with itself. You can still get collisions if you attempt to define a function with
+                    // the same name as a function defined in another file in the user's project (e.g. custom.ts)
+                    if (info.pkg && (info.kind === 6 /* Enum */ || info.kind === 3 /* Function */ || info.kind === 5 /* Module */)) {
                         e.renames.takenNames[info.qName] = true;
                     }
                 });
@@ -1310,90 +1326,12 @@ var pxt;
                         isIdentity: fn.attributes.shim == "TD_ID"
                     };
                 });
-            }
-            if (skipVariables)
-                return e;
-            var loopBlocks = ["controls_for", "controls_simple_for", "controls_for_of", "pxt_controls_for", "pxt_controls_for_of"];
-            var variableIsScoped = function (b, name) {
-                if (!b)
-                    return false;
-                else if (loopBlocks.filter(function (l) { return l == b.type; }).length > 0
-                    && escapeVarName(getLoopVariableField(b).getField("VAR").getText(), e) == name)
-                    return true;
-                else if (isMutatingBlock(b) && b.mutation.isDeclaredByMutation(name))
-                    return true;
-                var stdFunc = e.stdCallTable[b.type];
-                if (stdFunc && stdFunc.comp.handlerArgs.length) {
-                    var foundIt_1 = false;
-                    var names = getEscapedCBParameters(b, stdFunc, e);
-                    names.forEach(function (varName) {
-                        if (foundIt_1)
-                            return;
-                        if (varName === name) {
-                            foundIt_1 = true;
-                        }
-                    });
-                    if (foundIt_1) {
-                        return true;
-                    }
-                }
-                return variableIsScoped(b.getSurroundParent(), name);
-            };
-            function trackLocalDeclaration(name, type) {
-                // It's ok for two loops to share the same variable.
-                if (lookup(e, name) == null)
-                    e = extend(e, name, type);
-                lookup(e, name).declaredInLocalScope++;
-                // If multiple loops share the same
-                // variable, that means there's potential race conditions in concurrent
-                // code, so faithfully compile this as a global variable.
-                if (lookup(e, name).declaredInLocalScope > 1)
-                    lookup(e, name).mustBeGlobal = true;
-            }
-            // collect local variables.
-            if (w)
-                w.getAllBlocks().filter(function (b) { return !b.disabled; }).forEach(function (b) {
-                    if (loopBlocks.filter(function (l) { return l == b.type; }).length > 0) {
-                        var x = escapeVarName(getLoopVariableField(b).getField("VAR").getText(), e);
-                        if (b.type == "controls_for_of") {
-                            trackLocalDeclaration(x, null);
-                        }
-                        else {
-                            trackLocalDeclaration(x, pNumber.type);
-                        }
-                    }
-                    else if (isMutatingBlock(b)) {
-                        var declarations_1 = b.mutation.getDeclaredVariables();
-                        if (declarations_1) {
-                            Object.keys(declarations_1).forEach(function (varName) {
-                                trackLocalDeclaration(escapeVarName(varName, e), declarations_1[varName]);
-                            });
-                        }
-                    }
-                    var stdFunc = e.stdCallTable[b.type];
-                    if (stdFunc && stdFunc.comp.handlerArgs.length) {
-                        var names = getEscapedCBParameters(b, stdFunc, e);
-                        names.forEach(function (varName, index) {
-                            if (varName != null) {
-                                trackLocalDeclaration(escapeVarName(varName, e), stdFunc.comp.handlerArgs[index].type);
-                            }
-                        });
-                    }
+                w.getTopBlocks(false).filter(isFunctionDefinition).forEach(function (b) {
+                    // Add functions to the rename map to prevent name collisions with variables
+                    var name = b.type === "procedures_defnoreturn" ? b.getFieldValue("NAME") : b.getFieldValue("function_name");
+                    escapeVarName(name, e, true);
                 });
-            // determine for-loop compatibility: for each get or
-            // set block, 1) make sure that the variable is bound, then 2) mark the variable if needed.
-            if (w)
-                w.getAllBlocks().filter(function (b) { return !b.disabled; }).forEach(function (b) {
-                    if (b.type == "variables_get" || b.type == "variables_set" || b.type == "variables_change") {
-                        var x = escapeVarName(b.getField("VAR").getText(), e);
-                        if (lookup(e, x) == null)
-                            e = extend(e, x, null);
-                        var binding = lookup(e, x);
-                        if (binding.declaredInLocalScope && !variableIsScoped(b, x))
-                            // loop index is read outside the loop.
-                            binding.mustBeGlobal = true;
-                    }
-                });
+            }
             return e;
         }
         blocks_1.mkEnv = mkEnv;
@@ -1420,18 +1358,19 @@ var pxt;
         }
         function compileWorkspace(e, w, blockInfo) {
             try {
-                infer(e, w);
-                var stmtsMain_1 = [];
                 // all compiled top level blocks are events
                 var topblocks = w.getTopBlocks(true).sort(function (a, b) {
                     return eventWeight(a, e) - eventWeight(b, e);
                 });
                 updateDisabledBlocks(e, w.getAllBlocks(), topblocks);
+                trackAllVariables(topblocks, e);
+                infer(e, w);
+                var stmtsMain_1 = [];
                 // compile workspace comments, add them to the top
                 var topComments = w.getTopComments(true);
                 var commentMap_1 = groupWorkspaceComments(topblocks, topComments);
                 commentMap_1.orphans.forEach(function (comment) { return append(stmtsMain_1, compileWorkspaceComment(comment).children); });
-                topblocks.forEach(function (b) {
+                topblocks.filter(function (b) { return !b.disabled; }).forEach(function (b) {
                     if (commentMap_1.idToComments[b.id]) {
                         commentMap_1.idToComments[b.id].forEach(function (comment) {
                             append(stmtsMain_1, compileWorkspaceComment(comment).children);
@@ -1440,7 +1379,7 @@ var pxt;
                     if (b.type == ts.pxtc.ON_START_TYPE)
                         append(stmtsMain_1, compileStartEvent(e, b).children);
                     else {
-                        var compiled = compileStatements(e, b);
+                        var compiled = blocks_1.mkBlock(compileStatementBlock(e, b));
                         if (compiled.type == blocks_1.NT.Block)
                             append(stmtsMain_1, compiled.children);
                         else
@@ -1473,6 +1412,10 @@ var pxt;
                                     newNode = blocks_1.H.mkAssign(blocks_1.mkText(name), blocks_1.H.mkSimpleCall("<<", [blocks_1.H.mkNumberLiteral(1), blocks_1.H.mkNumberLiteral(shift)]));
                                 }
                             }
+                            else if (info.isHash) {
+                                var hash = ts.pxtc.Util.codalHash16(name.toLowerCase());
+                                newNode = blocks_1.H.mkAssign(blocks_1.mkText(name), blocks_1.H.mkNumberLiteral(hash));
+                            }
                             if (!newNode) {
                                 if (value === lastValue_1 + 1) {
                                     newNode = blocks_1.mkText(name);
@@ -1492,34 +1435,8 @@ var pxt;
                         ]));
                     }
                 });
-                // All variables in this script are compiled as locals within main unless loop or previsouly assigned
-                var stmtsVariables = e.bindings.filter(function (b) { return !isCompiledAsLocalVariable(b) && b.assigned != VarUsage.Assign; })
-                    .map(function (b) {
-                    var t = getConcreteType(b.type);
-                    var defl;
-                    if (t.type === "Array") {
-                        defl = blocks_1.mkText("[]");
-                    }
-                    else {
-                        defl = defaultValueForType(t);
-                    }
-                    var tp = "";
-                    if (defl.op == "null" || defl.op == "[]") {
-                        var tpname = t.type;
-                        // If the type is "Array" or null[] it means that we failed to narrow the type of array.
-                        // Best we can do is just default to number[]
-                        if (tpname === "Array" || tpname === "null[]") {
-                            tpname = "number[]";
-                        }
-                        var tpinfo = blockInfo.apis.byQName[tpname];
-                        if (tpinfo && tpinfo.attributes.autoCreate)
-                            defl = blocks_1.mkText(tpinfo.attributes.autoCreate + "()");
-                        else
-                            tp = ": " + tpname;
-                    }
-                    return blocks_1.mkStmt(blocks_1.mkText("let " + b.name + tp + " = "), defl);
-                });
-                return stmtsEnums_1.concat(stmtsVariables.concat(stmtsMain_1));
+                var leftoverVars = e.allVariables.filter(function (v) { return !v.alreadyDeclared; }).map(function (v) { return mkVariableDeclaration(v, blockInfo); });
+                return stmtsEnums_1.concat(leftoverVars.concat(stmtsMain_1));
             }
             catch (err) {
                 var be = err.block;
@@ -1571,7 +1488,7 @@ var pxt;
                 // multiple calls allowed
                 if (b.type == ts.pxtc.ON_START_TYPE)
                     flagDuplicate(ts.pxtc.ON_START_TYPE, b);
-                else if (b.type === "procedures_defnoreturn" || call && call.attrs.blockAllowMultiple && !call.attrs.handlerStatement)
+                else if (isFunctionDefinition(b) || call && call.attrs.blockAllowMultiple && !call.attrs.handlerStatement)
                     return;
                 else if (call && call.hasHandler && !call.attrs.handlerStatement) {
                     // compute key that identifies event call
@@ -1678,11 +1595,30 @@ var pxt;
                 r.unshift(commentNode);
             }
         }
-        function endsWith(text, suffix) {
-            if (text.length < suffix.length) {
-                return false;
+        function mkVariableDeclaration(v, blockInfo) {
+            var t = getConcreteType(v.type);
+            var defl;
+            if (t.type === "Array") {
+                defl = blocks_1.mkText("[]");
             }
-            return text.substr(text.length - suffix.length) === suffix;
+            else {
+                defl = defaultValueForType(t);
+            }
+            var tp = "";
+            if (defl.op == "null" || defl.op == "[]") {
+                var tpname = t.type;
+                // If the type is "Array" or null[] it means that we failed to narrow the type of array.
+                // Best we can do is just default to number[]
+                if (tpname === "Array" || tpname === "null[]") {
+                    tpname = "number[]";
+                }
+                var tpinfo = blockInfo.apis.byQName[tpname];
+                if (tpinfo && tpinfo.attributes.autoCreate)
+                    defl = blocks_1.mkText(tpinfo.attributes.autoCreate + "()");
+                else
+                    tp = ": " + tpname;
+            }
+            return blocks_1.mkStmt(blocks_1.mkText("let " + v.escapedName + tp + " = "), defl);
         }
         function countOptionals(b) {
             if (b.mutationToDom) {
@@ -1712,14 +1648,23 @@ var pxt;
             return res;
         }
         function getEscapedCBParameters(b, stdfun, e) {
+            return getCBParameters(b, stdfun).map(function (binding) { return lookup(e, b, binding[0]).escapedName; });
+        }
+        function getCBParameters(b, stdfun) {
             var handlerArgs = [];
             if (stdfun.attrs.draggableParameters) {
                 for (var i = 0; i < stdfun.comp.handlerArgs.length; i++) {
                     var arg = stdfun.comp.handlerArgs[i];
+                    var varName = void 0;
                     var varBlock = getInputTargetBlock(b, "HANDLER_DRAG_PARAM_" + arg.name);
-                    var varName = varBlock && varBlock.getField("VAR").getText();
+                    if (stdfun.attrs.draggableParameters === "reporter") {
+                        varName = varBlock && varBlock.getFieldValue("VALUE");
+                    }
+                    else {
+                        varName = varBlock && varBlock.getField("VAR").getText();
+                    }
                     if (varName !== null) {
-                        handlerArgs.push(escapeVarName(varName, e));
+                        handlerArgs.push([varName, mkPoint(arg.type)]);
                     }
                     else {
                         break;
@@ -1732,7 +1677,7 @@ var pxt;
                     var varField = b.getField("HANDLER_" + arg.name);
                     var varName = varField && varField.getText();
                     if (varName !== null) {
-                        handlerArgs.push(escapeVarName(varName, e));
+                        handlerArgs.push([varName, mkPoint(arg.type)]);
                     }
                     else {
                         break;
@@ -1792,6 +1737,314 @@ var pxt;
             }
             return map;
         }
+        function referencedWithinScope(scope, varID) {
+            if (scope.referencedVars.indexOf(varID) !== -1) {
+                return true;
+            }
+            else {
+                for (var _i = 0, _a = scope.children; _i < _a.length; _i++) {
+                    var child = _a[_i];
+                    if (referencedWithinScope(child, varID))
+                        return true;
+                }
+            }
+            return false;
+        }
+        function assignedWithinScope(scope, varID) {
+            if (scope.assignedVars.indexOf(varID) !== -1) {
+                return true;
+            }
+            else {
+                for (var _i = 0, _a = scope.children; _i < _a.length; _i++) {
+                    var child = _a[_i];
+                    if (assignedWithinScope(child, varID))
+                        return true;
+                }
+            }
+            return false;
+        }
+        function escapeVariables(current, e) {
+            for (var _i = 0, _a = Object.keys(current.declaredVars); _i < _a.length; _i++) {
+                var varName = _a[_i];
+                var info = current.declaredVars[varName];
+                if (!info.escapedName)
+                    info.escapedName = escapeVarName(varName);
+            }
+            current.children.forEach(function (c) { return escapeVariables(c, e); });
+            function escapeVarName(name) {
+                if (!name)
+                    return '_';
+                var n = ts.pxtc.escapeIdentifier(name);
+                if (e.renames.takenNames[n] || nameIsTaken(n, current)) {
+                    var i = 2;
+                    while (e.renames.takenNames[n + i] || nameIsTaken(n + i, current)) {
+                        i++;
+                    }
+                    n += i;
+                }
+                return n;
+            }
+            function nameIsTaken(name, scope) {
+                if (scope) {
+                    for (var _i = 0, _a = Object.keys(scope.declaredVars); _i < _a.length; _i++) {
+                        var varName = _a[_i];
+                        var info = scope.declaredVars[varName];
+                        if (info.name !== info.escapedName && info.escapedName === name)
+                            return true;
+                    }
+                    return nameIsTaken(name, scope.parent);
+                }
+                return false;
+            }
+        }
+        function findCommonScope(current, varID) {
+            var ref;
+            if (current.referencedVars.indexOf(varID) !== -1) {
+                return current;
+            }
+            for (var _i = 0, _a = current.children; _i < _a.length; _i++) {
+                var child = _a[_i];
+                if (referencedWithinScope(child, varID)) {
+                    if (assignedWithinScope(child, varID)) {
+                        return current;
+                    }
+                    if (!ref) {
+                        ref = child;
+                    }
+                    else {
+                        return current;
+                    }
+                }
+            }
+            return ref ? findCommonScope(ref, varID) : undefined;
+        }
+        function trackAllVariables(topBlocks, e) {
+            topBlocks = topBlocks.filter(function (b) { return !b.disabled; });
+            var id = 1;
+            var topScope;
+            // First, look for on-start
+            topBlocks.forEach(function (block) {
+                if (block.type === ts.pxtc.ON_START_TYPE) {
+                    var firstStatement = block.getInputTargetBlock("HANDLER");
+                    if (firstStatement) {
+                        topScope = {
+                            firstStatement: firstStatement,
+                            declaredVars: {},
+                            referencedVars: [],
+                            children: [],
+                            assignedVars: []
+                        };
+                        trackVariables(firstStatement, topScope, e);
+                    }
+                }
+            });
+            // If we didn't find on-start, then create an empty top scope
+            if (!topScope) {
+                topScope = {
+                    firstStatement: null,
+                    declaredVars: {},
+                    referencedVars: [],
+                    children: [],
+                    assignedVars: []
+                };
+            }
+            topBlocks.forEach(function (block) {
+                if (block.type === ts.pxtc.ON_START_TYPE) {
+                    return;
+                }
+                trackVariables(block, topScope, e);
+            });
+            Object.keys(topScope.declaredVars).forEach(function (varName) {
+                var varID = topScope.declaredVars[varName];
+                delete topScope.declaredVars[varName];
+                var declaringScope = findCommonScope(topScope, varID.id) || topScope;
+                declaringScope.declaredVars[varName] = varID;
+            });
+            markDeclarationLocations(topScope, e);
+            escapeVariables(topScope, e);
+            return topScope;
+            function trackVariables(block, currentScope, e) {
+                e.idToScope[block.id] = currentScope;
+                if (block.type === "variables_get") {
+                    var name_1 = block.getField("VAR").getText();
+                    var info = findOrDeclareVariable(name_1, currentScope);
+                    currentScope.referencedVars.push(info.id);
+                }
+                else if (block.type === "variables_set" || block.type === "variables_change") {
+                    var name_2 = block.getField("VAR").getText();
+                    var info = findOrDeclareVariable(name_2, currentScope);
+                    currentScope.assignedVars.push(info.id);
+                    currentScope.referencedVars.push(info.id);
+                }
+                else if (block.type === pxtc.TS_STATEMENT_TYPE) {
+                    var declaredVars = block.declaredVariables;
+                    if (declaredVars) {
+                        var varNames = declaredVars.split(",");
+                        varNames.forEach(function (vName) {
+                            var info = findOrDeclareVariable(vName, currentScope);
+                            info.alreadyDeclared = true;
+                        });
+                    }
+                }
+                if (hasStatementInput(block)) {
+                    var vars = getDeclaredVariables(block, e).map(function (binding) {
+                        return {
+                            name: binding[0],
+                            type: binding[1],
+                            id: id++
+                        };
+                    });
+                    var parentScope_1 = currentScope;
+                    if (vars.length) {
+                        // We need to create a scope for this block, and then a scope
+                        // for each statement input (in case there are multiple)
+                        parentScope_1 = {
+                            parent: currentScope,
+                            firstStatement: block,
+                            declaredVars: {},
+                            referencedVars: [],
+                            assignedVars: [],
+                            children: []
+                        };
+                        vars.forEach(function (v) {
+                            v.alreadyDeclared = true;
+                            parentScope_1.declaredVars[v.name] = v;
+                        });
+                        e.idToScope[block.id] = parentScope_1;
+                    }
+                    if (currentScope !== parentScope_1) {
+                        currentScope.children.push(parentScope_1);
+                    }
+                    forEachChildExpression(block, function (child) {
+                        trackVariables(child, parentScope_1, e);
+                    });
+                    forEachStatementInput(block, function (connectedBlock) {
+                        var newScope = {
+                            parent: parentScope_1,
+                            firstStatement: connectedBlock,
+                            declaredVars: {},
+                            referencedVars: [],
+                            assignedVars: [],
+                            children: []
+                        };
+                        parentScope_1.children.push(newScope);
+                        trackVariables(connectedBlock, newScope, e);
+                    });
+                }
+                else {
+                    forEachChildExpression(block, function (child) {
+                        trackVariables(child, currentScope, e);
+                    });
+                }
+                if (block.nextConnection && block.nextConnection.targetBlock()) {
+                    trackVariables(block.nextConnection.targetBlock(), currentScope, e);
+                }
+            }
+            function findOrDeclareVariable(name, scope) {
+                if (scope.declaredVars[name]) {
+                    return scope.declaredVars[name];
+                }
+                else if (scope.parent) {
+                    return findOrDeclareVariable(name, scope.parent);
+                }
+                else {
+                    // Declare it in the top scope
+                    scope.declaredVars[name] = {
+                        name: name,
+                        type: mkPoint(null),
+                        id: id++
+                    };
+                    return scope.declaredVars[name];
+                }
+            }
+        }
+        function getVarInfo(name, scope) {
+            if (scope.declaredVars[name]) {
+                return scope.declaredVars[name];
+            }
+            else if (scope.parent) {
+                return getVarInfo(name, scope.parent);
+            }
+            else {
+                return null;
+            }
+        }
+        function hasStatementInput(block) {
+            return block.inputList.some(function (i) { return i.type === Blockly.NEXT_STATEMENT; });
+        }
+        function getDeclaredVariables(block, e) {
+            switch (block.type) {
+                case 'pxt_controls_for':
+                case 'controls_simple_for':
+                    return [[getLoopVariableField(block).getField("VAR").getText(), pNumber]];
+                case 'pxt_controls_for_of':
+                case 'controls_for_of':
+                    return [[getLoopVariableField(block).getField("VAR").getText(), mkPoint(null)]];
+                default:
+                    break;
+            }
+            if (isMutatingBlock(block)) {
+                var declarations_1 = block.mutation.getDeclaredVariables();
+                if (declarations_1) {
+                    return Object.keys(declarations_1).map(function (varName) { return [varName, mkPoint(declarations_1[varName])]; });
+                }
+            }
+            var stdFunc = e.stdCallTable[block.type];
+            if (stdFunc && stdFunc.comp.handlerArgs.length) {
+                return getCBParameters(block, stdFunc);
+            }
+            return [];
+        }
+        function forEachChildExpression(block, cb, recursive) {
+            if (recursive === void 0) { recursive = false; }
+            block.inputList.filter(function (i) { return i.type === Blockly.INPUT_VALUE; }).forEach(function (i) {
+                if (i.connection && i.connection.targetBlock()) {
+                    cb(i.connection.targetBlock());
+                    if (recursive) {
+                        forEachChildExpression(i.connection.targetBlock(), cb, recursive);
+                    }
+                }
+            });
+        }
+        function forEachStatementInput(block, cb) {
+            block.inputList.filter(function (i) { return i.type === Blockly.NEXT_STATEMENT; }).forEach(function (i) {
+                if (i.connection && i.connection.targetBlock()) {
+                    cb(i.connection.targetBlock());
+                }
+            });
+        }
+        function printScope(scope, depth) {
+            if (depth === void 0) { depth = 0; }
+            var declared = Object.keys(scope.declaredVars).map(function (k) { return k + "(" + scope.declaredVars[k].id + ")"; }).join(",");
+            var referenced = scope.referencedVars.join(", ");
+            console.log(mkIndent(depth) + "SCOPE: " + (scope.firstStatement ? scope.firstStatement.type : "TOP-LEVEL"));
+            if (declared.length) {
+                console.log(mkIndent(depth) + "DECS: " + declared);
+            }
+            // console.log(`${mkIndent(depth)}REFS: ${referenced}`)
+            scope.children.forEach(function (s) { return printScope(s, depth + 1); });
+        }
+        function mkIndent(depth) {
+            var res = "";
+            for (var i = 0; i < depth; i++) {
+                res += "    ";
+            }
+            return res;
+        }
+        function markDeclarationLocations(scope, e) {
+            var declared = Object.keys(scope.declaredVars);
+            if (declared.length) {
+                var decls = declared.map(function (name) { return scope.declaredVars[name]; });
+                if (scope.firstStatement) {
+                    // If we can't find a better place to declare the variable, we'll declare
+                    // it before the first statement in the code block so we need to keep
+                    // track of the blocks ids
+                    e.blockDeclarations[scope.firstStatement.id] = decls.concat(e.blockDeclarations[scope.firstStatement.id] || []);
+                }
+                decls.forEach(function (d) { return e.allVariables.push(d); });
+            }
+            scope.children.forEach(function (child) { return markDeclarationLocations(child, e); });
+        }
         function doesIntersect(x, y, width, height, other) {
             var xOverlap = between(x, other.x, other.x + other.width) || between(other.x, x, x + width);
             var yOverlap = between(y, other.y, other.y + other.height) || between(other.y, y, y + height);
@@ -1799,6 +2052,9 @@ var pxt;
             function between(val, lower, upper) {
                 return val >= lower && val <= upper;
             }
+        }
+        function isFunctionDefinition(b) {
+            return b.type === "procedures_defnoreturn" || b.type === "function_definition";
         }
     })(blocks = pxt.blocks || (pxt.blocks = {}));
 })(pxt || (pxt = {}));
@@ -1835,12 +2091,14 @@ var pxt;
             registerFieldEditor('toggleupdown', pxtblockly.FieldToggleUpDown);
             registerFieldEditor('toggledownup', pxtblockly.FieldToggleDownUp);
             registerFieldEditor('togglehighlow', pxtblockly.FieldToggleHighLow);
+            registerFieldEditor('togglewinlose', pxtblockly.FieldToggleWinLose);
             registerFieldEditor('colornumber', pxtblockly.FieldColorNumber);
             registerFieldEditor('images', pxtblockly.FieldImages);
             registerFieldEditor('sprite', pxtblockly.FieldSpriteEditor);
             registerFieldEditor('speed', pxtblockly.FieldSpeed);
             registerFieldEditor('turnratio', pxtblockly.FieldTurnRatio);
             registerFieldEditor('protractor', pxtblockly.FieldProtractor);
+            registerFieldEditor('position', pxtblockly.FieldPosition);
         }
         blocks.initFieldEditors = initFieldEditors;
         function registerFieldEditor(selector, field, validator) {
@@ -1876,7 +2134,7 @@ var pxt;
     var blocks;
     (function (blocks_2) {
         /**
-         * Converts a DOM into workspace without triggering any Blockly event
+         * Converts a DOM into workspace without triggering any Blockly event. Returns the new block ids
          * @param dom
          * @param workspace
          */
@@ -1884,13 +2142,29 @@ var pxt;
             pxt.tickEvent("blocks.domtow");
             try {
                 Blockly.Events.disable();
-                return Blockly.Xml.domToWorkspace(dom, workspace);
+                var newBlockIds = Blockly.Xml.domToWorkspace(dom, workspace);
+                applyMetaComments(workspace);
+                return newBlockIds;
             }
             finally {
                 Blockly.Events.enable();
             }
         }
         blocks_2.domToWorkspaceNoEvents = domToWorkspaceNoEvents;
+        function applyMetaComments(workspace) {
+            // process meta comments
+            // @highlight -> highlight block
+            workspace.getAllBlocks()
+                .filter(function (b) { return !!b.comment && b.comment instanceof Blockly.Comment; })
+                .forEach(function (b) {
+                var c = b.comment.getText();
+                if (/@highlight/.test(c)) {
+                    var cc = c.replace(/@highlight/g, '').trim();
+                    b.setCommentText(cc || null);
+                    workspace.highlightBlock(b.id);
+                }
+            });
+        }
         function clearWithoutEvents(workspace) {
             pxt.tickEvent("blocks.clear");
             if (!workspace)
@@ -2004,6 +2278,9 @@ var pxt;
         function importXml(pkgTargetVersion, xml, info, skipReport) {
             if (skipReport === void 0) { skipReport = false; }
             try {
+                // If it's the first project we're importing in the session, Blockly is not initialized
+                // and blocks haven't been injected yet
+                pxt.blocks.initializeAndInject(info);
                 var parser = new DOMParser();
                 var doc_1 = parser.parseFromString(xml, "application/xml");
                 var upgrades = pxt.patching.computePatches(pkgTargetVersion);
@@ -2035,7 +2312,7 @@ var pxt;
                 var enums_1 = {};
                 Object.keys(info.apis.byQName).forEach(function (k) {
                     var api = info.apis.byQName[k];
-                    if (api.kind == pxtc.SymbolKind.EnumMember)
+                    if (api.kind == 7 /* EnumMember */)
                         enums_1[api.namespace + '.' + (api.attributes.blockImportId || api.attributes.block || api.attributes.blockId || api.name)]
                             = api.namespace + '.' + api.name;
                 });
@@ -2067,7 +2344,7 @@ var pxt;
             var comp = blocks_2.compileInfo(symbol);
             symbol.parameters.forEach(function (p, i) {
                 var ptype = info.apis.byQName[p.type];
-                if (ptype && ptype.kind == pxtc.SymbolKind.Enum) {
+                if (ptype && ptype.kind == 6 /* Enum */) {
                     var field = getFirstChildWithAttr(block, "field", "name", comp.actualNameToParam[p.name].definitionName);
                     if (field) {
                         var en = enums[ptype.name + '.' + field.textContent];
@@ -2115,7 +2392,7 @@ var pxt;
                     var otp = ob.xy_;
                     if (otp && otp.x != 0 && otp.y != 0) {
                         if (!env) {
-                            env = pxt.blocks.mkEnv(oldWs, blockInfo, true);
+                            env = pxt.blocks.mkEnv(oldWs, blockInfo);
                             newBlocks = {};
                             newWs.getTopBlocks(false).forEach(function (b) {
                                 var nkey = pxt.blocks.callKey(env, b);
@@ -2358,7 +2635,10 @@ var pxt;
                     imageXLinkCache = {};
                 var images = xsg.getElementsByTagName("image");
                 var p = pxt.Util.toArray(images)
-                    .filter(function (image) { return !/^data:/.test(image.getAttributeNS(XLINK_NAMESPACE, "href")); })
+                    .filter(function (image) {
+                    var href = image.getAttributeNS(XLINK_NAMESPACE, "href");
+                    return href && !/^data:/.test(href);
+                })
                     .map(function (image) {
                     var href = image.getAttributeNS(XLINK_NAMESPACE, "href");
                     var dataUri = imageXLinkCache[href];
@@ -2566,157 +2846,45 @@ var pxt;
                 defaultValue: "list"
             }
         };
-        // this keeps a bit of state for perf reasons
-        var ImageConverter = /** @class */ (function () {
-            function ImageConverter() {
-            }
-            ImageConverter.prototype.logTime = function () {
-                if (this.start) {
-                    var d = Date.now() - this.start;
-                    pxt.debug("Icon cration: " + d + "ms");
-                }
-            };
-            ImageConverter.prototype.convert = function (jresURL) {
-                if (!this.start)
-                    this.start = Date.now();
-                var data = atob(jresURL.slice(jresURL.indexOf(",") + 1));
-                var magic = data.charCodeAt(0);
-                var w = data.charCodeAt(1);
-                var h = data.charCodeAt(2);
-                if (magic != 0xe1 && magic != 0xe4)
-                    return null;
-                function htmlColorToBytes(hexColor) {
-                    var v = parseInt(hexColor.replace(/#/, ""), 16);
-                    return [(v >> 0) & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, 0xff];
-                }
-                if (!this.palette) {
-                    var arrs = pxt.appTarget.runtime.palette.map(htmlColorToBytes);
-                    // Set the alpha for transparency at index 0
-                    arrs[0][3] = 0;
-                    this.palette = new Uint8Array(arrs.length * 4);
-                    for (var i = 0; i < arrs.length; ++i) {
-                        this.palette[i * 4 + 0] = arrs[i][0];
-                        this.palette[i * 4 + 1] = arrs[i][1];
-                        this.palette[i * 4 + 2] = arrs[i][2];
-                        this.palette[i * 4 + 3] = arrs[i][3];
-                    }
-                }
-                if (magic == 0xe1) {
-                    return this.genMonochrome(data, w, h);
-                }
-                var scaleFactor = ((pxt.BrowserUtils.isEdge() || pxt.BrowserUtils.isIE()) && w < 100 && h < 100) ? 3 : 1;
-                return this.genColor(data, w, h, scaleFactor);
-            };
-            ImageConverter.prototype.genMonochrome = function (data, w, h) {
-                var outByteW = (w + 3) & ~3;
-                var bmpHeaderSize = 14 + 40 + this.palette.length;
-                var bmpSize = bmpHeaderSize + outByteW * h;
-                var bmp = new Uint8Array(bmpSize);
-                bmp[0] = 66;
-                bmp[1] = 77;
-                pxt.HF2.write32(bmp, 2, bmpSize);
-                pxt.HF2.write32(bmp, 10, bmpHeaderSize);
-                pxt.HF2.write32(bmp, 14, 40); // size of this header
-                pxt.HF2.write32(bmp, 18, w);
-                pxt.HF2.write32(bmp, 22, -h); // not upside down
-                pxt.HF2.write16(bmp, 26, 1); // 1 color plane
-                pxt.HF2.write16(bmp, 28, 8); // 8bpp
-                pxt.HF2.write32(bmp, 38, 2835); // 72dpi
-                pxt.HF2.write32(bmp, 42, 2835);
-                pxt.HF2.write32(bmp, 46, this.palette.length >> 2);
-                bmp.set(this.palette, 54);
-                var inP = 4;
-                var outP = bmpHeaderSize;
-                var mask = 0x01;
-                var v = data.charCodeAt(inP++);
-                for (var x = 0; x < w; ++x) {
-                    outP = bmpHeaderSize + x;
-                    for (var y = 0; y < h; ++y) {
-                        bmp[outP] = (v & mask) ? 1 : 0;
-                        outP += outByteW;
-                        mask <<= 1;
-                        if (mask == 0x100) {
-                            mask = 0x01;
-                            v = data.charCodeAt(inP++);
-                        }
-                    }
-                }
-                return "data:image/bmp;base64," + btoa(pxt.U.uint8ArrayToString(bmp));
-            };
-            ImageConverter.prototype.genColor = function (data, width, height, intScale) {
-                intScale = Math.max(1, intScale | 0);
-                var w = width * intScale;
-                var h = height * intScale;
-                var outByteW = w << 2;
-                var bmpHeaderSize = 138;
-                var bmpSize = bmpHeaderSize + outByteW * h;
-                var bmp = new Uint8Array(bmpSize);
-                bmp[0] = 66;
-                bmp[1] = 77;
-                pxt.HF2.write32(bmp, 2, bmpSize);
-                pxt.HF2.write32(bmp, 10, bmpHeaderSize);
-                pxt.HF2.write32(bmp, 14, 124); // size of this header
-                pxt.HF2.write32(bmp, 18, w);
-                pxt.HF2.write32(bmp, 22, -h); // not upside down
-                pxt.HF2.write16(bmp, 26, 1); // 1 color plane
-                pxt.HF2.write16(bmp, 28, 32); // 32bpp
-                pxt.HF2.write16(bmp, 30, 3); // magic?
-                pxt.HF2.write32(bmp, 38, 2835); // 72dpi
-                pxt.HF2.write32(bmp, 42, 2835);
-                pxt.HF2.write32(bmp, 54, 0xff0000); // Red bitmask
-                pxt.HF2.write32(bmp, 58, 0xff00); // Green bitmask
-                pxt.HF2.write32(bmp, 62, 0xff); // Blue bitmask
-                pxt.HF2.write32(bmp, 66, 0xff000000); // Alpha bitmask
-                // Color space (sRGB)
-                bmp[70] = 0x42; // B
-                bmp[71] = 0x47; // G
-                bmp[72] = 0x52; // R
-                bmp[73] = 0x73; // s
-                var inP = 4;
-                var outP = bmpHeaderSize;
-                for (var x = 0; x < w; x++) {
-                    var high = false;
-                    outP = bmpHeaderSize + (x << 2);
-                    var columnStart = inP;
-                    var v = data.charCodeAt(inP++);
-                    var colorStart = high ? (((v >> 4) & 0xf) << 2) : ((v & 0xf) << 2);
-                    for (var y = 0; y < h; y++) {
-                        bmp[outP] = this.palette[colorStart];
-                        bmp[outP + 1] = this.palette[colorStart + 1];
-                        bmp[outP + 2] = this.palette[colorStart + 2];
-                        bmp[outP + 3] = this.palette[colorStart + 3];
-                        outP += outByteW;
-                        if (y % intScale === intScale - 1) {
-                            if (high) {
-                                v = data.charCodeAt(inP++);
-                            }
-                            high = !high;
-                            colorStart = high ? (((v >> 4) & 0xf) << 2) : ((v & 0xf) << 2);
-                        }
-                    }
-                    if (x % intScale === intScale - 1) {
-                        if (!(height % 2))
-                            --inP;
-                        while (inP & 3)
-                            inP++;
-                    }
-                    else {
-                        inP = columnStart;
-                    }
-                }
-                return "data:image/bmp;base64," + btoa(pxt.U.uint8ArrayToString(bmp));
-            };
-            return ImageConverter;
-        }());
         // Add numbers before input names to prevent clashes with the ones added by BlocklyLoader
         blocks.optionalDummyInputPrefix = "0_optional_dummy";
         blocks.optionalInputWithFieldPrefix = "0_optional_field";
-        // Matches arrays and tuple types
-        var arrayTypeRegex = /^(?:Array<.+>)|(?:.+\[\])|(?:\[.+\])$/;
+        // Matches arrays
         function isArrayType(type) {
-            return arrayTypeRegex.test(type);
+            var arrayTypeRegex = /^(?:Array<(.+)>)|(?:(.+)\[\])|(?:\[.+\])$/;
+            var parsed = arrayTypeRegex.exec(type);
+            if (parsed) {
+                // Is an array, returns what type it is an array of
+                if (parsed[1]) {
+                    // Is an array with form Array<type>
+                    return parsed[1];
+                }
+                else {
+                    // Is an array with form type[]
+                    return parsed[2];
+                }
+            }
+            else {
+                // Not an array
+                return undefined;
+            }
         }
         blocks.isArrayType = isArrayType;
+        // Matches tuples
+        function isTupleType(type) {
+            var tupleTypeRegex = /^\[(.+)\]$/;
+            var parsed = tupleTypeRegex.exec(type);
+            if (parsed) {
+                // Returns an array containing the types of the tuple
+                return parsed[1].split(/,\s*/);
+            }
+            else {
+                // Not a tuple
+                return undefined;
+            }
+        }
+        blocks.isTupleType = isTupleType;
+        var primitiveTypeRegex = /^(string|number|boolean)$/;
         // list of built-in blocks, should be touched.
         var _builtinBlocks;
         function builtinBlocks() {
@@ -2740,6 +2908,8 @@ var pxt;
             "variables_change": true,
             "device_while": true
         };
+        // Cached block info from the last inject operation
+        var cachedBlockInfo;
         var cachedBlocks = {};
         function blockSymbol(type) {
             var b = cachedBlocks[type];
@@ -2749,6 +2919,8 @@ var pxt;
         function createShadowValue(info, p, shadowId, defaultV) {
             defaultV = defaultV || p.defaultValue;
             shadowId = shadowId || p.shadowBlockId;
+            if (!shadowId && p.range)
+                shadowId = "math_number_minmax";
             var defaultValue;
             if (defaultV && defaultV.slice(0, 1) == "\"")
                 defaultValue = JSON.parse(defaultV);
@@ -2764,11 +2936,41 @@ var pxt;
             var isVariable = shadowId == "variables_get";
             var value = document.createElement("value");
             value.setAttribute("name", p.definitionName);
-            var shadow = document.createElement(isVariable ? "block" : "shadow");
+            var isArray = isArrayType(p.type);
+            var shadow = document.createElement(isVariable || isArray ? "block" : "shadow");
             value.appendChild(shadow);
-            var typeInfo = typeDefaults[p.type];
-            shadow.setAttribute("type", shadowId || typeInfo && typeInfo.block || p.type);
+            var typeInfo = typeDefaults[isArray || p.type];
+            shadow.setAttribute("type", shadowId || (isArray ? 'lists_create_with' : typeInfo && typeInfo.block || p.type));
             shadow.setAttribute("colour", Blockly.Colours.textField);
+            // if an array of booleans, numbers, or strings
+            if (isArray && typeInfo && !shadowId) {
+                var mut_1 = document.createElement('mutation');
+                mut_1.setAttribute("items", "3");
+                shadow.appendChild(mut_1);
+                for (var i = 0; i < 3; i++) {
+                    var innerValue = document.createElement("value");
+                    innerValue.setAttribute("name", "ADD" + i);
+                    var innerShadow = document.createElement("shadow");
+                    innerShadow.setAttribute("type", typeInfo.block);
+                    var field = document.createElement("field");
+                    field.setAttribute("name", typeInfo.field);
+                    switch (isArray) {
+                        case "number":
+                            field.appendChild(document.createTextNode("" + (i + 1)));
+                            break;
+                        case "string":
+                            field.appendChild(document.createTextNode(String.fromCharCode('a'.charCodeAt(0) + i)));
+                            break;
+                        case "boolean":
+                            field.appendChild(document.createTextNode("FALSE"));
+                            break;
+                    }
+                    innerShadow.appendChild(field);
+                    innerValue.appendChild(innerShadow);
+                    shadow.appendChild(innerValue);
+                }
+                return value;
+            }
             if (typeInfo && (!shadowId || typeInfo.block === shadowId || shadowId === "math_number_minmax")) {
                 var field = document.createElement("field");
                 shadow.appendChild(field);
@@ -2814,8 +3016,32 @@ var pxt;
                     shadow.appendChild(field);
                 }
             }
+            var mut;
+            if (p.range) {
+                mut = document.createElement('mutation');
+                mut.setAttribute('min', p.range.min.toString());
+                mut.setAttribute('max', p.range.max.toString());
+                mut.setAttribute('label', p.actualName.charAt(0).toUpperCase() + p.actualName.slice(1));
+                if (p.fieldOptions) {
+                    if (p.fieldOptions['step'])
+                        mut.setAttribute('step', p.fieldOptions['step']);
+                    if (p.fieldOptions['color'])
+                        mut.setAttribute('color', p.fieldOptions['color']);
+                    if (p.fieldOptions['precision'])
+                        mut.setAttribute('precision', p.fieldOptions['precision']);
+                }
+            }
+            if (p.fieldOptions) {
+                if (!mut)
+                    mut = document.createElement('mutation');
+                mut.setAttribute("customfield", JSON.stringify(p.fieldOptions));
+            }
+            if (mut) {
+                shadow.appendChild(mut);
+            }
             return value;
         }
+        blocks.createShadowValue = createShadowValue;
         function createFlyoutHeadingLabel(name, color, icon, iconClass) {
             var headingLabel = createFlyoutLabel(name, pxt.toolbox.convertColor(color), icon, iconClass);
             headingLabel.setAttribute('web-class', 'blocklyFlyoutHeading');
@@ -2877,50 +3103,41 @@ var pxt;
             }
             if (fn.parameters) {
                 comp.parameters.filter(function (pr) { return !pr.isOptional &&
-                    (/^(string|number|boolean)$/.test(pr.type) || pr.shadowBlockId || pr.defaultValue); })
+                    (primitiveTypeRegex.test(pr.type)
+                        || primitiveTypeRegex.test(isArrayType(pr.type))
+                        || pr.shadowBlockId
+                        || pr.defaultValue); })
                     .forEach(function (pr) {
-                    var shadowValue;
-                    var container;
-                    if (pr.range) {
-                        shadowValue = createShadowValue(info, pr, "math_number_minmax");
-                        container = document.createElement('mutation');
-                        container.setAttribute('min', pr.range.min.toString());
-                        container.setAttribute('max', pr.range.max.toString());
-                        container.setAttribute('label', pr.actualName.charAt(0).toUpperCase() + pr.actualName.slice(1));
-                        if (pr.fieldOptions) {
-                            if (pr.fieldOptions['step'])
-                                container.setAttribute('step', pr.fieldOptions['step']);
-                            if (pr.fieldOptions['color'])
-                                container.setAttribute('color', pr.fieldOptions['color']);
-                            if (pr.fieldOptions['precision'])
-                                container.setAttribute('precision', pr.fieldOptions['precision']);
-                        }
-                    }
-                    else {
-                        shadowValue = createShadowValue(info, pr);
-                    }
-                    if (pr.fieldOptions) {
-                        if (!container)
-                            container = document.createElement('mutation');
-                        container.setAttribute("customfield", JSON.stringify(pr.fieldOptions));
-                    }
-                    if (shadowValue && container)
-                        shadowValue.firstChild.appendChild(container);
-                    block.appendChild(shadowValue);
+                    block.appendChild(createShadowValue(info, pr));
                 });
                 if (fn.attributes.draggableParameters) {
                     comp.handlerArgs.forEach(function (arg) {
+                        // draggableParameters="variable":
                         // <value name="HANDLER_DRAG_PARAM_arg">
                         // <shadow type="variables_get_reporter">
                         //     <field name="VAR">defaultName</field>
                         // </shadow>
                         // </value>
+                        // draggableParameters="reporter"
+                        // <value name="HANDLER_DRAG_PARAM_arg">
+                        //     <shadow type="argument_reporter_custom">
+                        //         <mutation typename="Sprite"></mutation>
+                        //         <field name="VALUE">mySprite</field>
+                        //     </shadow>
+                        // </value>
+                        var useReporter = fn.attributes.draggableParameters === "reporter";
                         var value = document.createElement("value");
                         value.setAttribute("name", "HANDLER_DRAG_PARAM_" + arg.name);
+                        var blockType = useReporter ? pxt.blocks.reporterTypeForArgType(arg.type) : "variables_get_reporter";
                         var shadow = document.createElement("shadow");
-                        shadow.setAttribute("type", "variables_get_reporter");
+                        shadow.setAttribute("type", blockType);
+                        if (useReporter && blockType === "argument_reporter_custom") {
+                            var mutation = document.createElement("mutation");
+                            mutation.setAttribute("typename", arg.type);
+                            shadow.appendChild(mutation);
+                        }
                         var field = document.createElement("field");
-                        field.setAttribute("name", "VAR");
+                        field.setAttribute("name", useReporter ? "VALUE" : "VAR");
                         field.textContent = pxt.Util.htmlEscape(arg.name);
                         shadow.appendChild(field);
                         value.appendChild(shadow);
@@ -2940,6 +3157,8 @@ var pxt;
         }
         blocks.createToolboxBlock = createToolboxBlock;
         function injectBlocks(blockInfo) {
+            cachedBlockInfo = blockInfo;
+            Blockly.pxtBlocklyUtils.whitelistDraggableBlockTypes(blockInfo.blocks.filter(function (fn) { return fn.attributes.duplicateShadowOnDrag; }).map(function (fn) { return fn.attributes.blockId; }));
             // inject Blockly with all block definitions
             return blockInfo.blocks
                 .map(function (fn) {
@@ -3029,7 +3248,7 @@ var pxt;
         }
         function initBlock(block, info, fn, comp) {
             var ns = (fn.attributes.blockNamespace || fn.namespace).split('.')[0];
-            var instance = fn.kind == pxtc.SymbolKind.Method || fn.kind == pxtc.SymbolKind.Property;
+            var instance = fn.kind == 1 /* Method */ || fn.kind == 2 /* Property */;
             var nsinfo = info.apis.byQName[ns];
             var color = 
             // blockNamespace overrides color on block
@@ -3063,13 +3282,13 @@ var pxt;
             }
             else if (fn.attributes._expandedDef && fn.attributes.expandableArgumentMode !== "disabled") {
                 var shouldToggle = fn.attributes.expandableArgumentMode === "toggle";
-                blocks.initExpandableBlock(block, fn.attributes._expandedDef, comp, shouldToggle, function () { return buildBlockFromDef(fn.attributes._expandedDef, true); });
+                blocks.initExpandableBlock(info, block, fn.attributes._expandedDef, comp, shouldToggle, function () { return buildBlockFromDef(fn.attributes._expandedDef, true); });
             }
             else if (comp.handlerArgs.length) {
                 /**
-                 * We support three modes for handler parameters: variable dropdowns,
+                 * We support four modes for handler parameters: variable dropdowns,
                  * expandable variable dropdowns with +/- buttons (used for chat commands),
-                 * and as draggable variable blocks
+                 * draggable variable blocks, and draggable reporter blocks.
                  */
                 hasHandler = true;
                 if (fn.attributes.optionalVariableArgs) {
@@ -3078,7 +3297,12 @@ var pxt;
                 else if (fn.attributes.draggableParameters) {
                     comp.handlerArgs.filter(function (a) { return !a.inBlockDef; }).forEach(function (arg) {
                         var i = block.appendValueInput("HANDLER_DRAG_PARAM_" + arg.name);
-                        i.setCheck("Variable");
+                        if (fn.attributes.draggableParameters == "reporter") {
+                            i.setCheck(getBlocklyCheckForType(arg.type, info));
+                        }
+                        else {
+                            i.setCheck("Variable");
+                        }
                     });
                 }
                 else {
@@ -3128,37 +3352,10 @@ var pxt;
             var body = fn.parameters ? fn.parameters.filter(function (pr) { return pr.type == "() => void" || pr.type == "Action"; })[0] : undefined;
             if (body || hasHandler) {
                 block.appendStatementInput("HANDLER")
-                    .setCheck("null");
+                    .setCheck(null);
                 block.setInputsInline(true);
             }
-            switch (fn.retType) {
-                case "number":
-                    block.setOutput(true, "Number");
-                    break;
-                case "string":
-                    block.setOutput(true, "String");
-                    break;
-                case "boolean":
-                    block.setOutput(true, "Boolean");
-                    break;
-                case "void": break; // do nothing
-                //TODO
-                default:
-                    if (fn.retType !== "T") {
-                        var opt_check = isArrayType(fn.retType) ? ["Array"] : [];
-                        var si_r = info.apis.byQName[fn.retType];
-                        if (si_r && si_r.extendsTypes && 0 < si_r.extendsTypes.length) {
-                            opt_check.push.apply(opt_check, si_r.extendsTypes);
-                        }
-                        else {
-                            opt_check.push(fn.retType);
-                        }
-                        block.setOutput(true, opt_check);
-                    }
-                    else {
-                        block.setOutput(true);
-                    }
-            }
+            setOutputCheck(block, fn.retType, info);
             // hook up/down if return value is void
             var hasHandlers = hasArrowFunction(fn);
             block.setPreviousStatement(!(hasHandlers && !fn.attributes.handlerStatement) && fn.retType == "void");
@@ -3169,7 +3366,7 @@ var pxt;
                 var anonIndex = 0;
                 var firstParam = !expanded && !!comp.thisParameter;
                 var inputs = splitInputs(def);
-                var imgConv = new ImageConverter();
+                var imgConv = new pxt.ImageConverter();
                 if (fn.attributes.shim === "ENUM_GET") {
                     if (comp.parameters.length > 1 || comp.thisParameter) {
                         console.warn("Enum blocks may only have 1 parameter but " + fn.attributes.blockId + " has " + comp.parameters.length);
@@ -3206,14 +3403,14 @@ var pxt;
                             }
                             if (isHandlerArg(pr_1)) {
                                 inputName = "HANDLER_DRAG_PARAM_" + pr_1.name;
-                                inputCheck = "Variable";
+                                inputCheck = fn.attributes.draggableParameters === "reporter" ? getBlocklyCheckForType(pr_1.type, info) : "Variable";
                                 return;
                             }
                             var typeInfo = pxt.U.lookup(info.apis.byQName, pr_1.type);
                             hasParameter = true;
                             var defName = pr_1.definitionName;
                             var actName = pr_1.actualName;
-                            var isEnum = typeInfo && typeInfo.kind == pxtc.SymbolKind.Enum;
+                            var isEnum = typeInfo && typeInfo.kind == 6 /* Enum */;
                             var isFixed = typeInfo && !!typeInfo.attributes.fixedInstances && !pr_1.shadowBlockId;
                             var isConstantShim = !!fn.attributes.constantShim;
                             var isCombined = pr_1.type == "@combined@";
@@ -3321,6 +3518,9 @@ var pxt;
                                     else {
                                         inputCheck = "String";
                                     }
+                                }
+                                else if (pr_1.type == "any") {
+                                    inputCheck = null;
                                 }
                                 else {
                                     inputCheck = pr_1.type == "T" ? undefined : (isArrayType(pr_1.type) ? ["Array", pr_1.type] : pr_1.type);
@@ -3433,6 +3633,51 @@ var pxt;
                     this.disabled = disabled;
                 }
             };
+        }
+        /**
+         * Converts a TypeScript type into an array of type checks for Blockly inputs/outputs. Use
+         * with block.setOutput() and input.setCheck().
+         *
+         * @returns An array of checks if the type is valid, undefined if there are no valid checks
+         *      (e.g. type is void), and null if all checks should be accepted (e.g. type is generic)
+         */
+        function getBlocklyCheckForType(type, info) {
+            switch (type) {
+                // Blockly capitalizes primitive types for its builtin math/string/logic blocks
+                case "number": return ["Number"];
+                case "string": return ["String"];
+                case "boolean": return ["Boolean"];
+                case "any": return null;
+                case "void": return undefined;
+                default:
+                    if (type !== "T") {
+                        // We add "Array" to the front for array types so that they can be connected
+                        // to the blocks that accept any array (e.g. length, push, pop, etc)
+                        var opt_check = isArrayType(type) ? ["Array"] : [];
+                        // Blockly has no concept of inheritance, so we need to add all
+                        // super classes to the check array
+                        var si_r = info.apis.byQName[type];
+                        if (si_r && si_r.extendsTypes && 0 < si_r.extendsTypes.length) {
+                            opt_check.push.apply(opt_check, si_r.extendsTypes);
+                        }
+                        else {
+                            opt_check.push(type);
+                        }
+                        return opt_check;
+                    }
+                    else {
+                        // The type is generic, so accept any checks. This is mostly used with functions that
+                        // get values from arrays. This could be improved if we ever add proper type
+                        // inference for generic types
+                        return null;
+                    }
+            }
+        }
+        function setOutputCheck(block, retType, info) {
+            var check = getBlocklyCheckForType(retType, info);
+            if (check || check === null) {
+                block.setOutput(true, check);
+            }
         }
         function setBuiltinHelpInfo(block, id) {
             var info = pxt.blocks.getBlockDefinition(id);
@@ -3682,9 +3927,9 @@ var pxt;
                 customContextMenu: function (options) {
                     if (!this.isCollapsed()) {
                         var option = { enabled: true };
-                        var name_1 = this.getField('VAR').getText();
-                        option.text = lf("Create 'get {0}'", name_1);
-                        var xmlField = goog.dom.createDom('field', null, name_1);
+                        var name_3 = this.getField('VAR').getText();
+                        option.text = lf("Create 'get {0}'", name_3);
+                        var xmlField = goog.dom.createDom('field', null, name_3);
                         xmlField.setAttribute('name', 'VAR');
                         var xmlBlock = goog.dom.createDom('block', null, xmlField);
                         xmlBlock.setAttribute('type', 'variables_get');
@@ -3849,7 +4094,7 @@ var pxt;
                 menuOptions.push(formatCodeOption);
                 if (pxt.blocks.layout.screenshotEnabled()) {
                     var screenshotOption = {
-                        text: lf("Download Screenshot"),
+                        text: lf("Snapshot"),
                         enabled: topBlocks.length > 0 || topComments.length > 0,
                         callback: function () {
                             pxt.tickEvent("blocks.context.screenshot", undefined, { interactiveConsent: true });
@@ -3867,49 +4112,6 @@ var pxt;
                 if (blocks.onShowContextMenu)
                     blocks.onShowContextMenu(this, menuOptions);
                 Blockly.ContextMenu.show(e, menuOptions, this.RTL);
-            };
-            // We override Blockly's category mouse event handler so that only one
-            // category can be expanded at a time. Also prevent categories from toggling
-            // once openend.
-            Blockly.Toolbox.TreeNode.prototype.onClick_ = function (a) {
-                // Expand icon.
-                var that = this;
-                if (!that.isSelected()) {
-                    // Collapse the currently selected node and its parent nodes
-                    collapseSubcategories(that.getTree().getSelectedItem(), that);
-                }
-                if (that.hasChildren() && that.isUserCollapsible_) {
-                    if (that.isSelected()) {
-                        collapseSubcategories(that.getTree().getSelectedItem(), that);
-                        that.getTree().setSelectedItem(null);
-                    }
-                    else {
-                        that.setExpanded(true);
-                        that.select();
-                    }
-                }
-                else if (that.isSelected()) {
-                    that.getTree().setSelectedItem(null);
-                }
-                else {
-                    that.select();
-                }
-                that.updateRow();
-            };
-            // We also must override this handler to handle the case where no category is selected (e.g. clicking outside the toolbox)
-            var oldSetSelectedItem = Blockly.Toolbox.TreeControl.prototype.setSelectedItem;
-            var editor = this;
-            Blockly.Toolbox.TreeControl.prototype.setSelectedItem = function (a) {
-                var that = this;
-                var toolbox = that.toolbox_;
-                if (a == that.selectedItem_ || a == toolbox.tree_) {
-                    return;
-                }
-                var oldSelectedItem = that.selectedItem_;
-                oldSetSelectedItem.call(that, a);
-                if (a === null) {
-                    collapseSubcategories(oldSelectedItem);
-                }
             };
             // Get rid of bumping behavior
             Blockly.Constants.Logic.LOGIC_COMPARE_ONCHANGE_MIXIN.onchange = function () { };
@@ -4376,6 +4578,18 @@ var pxt;
         }
         function initFunctions() {
             var msg = Blockly.Msg;
+            // New functions implementation messages
+            msg.FUNCTION_CREATE_NEW = lf("Make a Function...");
+            msg.FUNCTION_WARNING_DUPLICATE_ARG = lf("Functions cannot use the same argument name more than once.");
+            msg.FUNCTION_WARNING_ARG_NAME_IS_FUNCTION_NAME = lf("Argument names must not be the same as the function name.");
+            msg.FUNCTION_WARNING_EMPTY_NAME = lf("Function and argument names cannot be empty.");
+            msg.FUNCTIONS_DEFAULT_FUNCTION_NAME = lf("doSomething");
+            msg.FUNCTIONS_DEFAULT_BOOLEAN_ARG_NAME = lf("bool");
+            msg.FUNCTIONS_DEFAULT_STRING_ARG_NAME = lf("text");
+            msg.FUNCTIONS_DEFAULT_NUMBER_ARG_NAME = lf("num");
+            msg.FUNCTIONS_DEFAULT_CUSTOM_ARG_NAME = lf("arg");
+            msg.PROCEDURES_HUE = pxt.toolbox.getNamespaceColor("functions");
+            msg.REPORTERS_HUE = pxt.toolbox.getNamespaceColor("variables");
             // builtin procedures_defnoreturn
             var proceduresDefId = "procedures_defnoreturn";
             var proceduresDef = pxt.blocks.getBlockDefinition(proceduresDefId);
@@ -4451,8 +4665,8 @@ var pxt;
                         // Look for the case where a procedure call was created (usually through
                         // paste) and there is no matching definition.  In this case, create
                         // an empty definition block with the correct signature.
-                        var name_2 = this.getProcedureCall();
-                        var def = Blockly.Procedures.getDefinition(name_2, this.workspace);
+                        var name_4 = this.getProcedureCall();
+                        var def = Blockly.Procedures.getDefinition(name_4, this.workspace);
                         if (def && (def.type != this.defType_ ||
                             JSON.stringify(def.arguments_) != JSON.stringify(this.arguments_))) {
                             // The signatures don't match.
@@ -4489,8 +4703,8 @@ var pxt;
                         // Look for the case where a procedure definition has been deleted,
                         // leaving this block (a procedure call) orphaned.  In this case, delete
                         // the orphan.
-                        var name_3 = this.getProcedureCall();
-                        var def = Blockly.Procedures.getDefinition(name_3, this.workspace);
+                        var name_5 = this.getProcedureCall();
+                        var def = Blockly.Procedures.getDefinition(name_5, this.workspace);
                         if (!def) {
                             Blockly.Events.setGroup(event.group);
                             this.dispose(true, false);
@@ -4527,6 +4741,16 @@ var pxt;
                 defType_: 'procedures_defnoreturn'
             };
             installBuiltinHelpInfo(proceduresCallId);
+            // New functions implementation function_definition
+            var functionDefinitionId = "function_definition";
+            var functionDefinition = pxt.blocks.getBlockDefinition(functionDefinitionId);
+            msg.FUNCTIONS_EDIT_OPTION = functionDefinition.block["FUNCTIONS_EDIT_OPTION"];
+            installBuiltinHelpInfo(functionDefinitionId);
+            // New functions implementation function_call
+            var functionCallId = "function_call";
+            var functionCall = pxt.blocks.getBlockDefinition(functionCallId);
+            msg.FUNCTIONS_CALL_TITLE = functionCall.block["FUNCTIONS_CALL_TITLE"];
+            installBuiltinHelpInfo(functionCallId);
             Blockly.Procedures.flyoutCategory = function (workspace) {
                 var xmlList = [];
                 if (!pxt.appTarget.appTheme.hideFlyoutHeadings) {
@@ -4608,7 +4832,7 @@ var pxt;
                 xmlList.push(button);
                 function populateProcedures(procedureList, templateName) {
                     for (var i = 0; i < procedureList.length; i++) {
-                        var name_4 = procedureList[i][0];
+                        var name_6 = procedureList[i][0];
                         var args = procedureList[i][1];
                         // <block type="procedures_callnoreturn" gap="16">
                         //   <field name="NAME">name</field>
@@ -4617,7 +4841,7 @@ var pxt;
                         block.setAttribute('type', templateName);
                         block.setAttribute('gap', '16');
                         block.setAttribute('colour', pxt.toolbox.getNamespaceColor('functions'));
-                        var field = goog.dom.createDom('field', null, name_4);
+                        var field = goog.dom.createDom('field', null, name_6);
                         field.setAttribute('name', 'NAME');
                         block.appendChild(field);
                         xmlList.push(block);
@@ -4627,6 +4851,42 @@ var pxt;
                 populateProcedures(tuple[0], 'procedures_callnoreturn');
                 return xmlList;
             };
+            // Patch new functions flyout to add the heading
+            var oldFlyout = Blockly.Functions.flyoutCategory;
+            Blockly.Functions.flyoutCategory = function (workspace) {
+                var elems = oldFlyout(workspace);
+                var headingLabel = createFlyoutHeadingLabel(lf("Functions"), pxt.toolbox.getNamespaceColor('functions'), pxt.toolbox.getNamespaceIcon('functions'), 'blocklyFlyoutIconfunctions');
+                elems.unshift(headingLabel);
+                return elems;
+            };
+            // Configure function editor argument icons
+            var iconsMap = {
+                number: pxt.blocks.defaultIconForArgType("number"),
+                boolean: pxt.blocks.defaultIconForArgType("boolean"),
+                string: pxt.blocks.defaultIconForArgType("string")
+            };
+            var customNames = {};
+            var functionOptions = pxt.appTarget.runtime && pxt.appTarget.runtime.functionsOptions;
+            if (functionOptions && functionOptions.extraFunctionEditorTypes) {
+                functionOptions.extraFunctionEditorTypes.forEach(function (t) {
+                    iconsMap[t.typeName] = t.icon || pxt.blocks.defaultIconForArgType();
+                    if (t.defaultName) {
+                        customNames[t.typeName] = t.defaultName;
+                    }
+                });
+            }
+            Blockly.PXTBlockly.FunctionUtils.argumentIcons = iconsMap;
+            Blockly.PXTBlockly.FunctionUtils.argumentDefaultNames = customNames;
+            if (Blockly.Blocks["argument_reporter_custom"]) {
+                // The logic for setting the output check relies on the internals of PXT
+                // too much to be refactored into pxt-blockly, so we need to monkey patch
+                // it here
+                Blockly.Blocks["argument_reporter_custom"].domToMutation = function (xmlElement) {
+                    var typeName = xmlElement.getAttribute('typename');
+                    this.typeName_ = typeName;
+                    setOutputCheck(this, typeName, cachedBlockInfo);
+                };
+            }
         }
         function initLogic() {
             var msg = Blockly.Msg;
@@ -4755,38 +5015,39 @@ var pxt;
                     var rtl = Blockly.Tooltip.element_.RTL;
                     var windowSize = goog.dom.getViewportSize();
                     // Display the tooltip.
-                    Blockly.Tooltip.DIV.style.direction = rtl ? 'rtl' : 'ltr';
-                    Blockly.Tooltip.DIV.style.display = 'block';
+                    var tooltip = Blockly.Tooltip.DIV;
+                    tooltip.style.direction = rtl ? 'rtl' : 'ltr';
+                    tooltip.style.display = 'block';
                     Blockly.Tooltip.visible = true;
                     // Move the tooltip to just below the cursor.
                     var anchorX = Blockly.Tooltip.lastX_;
                     if (rtl) {
-                        anchorX -= Blockly.Tooltip.OFFSET_X + Blockly.Tooltip.DIV.offsetWidth;
+                        anchorX -= Blockly.Tooltip.OFFSET_X + tooltip.offsetWidth;
                     }
                     else {
                         anchorX += Blockly.Tooltip.OFFSET_X;
                     }
                     var anchorY = Blockly.Tooltip.lastY_ + Blockly.Tooltip.OFFSET_Y;
-                    if (anchorY + Blockly.Tooltip.DIV.offsetHeight >
+                    if (anchorY + tooltip.offsetHeight >
                         windowSize.height + window.scrollY) {
                         // Falling off the bottom of the screen; shift the tooltip up.
-                        anchorY -= Blockly.Tooltip.DIV.offsetHeight + 2 * Blockly.Tooltip.OFFSET_Y;
+                        anchorY -= tooltip.offsetHeight + 2 * Blockly.Tooltip.OFFSET_Y;
                     }
                     if (rtl) {
                         // Prevent falling off left edge in RTL mode.
                         anchorX = Math.max(Blockly.Tooltip.MARGINS - window.scrollX, anchorX);
                     }
                     else {
-                        if (anchorX + Blockly.Tooltip.DIV.offsetWidth >
+                        if (anchorX + tooltip.offsetWidth >
                             windowSize.width + window.scrollX - 2 * Blockly.Tooltip.MARGINS) {
                             // Falling off the right edge of the screen;
                             // clamp the tooltip on the edge.
-                            anchorX = windowSize.width - Blockly.Tooltip.DIV.offsetWidth -
+                            anchorX = windowSize.width - tooltip.offsetWidth -
                                 2 * Blockly.Tooltip.MARGINS;
                         }
                     }
-                    Blockly.Tooltip.DIV.style.top = anchorY + 'px';
-                    Blockly.Tooltip.DIV.style.left = anchorX + 'px';
+                    tooltip.style.top = anchorY + 'px';
+                    tooltip.style.left = anchorX + 'px';
                 }
                 if (card) {
                     var cardEl = pxt.docs.codeCard.render({
@@ -4812,25 +5073,6 @@ var pxt;
         function removeBlock(fn) {
             delete Blockly.Blocks[fn.attributes.blockId];
             delete cachedBlocks[fn.attributes.blockId];
-        }
-        function categoryElement(tb, nameid) {
-            return tb ? blocks.getFirstChildWithAttr(tb, "category", "nameid", nameid.toLowerCase()) : undefined;
-        }
-        function collapseSubcategories(cat, child) {
-            while (cat) {
-                if (cat.isUserCollapsible_ && cat.getTree() && cat != child && (!child || !isChild(child, cat))) {
-                    cat.setExpanded(false);
-                    cat.updateRow();
-                }
-                cat = cat.getParent();
-            }
-        }
-        function isChild(child, parent) {
-            var myParent = child.getParent();
-            if (myParent) {
-                return myParent === parent || isChild(myParent, parent);
-            }
-            return false;
         }
         /**
          * <block type="pxt_wait_until">
@@ -4916,13 +5158,13 @@ var pxt;
             return pxt.Util.values(apis.byQName).filter(function (sym) { return sym.namespace === enumName; });
         }
         function getFixedInstanceDropdownValues(apis, qName) {
-            return pxt.Util.values(apis.byQName).filter(function (sym) { return sym.kind === pxtc.SymbolKind.Variable
+            return pxt.Util.values(apis.byQName).filter(function (sym) { return sym.kind === 4 /* Variable */
                 && sym.attributes.fixedInstance
                 && isSubtype(apis, sym.retType, qName); });
         }
         blocks.getFixedInstanceDropdownValues = getFixedInstanceDropdownValues;
         function generateIcons(instanceSymbols) {
-            var imgConv = new ImageConverter();
+            var imgConv = new pxt.ImageConverter();
             instanceSymbols.forEach(function (v) {
                 if (v.attributes.jresURL && !v.attributes.iconURL && pxt.U.startsWith(v.attributes.jresURL, "data:image/x-mkcd-f")) {
                     v.attributes.iconURL = imgConv.convert(v.attributes.jresURL);
@@ -5060,7 +5302,7 @@ var pxt;
             }
             // Should be set to modify a block after a mutator dialog is updated
             MutatorHelper.prototype.compose = function (topBlock) {
-                var allBlocks = topBlock.getDescendants().map(function (subBlock) {
+                var allBlocks = topBlock.getDescendants(false).map(function (subBlock) {
                     return {
                         type: subBlock.type,
                         name: subBlock.inputList[0].name
@@ -5303,10 +5545,10 @@ var pxt;
                 }
                 this.currentlyVisible.forEach(function (param) {
                     if (_this.parameters.indexOf(param) === -1) {
-                        var name_5 = _this.getVarFieldValue(param);
+                        var name_7 = _this.getVarFieldValue(param);
                         // Persist renames
-                        if (name_5 !== param) {
-                            _this.parameterRenames[param] = name_5;
+                        if (name_7 !== param) {
+                            _this.parameterRenames[param] = name_7;
                         }
                         dummyInput.removeField(param);
                     }
@@ -5609,7 +5851,7 @@ var pxt;
                         color = 'teal';
                 }
                 var url = card.url ? /^[^:]+:\/\//.test(card.url) ? card.url : ('/' + card.url.replace(/^\.?\/?/, ''))
-                    : undefined;
+                    : card.youTubeId ? "https://www.youtube.com/watch?v=" + card.youTubeId : undefined;
                 var link = !!url;
                 var div = function (parent, cls, tag, text) {
                     if (tag === void 0) { tag = "div"; }
@@ -5674,26 +5916,17 @@ var pxt;
                     pre.appendChild(document.createTextNode(card.typeScript));
                     img.appendChild(pre);
                 }
-                if (card.imageUrl) {
-                    var imageWrapper_1 = document.createElement("div");
-                    imageWrapper_1.className = "ui imagewrapper";
-                    var image = document.createElement("img");
+                var imgUrl = card.imageUrl || (card.youTubeId && "https://img.youtube.com/vi/" + card.youTubeId + "/0.jpg");
+                if (imgUrl) {
+                    var imageWrapper = document.createElement("div");
+                    imageWrapper.className = "ui imagewrapper";
+                    var image = document.createElement("div");
                     image.className = "ui cardimage";
-                    image.src = card.imageUrl;
-                    image.alt = name;
-                    image.onerror = function () {
-                        // failed to load, remove
-                        imageWrapper_1.remove();
-                    };
+                    image.style.backgroundImage = "url(\"" + card.imageUrl + "\")";
+                    image.title = name;
                     image.setAttribute("role", "presentation");
-                    imageWrapper_1.appendChild(image);
-                    img.appendChild(imageWrapper_1);
-                }
-                if (card.youTubeId) {
-                    var screenshot = document.createElement("img");
-                    screenshot.className = "ui image";
-                    screenshot.src = "https://img.youtube.com/vi/" + card.youTubeId + "/0.jpg";
-                    img.appendChild(screenshot);
+                    imageWrapper.appendChild(image);
+                    img.appendChild(imageWrapper);
                 }
                 if (card.cardType == "file") {
                     var file = div(r, "ui fileimage");
@@ -5730,6 +5963,7 @@ var pxt;
         })(codeCard = docs.codeCard || (docs.codeCard = {}));
     })(docs = pxt.docs || (pxt.docs = {}));
 })(pxt || (pxt = {}));
+/// <reference path="../localtypings/blockly.d.ts" />
 var pxt;
 (function (pxt) {
     var blocks;
@@ -5813,63 +6047,70 @@ var pxt;
             }
         }
         blocks.initVariableArgsBlock = initVariableArgsBlock;
-        function initExpandableBlock(b, def, comp, toggle, addInputs) {
+        function initExpandableBlock(info, b, def, comp, toggle, addInputs) {
             // Add numbers before input names to prevent clashes with the ones added
             // by BlocklyLoader. The number makes it an invalid JS identifier
             var buttonAddName = "0_add_button";
             var buttonRemName = "0_rem_button";
-            var attributeName = "_expanded";
-            var inputsAttributeName = "_input_init";
+            var numVisibleAttr = "_expanded";
+            var inputInitAttr = "_input_init";
             var optionNames = def.parameters.map(function (p) { return p.name; });
             var totalOptions = def.parameters.length;
             var buttonDelta = toggle ? totalOptions : 1;
-            // These two variables are the "state" of the mutation
-            var visibleOptions = 0;
-            var inputsInitialized = false;
+            var state = new MutationState(b);
+            state.setEventsEnabled(false);
+            state.setValue(numVisibleAttr, 0);
+            state.setValue(inputInitAttr, false);
+            state.setEventsEnabled(true);
             var addShown = false;
             var remShown = false;
             Blockly.Extensions.apply('inline-svgs', b, false);
-            var onFirstRender = function () {
-                if (b.rendered && !b.workspace.isDragging()) {
-                    updateShape(0, undefined, true);
-                    updateButtons();
-                    // We don't need anything once the dom is initialized, so clean up
-                    b.workspace.removeChangeListener(onFirstRender);
-                }
-            };
-            // Blockly only lets you hide an input once it is rendered, so we can't
-            // hide the inputs in init() or domToMutation(). This will get called
-            // whenever a change is made to the workspace (including after the first
-            // block render) and then remove itself
-            b.workspace.addChangeListener(onFirstRender);
+            addPlusButton();
             appendMutation(b, {
                 mutationToDom: function (el) {
                     // The reason we store the inputsInitialized variable separately from visibleOptions
                     // is because it's possible for the block to get into a state where all inputs are
                     // initialized but they aren't visible (i.e. the user hit the - button). Blockly
                     // gets upset if a block has a different number of inputs when it is saved and restored.
-                    el.setAttribute(attributeName, visibleOptions.toString());
-                    el.setAttribute(inputsAttributeName, inputsInitialized.toString());
+                    el.setAttribute(numVisibleAttr, state.getString(numVisibleAttr));
+                    el.setAttribute(inputInitAttr, state.getString(inputInitAttr));
                     return el;
                 },
                 domToMutation: function (saved) {
-                    if (saved.hasAttribute(inputsAttributeName) && saved.getAttribute(inputsAttributeName) == "true" && !inputsInitialized) {
+                    state.setEventsEnabled(false);
+                    if (saved.hasAttribute(inputInitAttr) && saved.getAttribute(inputInitAttr) == "true" && !state.getBoolean(inputInitAttr)) {
+                        state.setValue(inputInitAttr, true);
                         initOptionalInputs();
                     }
-                    if (saved.hasAttribute(attributeName)) {
-                        var val = parseInt(saved.getAttribute(attributeName));
+                    if (saved.hasAttribute(numVisibleAttr)) {
+                        var val = parseInt(saved.getAttribute(numVisibleAttr));
                         if (!isNaN(val)) {
-                            if (inputsInitialized) {
-                                visibleOptions = addDelta(val);
+                            var delta = val - (state.getNumber(numVisibleAttr) || 0);
+                            if (state.getBoolean(inputInitAttr)) {
+                                if (b.rendered) {
+                                    updateShape(delta, true);
+                                }
+                                else {
+                                    state.setValue(numVisibleAttr, addDelta(delta));
+                                }
                             }
                             else {
-                                updateShape(val, true);
+                                updateShape(delta, true);
                             }
-                            return;
                         }
                     }
+                    state.setEventsEnabled(true);
                 }
             });
+            // Blockly only lets you hide an input once it is rendered, so we can't
+            // hide the inputs in init() or domToMutation(). This will get executed after
+            // the block is rendered
+            setTimeout(function () {
+                if (b.rendered && !b.workspace.isDragging()) {
+                    updateShape(0, undefined, true);
+                    updateButtons();
+                }
+            }, 1);
             // Set skipRender to true if the block is still initializing. Otherwise
             // the inputs will render before their shadow blocks are created and
             // leave behind annoying artifacts
@@ -5877,10 +6118,11 @@ var pxt;
                 if (skipRender === void 0) { skipRender = false; }
                 if (force === void 0) { force = false; }
                 var newValue = addDelta(delta);
-                if (!force && !skipRender && newValue === visibleOptions)
+                if (!force && !skipRender && newValue === state.getNumber(numVisibleAttr))
                     return;
-                visibleOptions = newValue;
-                if (!inputsInitialized && visibleOptions > 0) {
+                state.setValue(numVisibleAttr, newValue);
+                var visibleOptions = newValue;
+                if (!state.getBoolean(inputInitAttr) && visibleOptions > 0) {
                     initOptionalInputs();
                     if (!b.rendered) {
                         return;
@@ -5899,21 +6141,18 @@ var pxt;
                         var visible = optIndex < visibleOptions;
                         setInputVisible(input, visible);
                         if (visible && input.connection && !input.connection.isConnected() && !b.isInsertionMarker()) {
-                            // FIXME: Could probably be smarter here, right now this does not respect
-                            // any options passed to the child block. Need to factor that out of BlocklyLoader
                             var param = comp.definitionNameToParam[def.parameters[optIndex].name];
-                            var shadowId = param.shadowBlockId || shadowBlockForType(param.type);
-                            if (shadowId) {
-                                var nb = b.workspace.newBlock(shadowId);
-                                nb.setShadow(true);
-                                // Because this function is sometimes called before the block is
-                                // rendered, we need to guard these calls to initSvg and render
-                                if (nb.initSvg)
-                                    nb.initSvg();
-                                input.connection.connect(nb.outputConnection);
-                                if (nb.render)
-                                    nb.render();
+                            var shadow = blocks.createShadowValue(info, param);
+                            if (shadow.tagName.toLowerCase() === "value") {
+                                // Unwrap the block
+                                shadow = shadow.firstElementChild;
                             }
+                            Blockly.Events.disable();
+                            var nb = Blockly.Xml.domToBlock(shadow, b.workspace);
+                            if (nb) {
+                                input.connection.connect(nb.outputConnection);
+                            }
+                            Blockly.Events.enable();
                         }
                         ++optIndex;
                     }
@@ -5927,6 +6166,7 @@ var pxt;
                     .appendField(new Blockly.FieldImage(uri, 24, 24, false, alt, function () { return updateShape(delta); }));
             }
             function updateButtons() {
+                var visibleOptions = state.getNumber(numVisibleAttr);
                 var showAdd = visibleOptions !== totalOptions;
                 var showRemove = visibleOptions !== 0;
                 if (!showAdd) {
@@ -5960,32 +6200,65 @@ var pxt;
                 addButton(buttonRemName, b.REMOVE_IMAGE_DATAURI, lf("Hide optional arguments"), -1 * buttonDelta);
             }
             function initOptionalInputs() {
-                inputsInitialized = true;
+                state.setValue(inputInitAttr, true);
                 addInputs();
                 updateButtons();
             }
             function addDelta(delta) {
-                return Math.min(Math.max(visibleOptions + delta, 0), totalOptions);
+                return Math.min(Math.max(state.getNumber(numVisibleAttr) + delta, 0), totalOptions);
             }
             function setInputVisible(input, visible) {
                 // If the block isn't rendered, Blockly will crash
                 if (b.rendered) {
-                    input.setVisible(visible);
+                    var renderList = input.setVisible(visible);
+                    renderList.forEach(function (block) {
+                        block.render();
+                    });
                 }
             }
         }
         blocks.initExpandableBlock = initExpandableBlock;
-        function shadowBlockForType(type) {
-            switch (type) {
-                case "number": return "math_number";
-                case "boolean": return "logic_boolean";
-                case "string": return "text";
+        var MutationState = /** @class */ (function () {
+            function MutationState(block, initState) {
+                this.block = block;
+                this.fireEvents = true;
+                this.state = initState || {};
             }
-            if (blocks.isArrayType(type)) {
-                return "lists_create_with";
-            }
-            return undefined;
-        }
+            MutationState.prototype.setValue = function (attr, value) {
+                var _this = this;
+                if (this.fireEvents && this.block.mutationToDom) {
+                    var oldMutation_1 = this.block.mutationToDom();
+                    this.state[attr] = value.toString();
+                    var newMutation_1 = this.block.mutationToDom();
+                    Object.keys(this.state).forEach(function (key) {
+                        if (oldMutation_1.getAttribute(key) !== _this.state[key]) {
+                            newMutation_1.setAttribute(key, _this.state[key]);
+                        }
+                    });
+                    var oldText = Blockly.Xml.domToText(oldMutation_1);
+                    var newText = Blockly.Xml.domToText(newMutation_1);
+                    if (oldText != newText) {
+                        Blockly.Events.fire(new Blockly.Events.BlockChange(this.block, "mutation", null, oldText, newText));
+                    }
+                }
+                else {
+                    this.state[attr] = value.toString();
+                }
+            };
+            MutationState.prototype.getNumber = function (attr) {
+                return parseInt(this.state[attr]);
+            };
+            MutationState.prototype.getBoolean = function (attr) {
+                return this.state[attr] != "false";
+            };
+            MutationState.prototype.getString = function (attr) {
+                return this.state[attr];
+            };
+            MutationState.prototype.setEventsEnabled = function (enabled) {
+                this.fireEvents = enabled;
+            };
+            return MutationState;
+        }());
     })(blocks = pxt.blocks || (pxt.blocks = {}));
 })(pxt || (pxt = {}));
 var pxt;
@@ -6138,7 +6411,7 @@ var pxtblockly;
     var FieldBreakpoint = /** @class */ (function (_super) {
         __extends(FieldBreakpoint, _super);
         function FieldBreakpoint(state, params, opt_validator) {
-            var _this = _super.call(this, state, opt_validator) || this;
+            var _this = _super.call(this, state, undefined, undefined, undefined, opt_validator) || this;
             _this.isFieldCustom_ = true;
             _this.CURSOR = 'pointer';
             _this.params = params;
@@ -6466,6 +6739,7 @@ var pxtblockly;
          * @param {string} colour The new colour in '#rrggbb' format.
          */
         FieldColorNumber.prototype.setValue = function (colour) {
+            colour = fixEnumColor(colour);
             if (colour.indexOf('0x') > -1) {
                 colour = "#" + colour.substr(2);
             }
@@ -6502,6 +6776,28 @@ var pxtblockly;
         return FieldColorNumber;
     }(Blockly.FieldColour));
     pxtblockly.FieldColorNumber = FieldColorNumber;
+    function fixEnumColor(colour) {
+        if (colour) {
+            var match = /Colors\.([a-zA-Z]+)/.exec(colour);
+            if (match) {
+                switch (match[1].toLocaleLowerCase()) {
+                    case "red": return "#FF0000";
+                    case "orange": return "#FF7F00";
+                    case "yellow": return "#FFFF00";
+                    case "green": return "#00FF00";
+                    case "blue": return "#0000FF";
+                    case "indigo": return "#4B0082";
+                    case "violet": return "#8A2BE2";
+                    case "purple": return "#A033E5";
+                    case "pink": return "#FF007F";
+                    case "white": return "#FFFFFF";
+                    case "black": return "#000000";
+                    default: return colour;
+                }
+            }
+        }
+        return colour;
+    }
 })(pxtblockly || (pxtblockly = {}));
 /// <reference path="../../localtypings/pxtblockly.d.ts" />
 var pxtblockly;
@@ -7085,9 +7381,10 @@ var pxtblockly;
                 this.textElement_.setAttribute('class', this.textElement_.getAttribute('class') + ' blocklyDropdownText');
                 this.textElement_.parentNode.appendChild(this.arrow_);
             }
-            if (this.sourceBlock_ && this.sourceBlock_.rendered) {
-                this.sourceBlock_.render();
-                this.sourceBlock_.bumpNeighbours_();
+            var sourceBlock = this.sourceBlock_;
+            if (sourceBlock && sourceBlock.rendered) {
+                sourceBlock.render();
+                sourceBlock.bumpNeighbours_();
             }
         };
         ;
@@ -7298,13 +7595,10 @@ var pxtblockly;
             if (pxt.BrowserUtils.isFirefox()) {
                 // This is to compensate for the scrollbar that overlays content in Firefox. It
                 // gets removed in onHide_()
-                Blockly.DropDownDiv.getContentDiv().style.paddingRight = "20px";
+                dropdownDiv.style.paddingRight = "20px";
             }
             Blockly.DropDownDiv.setColour(this.backgroundColour_, this.borderColour_);
-            var scale = this.sourceBlock_.workspace.scale;
-            // Offset for icon-type horizontal blocks.
-            var secondaryYOffset = (-(Blockly.BlockSvg.MIN_BLOCK_Y * scale) - (Blockly.BlockSvg.FIELD_Y_OFFSET * scale));
-            Blockly.DropDownDiv.showPositionedByBlock(this, this.sourceBlock_, this.onHide_.bind(this), secondaryYOffset);
+            Blockly.DropDownDiv.showPositionedByBlock(this, this.sourceBlock_, this.onHide_.bind(this));
             if (this.sourceBlock_.isShadow()) {
                 this.savedPrimary_ = this.sourceBlock_.getColour();
                 this.sourceBlock_.setColour(this.sourceBlock_.getColourTertiary(), this.sourceBlock_.getColourSecondary(), this.sourceBlock_.getColourTertiary());
@@ -7317,11 +7611,12 @@ var pxtblockly;
          * Callback for when the drop-down is hidden.
          */
         FieldImageDropdown.prototype.onHide_ = function () {
-            Blockly.DropDownDiv.content_.removeAttribute('role');
-            Blockly.DropDownDiv.content_.removeAttribute('aria-haspopup');
-            Blockly.DropDownDiv.content_.removeAttribute('aria-activedescendant');
-            Blockly.DropDownDiv.getContentDiv().style.width = '';
-            Blockly.DropDownDiv.getContentDiv().style.paddingRight = '';
+            var content = Blockly.DropDownDiv.getContentDiv();
+            content.removeAttribute('role');
+            content.removeAttribute('aria-haspopup');
+            content.removeAttribute('aria-activedescendant');
+            content.style.width = '';
+            content.style.paddingRight = '';
             if (this.sourceBlock_) {
                 if (this.sourceBlock_.isShadow()) {
                     this.sourceBlock_.setColour(this.savedPrimary_, this.sourceBlock_.getColourSecondary(), this.sourceBlock_.getColourTertiary());
@@ -7355,9 +7650,10 @@ var pxtblockly;
                 this.textElement_.setAttribute('class', this.textElement_.getAttribute('class') + ' blocklyDropdownText');
                 this.textElement_.parentNode.appendChild(this.arrow_);
             }
-            if (this.sourceBlock_ && this.sourceBlock_.rendered) {
-                this.sourceBlock_.render();
-                this.sourceBlock_.bumpNeighbours_();
+            var sourceBlock = this.sourceBlock_;
+            if (sourceBlock && sourceBlock.rendered) {
+                sourceBlock.render();
+                sourceBlock.bumpNeighbours_();
             }
         };
         ;
@@ -7597,8 +7893,9 @@ var pxtblockly;
                 ev.preventDefault();
             };
             _this.clearLedDragHandler = function (ev) {
-                pxsim.pointerEvents.down.forEach(function (evid) { return _this.sourceBlock_.getSvgRoot().removeEventListener(evid, _this.dontHandleMouseEvent_); });
-                _this.sourceBlock_.getSvgRoot().removeEventListener(pxsim.pointerEvents.move, _this.dontHandleMouseEvent_);
+                var svgRoot = _this.sourceBlock_.getSvgRoot();
+                pxsim.pointerEvents.down.forEach(function (evid) { return svgRoot.removeEventListener(evid, _this.dontHandleMouseEvent_); });
+                svgRoot.removeEventListener(pxsim.pointerEvents.move, _this.dontHandleMouseEvent_);
                 document.removeEventListener(pxsim.pointerEvents.up, _this.clearLedDragHandler);
                 document.removeEventListener(pxsim.pointerEvents.leave, _this.clearLedDragHandler);
                 Blockly.Touch.clearTouchIdentifier();
@@ -7723,13 +8020,14 @@ var pxtblockly;
             if (this.sourceBlock_.workspace.isFlyout)
                 return;
             pxsim.pointerEvents.down.forEach(function (evid) { return cellRect.addEventListener(evid, function (ev) {
+                var svgRoot = _this.sourceBlock_.getSvgRoot();
                 _this.currentDragState_ = !_this.cellState[x][y];
                 // select and hide chaff
                 Blockly.hideChaff();
                 _this.sourceBlock_.select();
                 _this.toggleRect(x, y);
-                pxsim.pointerEvents.down.forEach(function (evid) { return _this.sourceBlock_.getSvgRoot().addEventListener(evid, _this.dontHandleMouseEvent_); });
-                _this.sourceBlock_.getSvgRoot().addEventListener(pxsim.pointerEvents.move, _this.dontHandleMouseEvent_);
+                pxsim.pointerEvents.down.forEach(function (evid) { return svgRoot.addEventListener(evid, _this.dontHandleMouseEvent_); });
+                svgRoot.addEventListener(pxsim.pointerEvents.move, _this.dontHandleMouseEvent_);
                 document.addEventListener(pxsim.pointerEvents.up, _this.clearLedDragHandler);
                 document.addEventListener(pxsim.pointerEvents.leave, _this.clearLedDragHandler);
                 // Begin listening on the canvas and toggle any matches
@@ -7752,7 +8050,7 @@ var pxtblockly;
         };
         FieldMatrix.prototype.setValue = function (newValue, restoreState) {
             if (restoreState === void 0) { restoreState = true; }
-            _super.prototype.setValue.call(this, newValue);
+            _super.prototype.setValue.call(this, String(newValue));
             if (this.elt) {
                 if (restoreState)
                     this.restoreStateFromString();
@@ -8047,15 +8345,15 @@ var pxtblockly;
              */
             function createNotesArray() {
                 for (var i = thisField.minNote_; i <= thisField.maxNote_; i++) {
-                    var name_6 = Notes[i].prefixedName;
+                    var name_8 = Notes[i].prefixedName;
                     // special case: one octave
                     if (thisField.nKeys_ < 13) {
-                        name_6 = Notes[i].name;
+                        name_8 = Notes[i].name;
                     }
                     else if (thisField.minNote_ >= 28 && thisField.maxNote_ <= 63) {
-                        name_6 = Notes[i].altPrefixedName || name_6;
+                        name_8 = Notes[i].altPrefixedName || name_8;
                     }
-                    thisField.noteName_.push(ts.pxtc.Util.rlf(name_6));
+                    thisField.noteName_.push(ts.pxtc.Util.rlf(name_8));
                     thisField.noteFreq_.push(Notes[i].freq);
                 }
                 // Do not remove this comment.
@@ -8630,6 +8928,221 @@ var pxtblockly;
     }(Blockly.FieldNumberDropdown));
     pxtblockly.FieldNumberDropdown = FieldNumberDropdown;
 })(pxtblockly || (pxtblockly = {}));
+/// <reference path="../../localtypings/blockly.d.ts"/>
+/// <reference path="../../built/pxtsim.d.ts"/>
+var pxtblockly;
+(function (pxtblockly) {
+    var FieldPosition = /** @class */ (function (_super) {
+        __extends(FieldPosition, _super);
+        function FieldPosition(text, params, validator) {
+            var _this = _super.call(this, text, '0', '100', null, '100', 'Value', validator) || this;
+            _this.isFieldCustom_ = true;
+            _this.params = params;
+            if (!_this.params.screenHeight)
+                _this.params.screenHeight = 120;
+            if (!_this.params.screenWidth)
+                _this.params.screenWidth = 160;
+            if (!_this.params.xInputName)
+                _this.params.xInputName = "x";
+            if (!_this.params.yInputName)
+                _this.params.yInputName = "y";
+            if (_this.params.min)
+                _this.min_ = parseInt(_this.params.min);
+            if (_this.params.max)
+                _this.max_ = parseInt(_this.params.max);
+            return _this;
+            // Find out which field we're on (x or y) and set the appropriate max.
+        }
+        FieldPosition.prototype.showEditor_ = function () {
+            // Find out which field we're in (x or y) and set the appropriate max.
+            var xField = this.getFieldByName(this.params.xInputName);
+            if (xField === this) {
+                this.max_ = this.params.screenWidth;
+                this.labelText_ = this.params.xInputName;
+            }
+            var yField = this.getFieldByName(this.params.yInputName);
+            if (yField === this) {
+                this.max_ = this.params.screenHeight;
+                this.labelText_ = this.params.yInputName;
+            }
+            _super.prototype.showEditor_.call(this);
+            var simFrame = this.getSimFrame();
+            if (!simFrame)
+                return;
+            var div = Blockly.DropDownDiv.getContentDiv();
+            // Add position picker button
+            var button = document.createElement('button');
+            button.setAttribute('class', 'positionEyedropper');
+            var image = document.createElement('img');
+            image.src = FieldPosition.eyedropper_DATAURI;
+            button.appendChild(image);
+            div.appendChild(button);
+            FieldPosition.eyedropperEventKey_ =
+                Blockly.bindEventWithChecks_(button, 'mousedown', this, this.activeEyedropper_);
+        };
+        FieldPosition.prototype.activeEyedropper_ = function () {
+            var _this = this;
+            var simFrame = this.getSimFrame();
+            if (!simFrame)
+                return;
+            if (this.selectorDiv_)
+                return;
+            // compute position and make sure we have something to show
+            var bBox = simFrame.getBoundingClientRect();
+            var paddingX = 20;
+            var paddingY = 20;
+            var simAspectRatio = 0.75;
+            var left = bBox.left + paddingX;
+            var top = bBox.top + paddingY;
+            var width = (bBox.width - 2 * paddingX);
+            var height = width * simAspectRatio;
+            if (width < 0 || height < 0)
+                return;
+            // dimiss if window is resized
+            this.resizeHandler = this.resizeHandler.bind(this);
+            window.addEventListener("resize", this.resizeHandler, false);
+            var customContent = document.getElementById('custom-content');
+            this.selectorDiv_ = document.createElement('div');
+            customContent.appendChild(this.selectorDiv_);
+            var lightboxDiv = document.createElement('div');
+            lightboxDiv.className = 'blocklyLightboxDiv';
+            this.selectorDiv_.appendChild(lightboxDiv);
+            var canvasOverlayDiv = document.createElement('div');
+            canvasOverlayDiv.className = 'blocklyCanvasOverlayDiv';
+            this.selectorDiv_.appendChild(canvasOverlayDiv);
+            var crossX = document.createElement('div');
+            crossX.className = 'cross-x';
+            canvasOverlayDiv.appendChild(crossX);
+            var crossY = document.createElement('div');
+            crossY.className = 'cross-y';
+            canvasOverlayDiv.appendChild(crossY);
+            var label = document.createElement('div');
+            label.className = 'label';
+            canvasOverlayDiv.appendChild(label);
+            // Position overlay div
+            canvasOverlayDiv.style.top = top + 'px';
+            canvasOverlayDiv.style.left = left + 'px';
+            canvasOverlayDiv.style.height = height + 'px';
+            canvasOverlayDiv.style.width = width + 'px';
+            var setPos = function (x, y) {
+                x = Math.round(Math.max(0, Math.min(width, x)));
+                y = Math.round(Math.max(0, Math.min(height, y)));
+                crossX.style.top = y + 'px';
+                crossY.style.left = x + 'px';
+                label.style.left = (x + 4) + 'px';
+                label.style.top = (y + 2) + 'px';
+                x = Math.round(Math.max(0, Math.min(_this.params.screenWidth, x / width * _this.params.screenWidth)));
+                y = Math.round(Math.max(0, Math.min(_this.params.screenHeight, y / height * _this.params.screenHeight)));
+                label.textContent = _this.params.xInputName + "=" + x + ", " + _this.params.yInputName + "=" + y;
+            };
+            // Position initial crossX and crossY
+            var _a = this.getXY(), currentX = _a.currentX, currentY = _a.currentY;
+            setPos(currentX / this.params.screenWidth * width, currentY / this.params.screenHeight * height);
+            Blockly.bindEvent_(lightboxDiv, 'mouseup', this, function () {
+                _this.close();
+            });
+            Blockly.bindEvent_(canvasOverlayDiv, 'mousemove', this, function (e) {
+                var x = e.clientX - left;
+                var y = e.clientY - top;
+                setPos(x, y);
+            });
+            Blockly.bindEvent_(canvasOverlayDiv, 'mouseup', this, function (e) {
+                var x = e.clientX - left;
+                var y = e.clientY - top;
+                var normalizedX = Math.round(x / width * _this.params.screenWidth);
+                var normalizedY = Math.round(y / height * _this.params.screenHeight);
+                _this.close();
+                _this.setXY(normalizedX, normalizedY);
+            });
+            // Position widget div
+            this.selectorDiv_.style.left = '0px';
+            this.selectorDiv_.style.top = '0px';
+            this.selectorDiv_.style.height = '100%';
+            this.selectorDiv_.style.width = '100%';
+        };
+        FieldPosition.prototype.resizeHandler = function () {
+            this.close();
+        };
+        FieldPosition.prototype.setXY = function (x, y) {
+            var xField = this.getFieldByName(this.params.xInputName);
+            if (xField)
+                xField.setValue(String(x));
+            var yField = this.getFieldByName(this.params.yInputName);
+            if (yField)
+                yField.setValue(String(y));
+        };
+        FieldPosition.prototype.getFieldByName = function (name) {
+            var parentBlock = this.sourceBlock_.parentBlock_;
+            if (!parentBlock)
+                return undefined; // warn
+            for (var i = 0; i < parentBlock.inputList.length; i++) {
+                var input = parentBlock.inputList[i];
+                if (input.name === name) {
+                    return this.getTargetField(input);
+                }
+            }
+            return undefined;
+        };
+        FieldPosition.prototype.getXY = function () {
+            var currentX;
+            var currentY;
+            var xField = this.getFieldByName(this.params.xInputName);
+            if (xField)
+                currentX = xField.getValue();
+            var yField = this.getFieldByName(this.params.yInputName);
+            if (yField)
+                currentY = yField.getValue();
+            return { currentX: parseInt(currentX), currentY: parseInt(currentY) };
+        };
+        FieldPosition.prototype.getTargetField = function (input) {
+            var targetBlock = input.connection.targetBlock();
+            if (!targetBlock)
+                return null;
+            var targetInput = targetBlock.inputList[0];
+            if (!targetInput)
+                return null;
+            var targetField = targetInput.fieldRow[0];
+            return targetField;
+        };
+        FieldPosition.prototype.getSimFrame = function () {
+            try {
+                return document.getElementById('simulators').firstChild.firstChild;
+            }
+            catch (e) {
+                return null;
+            }
+        };
+        FieldPosition.prototype.widgetDispose_ = function () {
+            var that = this;
+            return function () {
+                Blockly.FieldNumber.superClass_.widgetDispose_.call(that)();
+                that.close(true);
+            };
+        };
+        FieldPosition.prototype.dispose = function () {
+            _super.prototype.dispose.call(this);
+            if (FieldPosition.eyedropperEventKey_) {
+                Blockly.unbindEvent_(FieldPosition.eyedropperEventKey_);
+            }
+        };
+        FieldPosition.prototype.close = function (skipWidget) {
+            if (!skipWidget) {
+                Blockly.WidgetDiv.hideIfOwner(this);
+                Blockly.DropDownDiv.hideIfOwner(this);
+            }
+            // remove resize listener
+            window.removeEventListener("resize", this.resizeHandler);
+            // Destroy the selector div
+            if (!this.selectorDiv_)
+                return;
+            goog.dom.removeNode(this.selectorDiv_);
+            this.selectorDiv_ = undefined;
+        };
+        FieldPosition.eyedropper_DATAURI = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIgogICB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIgogICB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiCiAgIHhtbG5zOnN2Zz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciCiAgIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgeG1sbnM6c29kaXBvZGk9Imh0dHA6Ly9zb2RpcG9kaS5zb3VyY2Vmb3JnZS5uZXQvRFREL3NvZGlwb2RpLTAuZHRkIgogICB4bWxuczppbmtzY2FwZT0iaHR0cDovL3d3dy5pbmtzY2FwZS5vcmcvbmFtZXNwYWNlcy9pbmtzY2FwZSIKICAgd2lkdGg9IjI0cHgiCiAgIGhlaWdodD0iMjRweCIKICAgdmlld0JveD0iMCAwIDI0IDI0IgogICB2ZXJzaW9uPSIxLjEiCiAgIGlkPSJzdmcyIgogICBpbmtzY2FwZTp2ZXJzaW9uPSIwLjkxIHIxMzcyNSIKICAgc29kaXBvZGk6ZG9jbmFtZT0icG9zaXRpb25fZXllZHJvcHBlci5zdmciPgogIDxtZXRhZGF0YQogICAgIGlkPSJtZXRhZGF0YTIzIj4KICAgIDxyZGY6UkRGPgogICAgICA8Y2M6V29yawogICAgICAgICByZGY6YWJvdXQ9IiI+CiAgICAgICAgPGRjOmZvcm1hdD5pbWFnZS9zdmcreG1sPC9kYzpmb3JtYXQ+CiAgICAgICAgPGRjOnR5cGUKICAgICAgICAgICByZGY6cmVzb3VyY2U9Imh0dHA6Ly9wdXJsLm9yZy9kYy9kY21pdHlwZS9TdGlsbEltYWdlIiAvPgogICAgICA8L2NjOldvcms+CiAgICA8L3JkZjpSREY+CiAgPC9tZXRhZGF0YT4KICA8c29kaXBvZGk6bmFtZWR2aWV3CiAgICAgcGFnZWNvbG9yPSIjZmZmZmZmIgogICAgIGJvcmRlcmNvbG9yPSIjNjY2NjY2IgogICAgIGJvcmRlcm9wYWNpdHk9IjEiCiAgICAgb2JqZWN0dG9sZXJhbmNlPSIxMCIKICAgICBncmlkdG9sZXJhbmNlPSIxMCIKICAgICBndWlkZXRvbGVyYW5jZT0iMTAiCiAgICAgaW5rc2NhcGU6cGFnZW9wYWNpdHk9IjAiCiAgICAgaW5rc2NhcGU6cGFnZXNoYWRvdz0iMiIKICAgICBpbmtzY2FwZTp3aW5kb3ctd2lkdGg9IjE0MjUiCiAgICAgaW5rc2NhcGU6d2luZG93LWhlaWdodD0iMTA4OCIKICAgICBpZD0ibmFtZWR2aWV3MjEiCiAgICAgc2hvd2dyaWQ9ImZhbHNlIgogICAgIGlua3NjYXBlOnpvb209IjYuOTUzMjE2NyIKICAgICBpbmtzY2FwZTpjeD0iOC4wNTkyNTM3IgogICAgIGlua3NjYXBlOmN5PSIxMi42NjA3NiIKICAgICBpbmtzY2FwZTp3aW5kb3cteD0iMCIKICAgICBpbmtzY2FwZTp3aW5kb3cteT0iMCIKICAgICBpbmtzY2FwZTp3aW5kb3ctbWF4aW1pemVkPSIwIgogICAgIGlua3NjYXBlOmN1cnJlbnQtbGF5ZXI9InN2ZzIiIC8+CiAgPCEtLSBHZW5lcmF0b3I6IFNrZXRjaCA0My4yICgzOTA2OSkgLSBodHRwOi8vd3d3LmJvaGVtaWFuY29kaW5nLmNvbS9za2V0Y2ggLS0+CiAgPHRpdGxlCiAgICAgaWQ9InRpdGxlNCI+QXJ0Ym9hcmQ8L3RpdGxlPgogIDxkZXNjCiAgICAgaWQ9ImRlc2M2Ij5DcmVhdGVkIHdpdGggU2tldGNoLjwvZGVzYz4KICA8ZGVmcwogICAgIGlkPSJkZWZzOCI+CiAgICA8aW5rc2NhcGU6cGVyc3BlY3RpdmUKICAgICAgIHNvZGlwb2RpOnR5cGU9Imlua3NjYXBlOnBlcnNwM2QiCiAgICAgICBpbmtzY2FwZTp2cF94PSIwIDogMTIgOiAxIgogICAgICAgaW5rc2NhcGU6dnBfeT0iMCA6IDEwMDAgOiAwIgogICAgICAgaW5rc2NhcGU6dnBfej0iMjQgOiAxMiA6IDEiCiAgICAgICBpbmtzY2FwZTpwZXJzcDNkLW9yaWdpbj0iMTIgOiA4IDogMSIKICAgICAgIGlkPSJwZXJzcGVjdGl2ZTQxNTEiIC8+CiAgPC9kZWZzPgogIDxyZWN0CiAgICAgc3R5bGU9ImZpbGw6IzU3NWU3NTtmaWxsLW9wYWNpdHk6MTtzdHJva2U6IzU3NWU3NTtzdHJva2Utd2lkdGg6MS42MzQyNjg4ODtzdHJva2UtbWl0ZXJsaW1pdDo0O3N0cm9rZS1kYXNoYXJyYXk6bm9uZTtzdHJva2Utb3BhY2l0eToxIgogICAgIGlkPSJyZWN0NDE3MyIKICAgICB3aWR0aD0iMC45MTY4Mzk3MiIKICAgICBoZWlnaHQ9IjIwLjMzMDU0OSIKICAgICB4PSIxMS41NDE1OCIKICAgICB5PSIxLjgzNDcyNTQiIC8+CiAgPHJlY3QKICAgICB5PSItMjIuMTY1Mjc2IgogICAgIHg9IjExLjU0MTU4IgogICAgIGhlaWdodD0iMjAuMzMwNTQ5IgogICAgIHdpZHRoPSIwLjkxNjgzOTcyIgogICAgIGlkPSJyZWN0NDE3NSIKICAgICBzdHlsZT0iZmlsbDojNTc1ZTc1O2ZpbGwtb3BhY2l0eToxO3N0cm9rZTojNTc1ZTc1O3N0cm9rZS13aWR0aDoxLjYzNDI2ODg4O3N0cm9rZS1taXRlcmxpbWl0OjQ7c3Ryb2tlLWRhc2hhcnJheTpub25lO3N0cm9rZS1vcGFjaXR5OjEiCiAgICAgdHJhbnNmb3JtPSJtYXRyaXgoMCwxLC0xLDAsMCwwKSIgLz4KICA8cmVjdAogICAgIHN0eWxlPSJmaWxsOiNmZmZmZmY7ZmlsbC1vcGFjaXR5OjE7c3Ryb2tlOm5vbmU7c3Ryb2tlLXdpZHRoOjAuNTtzdHJva2UtbWl0ZXJsaW1pdDo0O3N0cm9rZS1kYXNoYXJyYXk6bm9uZTtzdHJva2Utb3BhY2l0eToxIgogICAgIGlkPSJyZWN0NDE4NSIKICAgICB3aWR0aD0iNS41ODIxNDg2IgogICAgIGhlaWdodD0iNS40NjQ2Mjk3IgogICAgIHg9IjkuMjA4OTI1MiIKICAgICB5PSI5LjI2NzY4NDkiIC8+Cjwvc3ZnPgo=";
+        return FieldPosition;
+    }(Blockly.FieldSlider));
+    pxtblockly.FieldPosition = FieldPosition;
+})(pxtblockly || (pxtblockly = {}));
 /// <reference path="../../localtypings/pxtblockly.d.ts" />
 var pxtblockly;
 (function (pxtblockly) {
@@ -8812,6 +9325,8 @@ var pxtblockly;
                 _this.max_ = parseFloat(_this.params.max);
             if (_this.params['label'])
                 _this.labelText_ = _this.params.label;
+            if (!_this.params.format)
+                _this.params.format = "{0}%";
             return _this;
         }
         FieldSpeed.prototype.createLabelDom_ = function (labelText) {
@@ -8835,7 +9350,7 @@ var pxtblockly;
             this.reporter = pxsim.svg.child(this.speedSVG, "text", {
                 'x': 100, 'y': 80,
                 'text-anchor': 'middle', 'dominant-baseline': 'middle',
-                'style': 'font-size: 50px',
+                'style': "font-size: " + Math.max(14, 50 - 5 * (this.params.format.length - 4)) + "px",
                 'class': 'sim-text inverted number'
             });
             // labelContainer.setAttribute('class', 'blocklyFieldSliderLabel');
@@ -8852,7 +9367,7 @@ var pxtblockly;
         FieldSpeed.prototype.setReadout_ = function (readout, value) {
             this.updateSpeed(parseFloat(value));
             // Update reporter
-            this.reporter.textContent = value + "%";
+            this.reporter.textContent = ts.pxtc.U.rlf(this.params.format, value);
         };
         FieldSpeed.prototype.updateSpeed = function (speed) {
             var sign = this.sign(speed);
@@ -8870,6 +9385,238 @@ var pxtblockly;
         return FieldSpeed;
     }(Blockly.FieldSlider));
     pxtblockly.FieldSpeed = FieldSpeed;
+})(pxtblockly || (pxtblockly = {}));
+/// <reference path="../../built/pxtlib.d.ts" />
+var pxtblockly;
+(function (pxtblockly) {
+    var svg = pxt.svgUtil;
+    // 32 is specifically chosen so that we can scale the images for the default
+    // sprite sizes without getting browser anti-aliasing
+    var PREVIEW_WIDTH = 32;
+    var PADDING = 5;
+    var BG_PADDING = 4;
+    var BG_WIDTH = BG_PADDING * 2 + PREVIEW_WIDTH;
+    var TOTAL_WIDTH = PADDING * 2 + BG_PADDING * 2 + PREVIEW_WIDTH;
+    var FieldSpriteEditor = /** @class */ (function (_super) {
+        __extends(FieldSpriteEditor, _super);
+        function FieldSpriteEditor(text, params, validator) {
+            var _this = _super.call(this, text, validator) || this;
+            _this.isFieldCustom_ = true;
+            _this.lightMode = params.lightMode;
+            _this.params = parseFieldOptions(params);
+            _this.blocksInfo = params.blocksInfo;
+            if (!_this.state) {
+                _this.state = new pxtsprite.Bitmap(_this.params.initWidth, _this.params.initHeight);
+            }
+            return _this;
+        }
+        FieldSpriteEditor.prototype.init = function () {
+            if (this.fieldGroup_) {
+                // Field has already been initialized once.
+                return;
+            }
+            // Build the DOM.
+            this.fieldGroup_ = Blockly.utils.createSvgElement('g', {}, null);
+            if (!this.visible_) {
+                this.fieldGroup_.style.display = 'none';
+            }
+            if (!this.state) {
+                this.state = new pxtsprite.Bitmap(this.params.initWidth, this.params.initHeight);
+            }
+            this.redrawPreview();
+            this.updateEditable();
+            this.sourceBlock_.getSvgRoot().appendChild(this.fieldGroup_);
+            // Force a render.
+            this.render_();
+            this.mouseDownWrapper_ = Blockly.bindEventWithChecks_(this.getClickTarget_(), "mousedown", this, this.onMouseDown_);
+        };
+        /**
+         * Show the inline free-text editor on top of the text.
+         * @private
+         */
+        FieldSpriteEditor.prototype.showEditor_ = function () {
+            var _this = this;
+            var windowSize = goog.dom.getViewportSize();
+            var scrollOffset = goog.style.getViewportPageOffset(document);
+            // If there is an existing drop-down someone else owns, hide it immediately and clear it.
+            Blockly.DropDownDiv.hideWithoutAnimation();
+            Blockly.DropDownDiv.clearContent();
+            var contentDiv = Blockly.DropDownDiv.getContentDiv();
+            this.editor = new pxtsprite.SpriteEditor(this.state, this.blocksInfo, this.lightMode);
+            this.editor.render(contentDiv);
+            this.editor.rePaint();
+            this.editor.onClose(function () {
+                Blockly.DropDownDiv.hideIfOwner(_this);
+            });
+            this.editor.setActiveColor(this.params.initColor, true);
+            if (!this.params.sizes.some(function (s) { return s[0] === _this.state.width && s[1] === _this.state.height; })) {
+                this.params.sizes.push([this.state.width, this.state.height]);
+            }
+            this.editor.setSizePresets(this.params.sizes);
+            goog.style.setHeight(contentDiv, this.editor.outerHeight() + 1);
+            goog.style.setWidth(contentDiv, this.editor.outerWidth() + 1);
+            goog.style.setStyle(contentDiv, "overflow", "hidden");
+            goog.style.setStyle(contentDiv, "max-height", "500px");
+            goog.dom.classlist.add(contentDiv.parentElement, "sprite-editor-dropdown");
+            Blockly.DropDownDiv.setColour("#2c3e50", "#2c3e50");
+            Blockly.DropDownDiv.showPositionedByBlock(this, this.sourceBlock_, function () {
+                _this.state = _this.editor.bitmap();
+                _this.redrawPreview();
+                if (_this.sourceBlock_ && Blockly.Events.isEnabled()) {
+                    Blockly.Events.fire(new Blockly.Events.BlockChange(_this.sourceBlock_, 'field', _this.name, _this.text_, _this.getText()));
+                }
+                goog.style.setHeight(contentDiv, null);
+                goog.style.setWidth(contentDiv, null);
+                goog.style.setStyle(contentDiv, "overflow", null);
+                goog.style.setStyle(contentDiv, "max-height", null);
+                goog.dom.classlist.remove(contentDiv.parentElement, "sprite-editor-dropdown");
+                _this.editor.removeKeyListeners();
+            });
+            this.editor.addKeyListeners();
+            this.editor.layout();
+        };
+        FieldSpriteEditor.prototype.isInFlyout = function () {
+            return this.sourceBlock_.workspace.getParentSvg().className.baseVal == "blocklyFlyout";
+        };
+        FieldSpriteEditor.prototype.render_ = function () {
+            _super.prototype.render_.call(this);
+            this.size_.height = TOTAL_WIDTH;
+            this.size_.width = TOTAL_WIDTH;
+        };
+        FieldSpriteEditor.prototype.getText = function () {
+            return pxtsprite.bitmapToImageLiteral(this.state, "typescript" /* TypeScript */);
+        };
+        FieldSpriteEditor.prototype.setText = function (newText) {
+            if (newText == null) {
+                return;
+            }
+            this.parseBitmap(newText);
+            this.redrawPreview();
+            _super.prototype.setText.call(this, newText);
+        };
+        FieldSpriteEditor.prototype.redrawPreview = function () {
+            if (!this.fieldGroup_)
+                return;
+            pxsim.U.clear(this.fieldGroup_);
+            var bg = new svg.Rect()
+                .at(PADDING, PADDING)
+                .size(BG_WIDTH, BG_WIDTH)
+                .fill("#dedede")
+                .stroke("#898989", 1)
+                .corner(4);
+            this.fieldGroup_.appendChild(bg.el);
+            if (this.state) {
+                var data = this.renderPreview();
+                var img = new svg.Image()
+                    .src(data)
+                    .at(PADDING + BG_PADDING, PADDING + BG_PADDING)
+                    .size(PREVIEW_WIDTH, PREVIEW_WIDTH);
+                this.fieldGroup_.appendChild(img.el);
+            }
+        };
+        FieldSpriteEditor.prototype.parseBitmap = function (newText) {
+            var bmp = pxtsprite.imageLiteralToBitmap(newText);
+            // Ignore invalid bitmaps
+            if (bmp && bmp.width && bmp.height) {
+                this.state = bmp;
+            }
+        };
+        /**
+         * Scales the image to 32x32 and returns a data uri. In light mode the preview
+         * is drawn with no transparency (alpha is filled with background color)
+         */
+        FieldSpriteEditor.prototype.renderPreview = function () {
+            var colors = pxt.appTarget.runtime.palette.slice(1);
+            var canvas = document.createElement("canvas");
+            canvas.width = PREVIEW_WIDTH;
+            canvas.height = PREVIEW_WIDTH;
+            // Works well for all of our default sizes, does not work well if the size is not
+            // a multiple of 2 or is greater than 32 (i.e. from the decompiler)
+            var cellSize = Math.min(PREVIEW_WIDTH / this.state.width, PREVIEW_WIDTH / this.state.height);
+            // Center the image if it isn't square
+            var xOffset = Math.max(Math.floor((PREVIEW_WIDTH * (1 - (this.state.width / this.state.height))) / 2), 0);
+            var yOffset = Math.max(Math.floor((PREVIEW_WIDTH * (1 - (this.state.height / this.state.width))) / 2), 0);
+            var context;
+            if (this.lightMode) {
+                context = canvas.getContext("2d", { alpha: false });
+                context.fillStyle = "#dedede";
+                context.fillRect(0, 0, PREVIEW_WIDTH, PREVIEW_WIDTH);
+            }
+            else {
+                context = canvas.getContext("2d");
+            }
+            for (var c = 0; c < this.state.width; c++) {
+                for (var r = 0; r < this.state.height; r++) {
+                    var color = this.state.get(c, r);
+                    if (color) {
+                        context.fillStyle = colors[color - 1];
+                        context.fillRect(xOffset + c * cellSize, yOffset + r * cellSize, cellSize, cellSize);
+                    }
+                    else if (this.lightMode) {
+                        context.fillStyle = "#dedede";
+                        context.fillRect(xOffset + c * cellSize, yOffset + r * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+            return canvas.toDataURL();
+        };
+        return FieldSpriteEditor;
+    }(Blockly.Field));
+    pxtblockly.FieldSpriteEditor = FieldSpriteEditor;
+    function parseFieldOptions(opts) {
+        var parsed = {
+            sizes: [
+                [8, 8],
+                [8, 16],
+                [16, 16],
+                [16, 32],
+                [32, 32],
+            ],
+            initColor: 1,
+            initWidth: 16,
+            initHeight: 16,
+        };
+        if (!opts) {
+            return parsed;
+        }
+        if (opts.sizes != null) {
+            var pairs = opts.sizes.split(";");
+            var sizes = [];
+            for (var i = 0; i < pairs.length; i++) {
+                var pair = pairs[i].split(",");
+                if (pair.length !== 2) {
+                    continue;
+                }
+                var width = parseInt(pair[0]);
+                var height = parseInt(pair[1]);
+                if (isNaN(width) || isNaN(height)) {
+                    continue;
+                }
+                var screenSize = pxt.appTarget.runtime && pxt.appTarget.runtime.screenSize;
+                if (width < 0 && screenSize)
+                    width = screenSize.width;
+                if (height < 0 && screenSize)
+                    height = screenSize.height;
+                sizes.push([width, height]);
+            }
+            if (sizes.length > 0) {
+                parsed.sizes = sizes;
+                parsed.initWidth = sizes[0][0];
+                parsed.initHeight = sizes[0][1];
+            }
+        }
+        parsed.initColor = withDefault(opts.initColor, parsed.initColor);
+        parsed.initWidth = withDefault(opts.initWidth, parsed.initWidth);
+        parsed.initHeight = withDefault(opts.initHeight, parsed.initHeight);
+        return parsed;
+        function withDefault(raw, def) {
+            var res = parseInt(raw);
+            if (isNaN(res)) {
+                return def;
+            }
+            return res;
+        }
+    }
 })(pxtblockly || (pxtblockly = {}));
 /// <reference path="../../localtypings/pxtblockly.d.ts" />
 var pxtblockly;
@@ -8933,7 +9680,7 @@ var pxtblockly;
     var FieldToggle = /** @class */ (function (_super) {
         __extends(FieldToggle, _super);
         function FieldToggle(state, params, opt_validator) {
-            var _this = _super.call(this, state, opt_validator) || this;
+            var _this = _super.call(this, state, undefined, undefined, undefined, opt_validator) || this;
             _this.isFieldCustom_ = true;
             _this.CURSOR = 'pointer';
             _this.params = params;
@@ -9267,6 +10014,27 @@ var pxtblockly;
 /// <reference path="./field_toggle.ts" />
 var pxtblockly;
 (function (pxtblockly) {
+    var FieldToggleWinLose = /** @class */ (function (_super) {
+        __extends(FieldToggleWinLose, _super);
+        function FieldToggleWinLose(state, params, opt_validator) {
+            var _this = _super.call(this, state, params, opt_validator) || this;
+            _this.isFieldCustom_ = true;
+            return _this;
+        }
+        FieldToggleWinLose.prototype.getTrueText = function () {
+            return lf("WIN");
+        };
+        FieldToggleWinLose.prototype.getFalseText = function () {
+            return lf("LOSE");
+        };
+        return FieldToggleWinLose;
+    }(pxtblockly.FieldToggle));
+    pxtblockly.FieldToggleWinLose = FieldToggleWinLose;
+})(pxtblockly || (pxtblockly = {}));
+/// <reference path="../../localtypings/blockly.d.ts" />
+/// <reference path="./field_toggle.ts" />
+var pxtblockly;
+(function (pxtblockly) {
     var FieldToggleYesNo = /** @class */ (function (_super) {
         __extends(FieldToggleYesNo, _super);
         function FieldToggleYesNo(state, params, opt_validator) {
@@ -9502,8 +10270,8 @@ var pxtblockly;
                 }
                 var existing = getMembersForEnum(ws, opts.name);
                 for (var i = 0; i < existing.length; i++) {
-                    var _a = existing[i], name_7 = _a[0], value = _a[1];
-                    if (name_7 === response) {
+                    var _a = existing[i], name_9 = _a[0], value = _a[1];
+                    if (name_9 === response) {
                         Blockly.alert(lf("A {0} named '{1}' already exists.", opts.memberName, response), function () { return promptAndCreateEnum(ws, opts, message, cb); });
                         return;
                     }
@@ -9542,6 +10310,9 @@ var pxtblockly;
             }
             return 1 << existing.length;
         }
+        else if (opts.isHash) {
+            return 0; // overriden when compiled
+        }
         else {
             var start = opts.firstValue || 0;
             for (var i = 0; i < existing.length; i++) {
@@ -9564,8 +10335,8 @@ var pxtblockly;
         var existing = ws.getVariablesOfType(enumName);
         if (existing && existing.length) {
             for (var i = 0; i < existing.length; i++) {
-                var name_8 = parseName(existing[i])[0];
-                if (name_8 === memberName) {
+                var name_10 = parseName(existing[i])[0];
+                if (name_10 === memberName) {
                     return existing[i].name;
                 }
             }
@@ -9680,2383 +10451,4 @@ var pxtblockly;
         }
         AudioContextManager.tone = tone;
     })(AudioContextManager = pxtblockly.AudioContextManager || (pxtblockly.AudioContextManager = {}));
-})(pxtblockly || (pxtblockly = {}));
-var pxtblockly;
-(function (pxtblockly) {
-    /**
-     * 16-color sprite
-     */
-    var Bitmap = /** @class */ (function () {
-        function Bitmap(width, height, x0, y0) {
-            if (x0 === void 0) { x0 = 0; }
-            if (y0 === void 0) { y0 = 0; }
-            this.width = width;
-            this.height = height;
-            this.x0 = x0;
-            this.y0 = y0;
-            this.buf = new Uint8Array(Math.ceil(width * height / 2));
-        }
-        Bitmap.prototype.set = function (col, row, value) {
-            if (col < this.width && row < this.height && col >= 0 && row >= 0) {
-                var index = this.coordToIndex(col, row);
-                this.setCore(index, value);
-            }
-        };
-        Bitmap.prototype.get = function (col, row) {
-            if (col < this.width && row < this.height && col >= 0 && row >= 0) {
-                var index = this.coordToIndex(col, row);
-                return this.getCore(index);
-            }
-            return 0;
-        };
-        Bitmap.prototype.copy = function (col, row, width, height) {
-            if (col === void 0) { col = 0; }
-            if (row === void 0) { row = 0; }
-            if (width === void 0) { width = this.width; }
-            if (height === void 0) { height = this.height; }
-            var sub = new Bitmap(width, height);
-            sub.x0 = col;
-            sub.y0 = row;
-            for (var c = 0; c < width; c++) {
-                for (var r = 0; r < height; r++) {
-                    sub.set(c, r, this.get(col + c, row + r));
-                }
-            }
-            return sub;
-        };
-        Bitmap.prototype.apply = function (change) {
-            for (var c = 0; c < change.width; c++) {
-                for (var r = 0; r < change.height; r++) {
-                    this.set(change.x0 + c, change.y0 + r, change.get(c, r));
-                }
-            }
-        };
-        Bitmap.prototype.coordToIndex = function (col, row) {
-            return col + row * this.width;
-        };
-        Bitmap.prototype.getCore = function (index) {
-            var cell = Math.floor(index / 2);
-            if (index % 2 === 0) {
-                return this.buf[cell] & 0xf;
-            }
-            else {
-                return (this.buf[cell] & 0xf0) >> 4;
-            }
-        };
-        Bitmap.prototype.setCore = function (index, value) {
-            var cell = Math.floor(index / 2);
-            if (index % 2 === 0) {
-                this.buf[cell] = (this.buf[cell] & 0xf0) | (value & 0xf);
-            }
-            else {
-                this.buf[cell] = (this.buf[cell] & 0x0f) | ((value & 0xf) << 4);
-            }
-        };
-        return Bitmap;
-    }());
-    pxtblockly.Bitmap = Bitmap;
-    var Bitmask = /** @class */ (function () {
-        function Bitmask(width, height) {
-            this.width = width;
-            this.height = height;
-            this.mask = new Uint8Array(Math.ceil(width * height / 8));
-        }
-        Bitmask.prototype.set = function (col, row) {
-            var cellIndex = col + this.width * row;
-            var index = cellIndex >> 3;
-            var offset = cellIndex & 7;
-            this.mask[index] |= (1 << offset);
-        };
-        Bitmask.prototype.get = function (col, row) {
-            var cellIndex = col + this.width * row;
-            var index = cellIndex >> 3;
-            var offset = cellIndex & 7;
-            return (this.mask[index] >> offset) & 1;
-        };
-        return Bitmask;
-    }());
-    pxtblockly.Bitmask = Bitmask;
-    function resizeBitmap(img, width, height) {
-        var result = new Bitmap(width, height);
-        result.apply(img);
-        return result;
-    }
-    pxtblockly.resizeBitmap = resizeBitmap;
-})(pxtblockly || (pxtblockly = {}));
-var pxtblockly;
-(function (pxtblockly) {
-    var svg = pxt.svgUtil;
-    var TOGGLE_WIDTH = 200;
-    var TOGGLE_HEIGHT = 40;
-    var TOGGLE_BORDER_WIDTH = 2;
-    var TOGGLE_CORNER_RADIUS = 4;
-    var BUTTON_CORNER_RADIUS = 2;
-    var BUTTON_BORDER_WIDTH = 1;
-    var BUTTON_BOTTOM_BORDER_WIDTH = 2;
-    var Toggle = /** @class */ (function () {
-        function Toggle(parent, props) {
-            this.props = defaultColors(props);
-            this.root = parent.group();
-            this.buildDom();
-            this.isLeft = true;
-        }
-        Toggle.prototype.buildDom = function () {
-            var _this = this;
-            // Our css minifier mangles animation names so they need to be injected manually
-            this.root.style().content("\n            .toggle-left {\n                transform: translateX(0px);\n                animation: mvleft 0.2s 0s ease;\n            }\n\n            .toggle-right {\n                transform: translateX(100px);\n                animation: mvright 0.2s 0s ease;\n            }\n\n            @keyframes mvright {\n                0% {\n                    transform: translateX(0px);\n                }\n                100% {\n                    transform: translateX(100px);\n                }\n            }\n\n            @keyframes mvleft {\n                0% {\n                    transform: translateX(100px);\n                }\n                100% {\n                    transform: translateX(0px);\n                }\n            }\n            ");
-            // The outer border has an inner-stroke so we need to clip out the outer part
-            // because SVG's don't support "inner borders"
-            var clip = this.root.def().create("clipPath", "sprite-editor-toggle-border")
-                .clipPathUnits(true);
-            clip.draw("rect")
-                .at(0, 0)
-                .corners(TOGGLE_CORNER_RADIUS / TOGGLE_WIDTH, TOGGLE_CORNER_RADIUS / TOGGLE_HEIGHT)
-                .size(1, 1);
-            // Draw the outer border
-            this.root.draw("rect")
-                .size(TOGGLE_WIDTH, TOGGLE_HEIGHT)
-                .fill(this.props.baseColor)
-                .stroke(this.props.borderColor, TOGGLE_BORDER_WIDTH * 2)
-                .corners(TOGGLE_CORNER_RADIUS, TOGGLE_CORNER_RADIUS)
-                .clipPath("url(#sprite-editor-toggle-border)");
-            // Draw the background
-            this.root.draw("rect")
-                .at(TOGGLE_BORDER_WIDTH, TOGGLE_BORDER_WIDTH)
-                .size(TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH * 2, TOGGLE_HEIGHT - TOGGLE_BORDER_WIDTH * 2)
-                .fill(this.props.backgroundColor)
-                .corners(TOGGLE_CORNER_RADIUS, TOGGLE_CORNER_RADIUS);
-            // Draw the switch
-            this.switch = this.root.draw("rect")
-                .at(TOGGLE_BORDER_WIDTH, TOGGLE_BORDER_WIDTH)
-                .size((TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH * 2) / 2, TOGGLE_HEIGHT - TOGGLE_BORDER_WIDTH * 2)
-                .fill(this.props.switchColor)
-                .corners(TOGGLE_CORNER_RADIUS, TOGGLE_CORNER_RADIUS);
-            // Draw the left option
-            this.leftElement = this.root.group();
-            this.leftText = mkText(this.props.leftText)
-                .fill(this.props.selectedTextColor);
-            this.leftElement.appendChild(this.leftText);
-            // Draw the right option
-            this.rightElement = this.root.group();
-            this.rightText = mkText(this.props.rightText)
-                .fill(this.props.unselectedTextColor);
-            this.rightElement.appendChild(this.rightText);
-            this.root.onClick(function () { return _this.toggle(); });
-        };
-        Toggle.prototype.toggle = function (quiet) {
-            if (quiet === void 0) { quiet = false; }
-            if (this.isLeft) {
-                this.switch.removeClass("toggle-left");
-                this.switch.appendClass("toggle-right");
-                this.leftText.fill(this.props.unselectedTextColor);
-                this.rightText.fill(this.props.selectedTextColor);
-            }
-            else {
-                this.switch.removeClass("toggle-right");
-                this.switch.appendClass("toggle-left");
-                this.leftText.fill(this.props.selectedTextColor);
-                this.rightText.fill(this.props.unselectedTextColor);
-            }
-            this.isLeft = !this.isLeft;
-            if (!quiet && this.changeHandler) {
-                this.changeHandler(this.isLeft);
-            }
-        };
-        Toggle.prototype.onStateChange = function (handler) {
-            this.changeHandler = handler;
-        };
-        Toggle.prototype.layout = function () {
-            var centerOffset = (TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH * 2) / 4;
-            this.leftText.moveTo(centerOffset + TOGGLE_BORDER_WIDTH, TOGGLE_HEIGHT / 2);
-            this.rightText.moveTo(TOGGLE_WIDTH - TOGGLE_BORDER_WIDTH - centerOffset, TOGGLE_HEIGHT / 2);
-        };
-        Toggle.prototype.translate = function (x, y) {
-            this.root.translate(x, y);
-        };
-        Toggle.prototype.height = function () {
-            return TOGGLE_HEIGHT;
-        };
-        Toggle.prototype.width = function () {
-            return TOGGLE_WIDTH;
-        };
-        return Toggle;
-    }());
-    pxtblockly.Toggle = Toggle;
-    var Button = /** @class */ (function () {
-        function Button(root, cx, cy) {
-            var _this = this;
-            this.root = root;
-            this.cx = cx;
-            this.cy = cy;
-            this.root.onClick(function () { return _this.clickHandler && _this.clickHandler(); });
-            this.root.appendClass("sprite-editor-button");
-        }
-        Button.prototype.getElement = function () {
-            return this.root;
-        };
-        Button.prototype.addClass = function (className) {
-            this.root.appendClass(className);
-        };
-        Button.prototype.removeClass = function (className) {
-            this.root.removeClass(className);
-        };
-        Button.prototype.onClick = function (clickHandler) {
-            this.clickHandler = clickHandler;
-        };
-        Button.prototype.translate = function (x, y) {
-            this.root.translate(x, y);
-        };
-        Button.prototype.title = function (text) {
-            this.root.title(text);
-        };
-        Button.prototype.setDisabled = function (disabled) {
-            this.editClass("disabled", disabled);
-        };
-        Button.prototype.setSelected = function (selected) {
-            this.editClass("selected", selected);
-        };
-        Button.prototype.layout = function () { };
-        Button.prototype.editClass = function (className, add) {
-            if (add) {
-                this.root.appendClass(className);
-            }
-            else {
-                this.root.removeClass(className);
-            }
-        };
-        return Button;
-    }());
-    pxtblockly.Button = Button;
-    var TextButton = /** @class */ (function (_super) {
-        __extends(TextButton, _super);
-        function TextButton(root, cx, cy, text, className) {
-            var _this = _super.call(this, root, cx, cy) || this;
-            _this.textEl = mkText(text)
-                .appendClass(className);
-            _this.textEl.moveTo(_this.cx, _this.cy);
-            _this.root.appendChild(_this.textEl);
-            return _this;
-        }
-        TextButton.prototype.setText = function (text) {
-            this.textEl.text(text);
-            this.textEl.moveTo(this.cx, this.cy);
-        };
-        return TextButton;
-    }(Button));
-    pxtblockly.TextButton = TextButton;
-    var CursorButton = /** @class */ (function (_super) {
-        __extends(CursorButton, _super);
-        function CursorButton(root, cx, cy, width) {
-            var _this = _super.call(this, root, cx, cy) || this;
-            _this.root.draw("rect")
-                .fill("white")
-                .size(width, width)
-                .at(Math.floor(_this.cx - width / 2), Math.floor(_this.cy - width / 2));
-            return _this;
-        }
-        return CursorButton;
-    }(Button));
-    pxtblockly.CursorButton = CursorButton;
-    function mkIconButton(icon, width, height) {
-        if (height === void 0) { height = width + BUTTON_BOTTOM_BORDER_WIDTH - BUTTON_BORDER_WIDTH; }
-        var g = drawSingleButton(width, height);
-        return new TextButton(g.root, g.cx, g.cy, icon, "sprite-editor-icon");
-    }
-    pxtblockly.mkIconButton = mkIconButton;
-    function mkXIconButton(icon, width, height) {
-        if (height === void 0) { height = width + BUTTON_BOTTOM_BORDER_WIDTH - BUTTON_BORDER_WIDTH; }
-        var g = drawSingleButton(width, height);
-        return new TextButton(g.root, g.cx, g.cy, icon, "sprite-editor-xicon");
-    }
-    pxtblockly.mkXIconButton = mkXIconButton;
-    function mkTextButton(text, width, height) {
-        var g = drawSingleButton(width, height);
-        return new TextButton(g.root, g.cx, g.cy, text, "sprite-editor-text");
-    }
-    pxtblockly.mkTextButton = mkTextButton;
-    /**
-     * Draws a button suitable for the left end of a button group.
-     *
-     * @param width The total width of the result (including border)
-     * @param height The total height of the resul (including border and lip)
-     * @param lip  The width of the bottom border
-     * @param border The width of the outer border (except bottom)
-     * @param r The corner radius
-     */
-    function drawLeftButton(width, height, lip, border, r) {
-        var root = new svg.Group().appendClass("sprite-editor-button");
-        var bg = root.draw("path")
-            .appendClass("sprite-editor-button-bg");
-        bg.d.moveTo(r, 0)
-            .lineBy(width - r, 0)
-            .lineBy(0, height)
-            .lineBy(-(width - r), 0)
-            .arcBy(r, r, 0, false, true, -r, -r)
-            .lineBy(0, -(height - (r << 1)))
-            .arcBy(r, r, 0, false, true, r, -r)
-            .close();
-        bg.update();
-        var fg = root.draw("path")
-            .appendClass("sprite-editor-button-fg");
-        fg.d.moveTo(border + r, border)
-            .lineBy(width - border - r, 0)
-            .lineBy(0, height - lip - border)
-            .lineBy(-(width - border - r), 0)
-            .arcBy(r, r, 0, false, true, -r, -r)
-            .lineBy(0, -(height - lip - border - (r << 1)))
-            .arcBy(r, r, 0, false, true, r, -r)
-            .close();
-        fg.update();
-        return {
-            root: root,
-            cx: border + (width - border) / 2,
-            cy: border + (height - lip) / 2
-        };
-    }
-    var CursorMultiButton = /** @class */ (function () {
-        function CursorMultiButton(parent, width) {
-            var _this = this;
-            this.root = parent.group();
-            var widths = [4, 7, 10];
-            this.buttons = buttonGroup(65, 21, 3).map(function (b, i) { return new CursorButton(b.root, b.cx, b.cy, widths[i]); });
-            this.buttons.forEach(function (button, index) {
-                button.onClick(function () { return _this.handleClick(index); });
-                button.title(sizeAdjective(index));
-                _this.root.appendChild(button.getElement());
-            });
-        }
-        CursorMultiButton.prototype.handleClick = function (index) {
-            if (index === this.selected)
-                return;
-            if (this.selected != undefined) {
-                this.buttons[this.selected].setSelected(false);
-            }
-            this.selected = index;
-            if (this.selected != undefined) {
-                this.buttons[this.selected].setSelected(true);
-            }
-            if (this.indexHandler)
-                this.indexHandler(index);
-        };
-        CursorMultiButton.prototype.onSelected = function (cb) {
-            this.indexHandler = cb;
-        };
-        return CursorMultiButton;
-    }());
-    pxtblockly.CursorMultiButton = CursorMultiButton;
-    var UndoRedoGroup = /** @class */ (function () {
-        function UndoRedoGroup(parent, host, width, height) {
-            var _this = this;
-            this.root = parent.group();
-            this.host = host;
-            var _a = buttonGroup(width, height, 2), undo = _a[0], redo = _a[1];
-            this.undo = new TextButton(undo.root, undo.cx, undo.cy, "\uf118", "sprite-editor-xicon");
-            this.undo.onClick(function () { return _this.host.undo(); });
-            this.root.appendChild(this.undo.getElement());
-            this.redo = new TextButton(redo.root, redo.cx, redo.cy, "\uf111", "sprite-editor-xicon");
-            this.redo.onClick(function () { return _this.host.redo(); });
-            this.root.appendChild(this.redo.getElement());
-        }
-        UndoRedoGroup.prototype.translate = function (x, y) {
-            this.root.translate(x, y);
-        };
-        UndoRedoGroup.prototype.updateState = function (undo, redo) {
-            this.undo.setDisabled(undo);
-            this.redo.setDisabled(redo);
-        };
-        return UndoRedoGroup;
-    }());
-    pxtblockly.UndoRedoGroup = UndoRedoGroup;
-    function defaultColors(props) {
-        if (!props.baseColor)
-            props.baseColor = "#e95153";
-        if (!props.backgroundColor)
-            props.backgroundColor = "rgba(52,73,94,.2)";
-        if (!props.borderColor)
-            props.borderColor = "rgba(52,73,94,.4)";
-        if (!props.selectedTextColor)
-            props.selectedTextColor = props.baseColor;
-        if (!props.unselectedTextColor)
-            props.unselectedTextColor = "hsla(0,0%,100%,.9)";
-        if (!props.switchColor)
-            props.switchColor = "#ffffff";
-        return props;
-    }
-    function sizeAdjective(cursorIndex) {
-        switch (cursorIndex) {
-            case 0: return lf("Small Cursor");
-            case 1: return lf("Medium Cursor");
-            case 2: return lf("Large Cursor");
-        }
-        return undefined;
-    }
-    /**
- * Draws a button suitable for the interior of a button group.
- *
- * @param width The total width of the result (including border)
- * @param height The total height of the resul (including border and lip)
- * @param lip  The width of the bottom border
- * @param border The width of the outer border (except bottom)
- */
-    function drawMidButton(width, height, lip, border) {
-        var root = new svg.Group().appendClass("sprite-editor-button");
-        var bg = root.draw("rect")
-            .appendClass("sprite-editor-button-bg")
-            .size(width, height);
-        var fg = root.draw("rect")
-            .appendClass("sprite-editor-button-fg")
-            .size(width - border, height - lip - border)
-            .at(border, border);
-        return {
-            root: root,
-            cx: border + (width - border) / 2,
-            cy: border + (height - lip) / 2
-        };
-    }
-    /**
-     * Draws a button suitable for the right end of a button group.
-     *
-     * @param width The total width of the result (including border)
-     * @param height The total height of the resul (including border and lip)
-     * @param lip  The width of the bottom border
-     * @param border The width of the outer border (except bottom)
-     * @param r The corner radius
-     */
-    function drawRightButton(width, height, lip, border, r) {
-        var root = new svg.Group().appendClass("sprite-editor-button");
-        var bg = root.draw("path")
-            .appendClass("sprite-editor-button-bg");
-        bg.d.moveTo(0, 0)
-            .lineBy(width - r, 0)
-            .arcBy(r, r, 0, false, true, r, r)
-            .lineBy(0, height - (r << 1))
-            .arcBy(r, r, 0, false, true, -r, r)
-            .lineBy(-(width - r), 0)
-            .lineBy(0, -height)
-            .close();
-        bg.update();
-        var fg = root.draw("path")
-            .appendClass("sprite-editor-button-fg");
-        fg.d.moveTo(border, border)
-            .lineBy(width - border - r, 0)
-            .arcBy(r, r, 0, false, true, r, r)
-            .lineBy(0, height - border - lip - (r << 1))
-            .arcBy(r, r, 0, false, true, -r, r)
-            .lineBy(-(width - border - r), 0)
-            .lineBy(0, -(height - border - lip))
-            .close();
-        fg.update();
-        var content = root.group().id("sprite-editor-button-content");
-        content.translate(border + (width - (border << 1)) >> 1, (height - lip - border) >> 1);
-        return {
-            root: root,
-            cx: width / 2,
-            cy: border + (height - lip) / 2
-        };
-    }
-    /**
-     * Draws a standalone button.
-     *
-     * @param width The total width of the result (including border)
-     * @param height The total height of the resul (including border and lip)
-     * @param lip  The width of the bottom border
-     * @param border The width of the outer border (except bottom)
-     * @param r The corner radius
-     */
-    function drawSingleButton(width, height, lip, border, r) {
-        if (lip === void 0) { lip = BUTTON_BOTTOM_BORDER_WIDTH; }
-        if (border === void 0) { border = BUTTON_BORDER_WIDTH; }
-        if (r === void 0) { r = BUTTON_CORNER_RADIUS; }
-        var root = new svg.Group().appendClass("sprite-editor-button");
-        root.draw("rect")
-            .size(width, height)
-            .corners(r, r)
-            .appendClass("sprite-editor-button-bg");
-        root.draw("rect")
-            .at(border, border)
-            .size(width - (border << 1), height - lip - border)
-            .corners(r, r)
-            .appendClass("sprite-editor-button-fg");
-        return {
-            root: root,
-            cx: width / 2,
-            cy: border + (height - lip) / 2
-        };
-    }
-    function buttonGroup(width, height, segments, lip, border, r) {
-        if (lip === void 0) { lip = BUTTON_BOTTOM_BORDER_WIDTH; }
-        if (border === void 0) { border = BUTTON_BORDER_WIDTH; }
-        if (r === void 0) { r = BUTTON_CORNER_RADIUS; }
-        var available = width - (segments + 1) * border;
-        var segmentWidth = Math.floor(available / segments);
-        var result = [];
-        for (var i = 0; i < segments; i++) {
-            if (i === 0) {
-                result.push(drawLeftButton(segmentWidth + border, height, lip, border, r));
-            }
-            else if (i === segments - 1) {
-                var b = drawRightButton(segmentWidth + (border << 1), height, lip, border, r);
-                b.root.translate((border + segmentWidth) * i, 0);
-                result.push(b);
-            }
-            else {
-                var b = drawMidButton(segmentWidth + border, height, lip, border);
-                b.root.translate((border + segmentWidth) * i, 0);
-                result.push(b);
-            }
-        }
-        return result;
-    }
-    function mkText(text) {
-        return new svg.Text(text)
-            .anchor("middle")
-            .setAttribute("dominant-baseline", "middle")
-            .setAttribute("dy", (pxt.BrowserUtils.isIE() || pxt.BrowserUtils.isEdge()) ? "0.3em" : "0");
-    }
-    pxtblockly.mkText = mkText;
-})(pxtblockly || (pxtblockly = {}));
-var pxtblockly;
-(function (pxtblockly) {
-    var alphaCellWidth = 5;
-    var dropdownPaddding = 4;
-    var lightModeBackground = "#dedede";
-    var CanvasGrid = /** @class */ (function () {
-        function CanvasGrid(palette, image, lightMode) {
-            if (lightMode === void 0) { lightMode = false; }
-            this.palette = palette;
-            this.image = image;
-            this.lightMode = lightMode;
-            this.cellWidth = 16;
-            this.cellHeight = 16;
-            this.paintLayer = document.createElement("canvas");
-            this.paintLayer.setAttribute("class", "sprite-editor-canvas");
-            if (!this.lightMode) {
-                this.backgroundLayer = document.createElement("canvas");
-                this.backgroundLayer.setAttribute("class", "sprite-editor-canvas");
-                this.overlayLayer = document.createElement("canvas");
-                this.overlayLayer.setAttribute("class", "sprite-editor-canvas");
-                this.context = this.paintLayer.getContext("2d");
-            }
-            else {
-                this.context = this.paintLayer.getContext("2d", { alpha: false });
-                this.context.fillStyle = lightModeBackground;
-                this.context.fill();
-            }
-            this.hideOverlay();
-        }
-        CanvasGrid.prototype.repaint = function () {
-            this.redraw();
-        };
-        CanvasGrid.prototype.applyEdit = function (edit, cursorCol, cursorRow) {
-            edit.doEdit(this.image);
-            this.drawCursor(edit, cursorCol, cursorRow);
-        };
-        CanvasGrid.prototype.drawCursor = function (edit, col, row) {
-            var _this = this;
-            this.context.strokeStyle = "#898989";
-            this.repaint();
-            edit.drawCursor(col, row, function (c, r) {
-                _this.drawColor(c, r, edit.color);
-                var x = c * _this.cellWidth;
-                var y = r * _this.cellHeight;
-                _this.context.strokeRect(x, y, _this.cellWidth, _this.cellHeight);
-            });
-        };
-        CanvasGrid.prototype.bitmap = function () {
-            return this.image;
-        };
-        CanvasGrid.prototype.outerWidth = function () {
-            return this.paintLayer.getBoundingClientRect().width;
-        };
-        CanvasGrid.prototype.outerHeight = function () {
-            return this.paintLayer.getBoundingClientRect().height;
-        };
-        CanvasGrid.prototype.writeColor = function (col, row, color) {
-            this.image.set(col, row, color);
-            this.drawColor(col, row, color);
-        };
-        CanvasGrid.prototype.drawColor = function (col, row, color) {
-            this.setCellColor(col, row, color === 0 ? undefined : this.palette[color - 1]);
-        };
-        CanvasGrid.prototype.restore = function (bitmap, repaint) {
-            if (repaint === void 0) { repaint = false; }
-            if (bitmap.height != this.image.height || bitmap.width != this.image.width) {
-                this.image = bitmap.copy();
-                this.resizeGrid(bitmap.width, bitmap.width * bitmap.height);
-            }
-            else {
-                this.image.apply(bitmap);
-            }
-            if (repaint) {
-                this.repaint();
-            }
-        };
-        CanvasGrid.prototype.showOverlay = function () {
-            var _this = this;
-            if (this.lightMode)
-                return;
-            if (this.fadeAnimation) {
-                this.fadeAnimation.kill();
-            }
-            this.overlayLayer.style.visibility = "visible";
-            var w = this.overlayLayer.width;
-            var h = this.overlayLayer.height;
-            var context = this.overlayLayer.getContext("2d");
-            var toastWidth = 100;
-            var toastHeight = 40;
-            var toastLeft = w / 2 - toastWidth / 2;
-            var toastTop = h / 2 - toastWidth / 4;
-            this.fadeAnimation = new Fade(function (opacity, dead) {
-                if (dead) {
-                    _this.hideOverlay();
-                    return;
-                }
-                context.clearRect(0, 0, w, h);
-                context.globalAlpha = opacity;
-                context.fillStyle = "#898989";
-                // After 32x32 the grid isn't easy to see anymore so skip it
-                if (_this.image.width <= 32 && _this.image.height <= 32) {
-                    for (var c = 1; c < _this.image.width; c++) {
-                        context.fillRect(c * _this.cellWidth, 0, 1, h);
-                    }
-                    for (var r = 1; r < _this.image.height; r++) {
-                        context.fillRect(0, r * _this.cellHeight, w, 1);
-                    }
-                }
-                context.fillRect(toastLeft, toastTop, toastWidth, toastHeight);
-                context.fillStyle = "#ffffff";
-                context.font = "30px sans-serif";
-                context.textBaseline = "middle";
-                context.textAlign = "center";
-                context.fillText(_this.image.width.toString(), toastLeft + toastWidth / 2 - 25, toastTop + toastHeight / 2);
-                context.fillText("x", toastLeft + 50, toastTop + toastHeight / 2, 10);
-                context.fillText(_this.image.height.toString(), toastLeft + toastWidth / 2 + 25, toastTop + toastHeight / 2);
-            }, 750, 500);
-        };
-        CanvasGrid.prototype.hideOverlay = function () {
-            if (!this.lightMode) {
-                this.overlayLayer.style.visibility = "hidden";
-            }
-        };
-        CanvasGrid.prototype.resizeGrid = function (rowLength, numCells) {
-            this.repaint();
-        };
-        CanvasGrid.prototype.setCellDimensions = function (width, height) {
-            this.cellWidth = width | 0;
-            this.cellHeight = height | 0;
-            var canvasWidth = this.cellWidth * this.image.width;
-            var canvasHeight = this.cellHeight * this.image.height;
-            this.paintLayer.width = canvasWidth;
-            this.paintLayer.height = canvasHeight;
-            if (!this.lightMode) {
-                this.backgroundLayer.width = canvasWidth;
-                this.backgroundLayer.height = canvasHeight;
-                this.overlayLayer.width = canvasWidth;
-                this.overlayLayer.height = canvasHeight;
-            }
-        };
-        CanvasGrid.prototype.setGridDimensions = function (width, height, lockAspectRatio) {
-            if (height === void 0) { height = width; }
-            if (lockAspectRatio === void 0) { lockAspectRatio = true; }
-            var maxCellWidth = width / this.image.width;
-            var maxCellHeight = height / this.image.height;
-            if (lockAspectRatio) {
-                var aspectRatio = this.cellWidth / this.cellHeight;
-                if (aspectRatio >= 1) {
-                    var w = Math.min(maxCellWidth, maxCellHeight * aspectRatio);
-                    this.setCellDimensions(w, w * aspectRatio);
-                }
-                else {
-                    var h = Math.min(maxCellHeight, maxCellWidth / aspectRatio);
-                    this.setCellDimensions(h / aspectRatio, h);
-                }
-            }
-            else {
-                this.setCellDimensions(maxCellWidth, maxCellHeight);
-            }
-        };
-        CanvasGrid.prototype.setCellColor = function (column, row, color, opacity) {
-            var x = column * this.cellWidth;
-            var y = row * this.cellHeight;
-            if (color) {
-                this.context.fillStyle = color;
-                this.context.fillRect(x, y, this.cellWidth, this.cellHeight);
-            }
-            else if (!this.lightMode) {
-                this.context.clearRect(x, y, this.cellWidth, this.cellHeight);
-            }
-            else {
-                this.context.fillStyle = lightModeBackground;
-                this.context.fillRect(x, y, this.cellWidth, this.cellHeight);
-            }
-        };
-        CanvasGrid.prototype.down = function (handler) {
-            this.initDragSurface();
-            this.gesture.subscribe(GestureType.Down, handler);
-        };
-        CanvasGrid.prototype.up = function (handler) {
-            this.initDragSurface();
-            this.gesture.subscribe(GestureType.Up, handler);
-        };
-        CanvasGrid.prototype.drag = function (handler) {
-            this.initDragSurface();
-            this.gesture.subscribe(GestureType.Drag, handler);
-        };
-        CanvasGrid.prototype.move = function (handler) {
-            this.initDragSurface();
-            this.gesture.subscribe(GestureType.Move, handler);
-        };
-        CanvasGrid.prototype.leave = function (handler) {
-            this.initDragSurface();
-            this.gesture.subscribe(GestureType.Leave, handler);
-        };
-        CanvasGrid.prototype.updateBounds = function (top, left, width, height) {
-            this.layoutCanvas(this.paintLayer, top, left, width, height);
-            if (!this.lightMode) {
-                this.layoutCanvas(this.overlayLayer, top, left, width, height);
-                this.layoutCanvas(this.backgroundLayer, top, left, width, height);
-            }
-            this.redraw();
-            this.drawBackground();
-            this.bounds = undefined;
-        };
-        CanvasGrid.prototype.render = function (parent) {
-            if (!this.lightMode) {
-                parent.appendChild(this.backgroundLayer);
-            }
-            parent.appendChild(this.paintLayer);
-            if (!this.lightMode) {
-                parent.appendChild(this.overlayLayer);
-            }
-        };
-        CanvasGrid.prototype.redraw = function () {
-            for (var c = 0; c < this.image.width; c++) {
-                for (var r = 0; r < this.image.height; r++) {
-                    this.drawColor(c, r, this.image.get(c, r));
-                }
-            }
-        };
-        CanvasGrid.prototype.drawBackground = function () {
-            if (this.lightMode)
-                return;
-            var context = this.backgroundLayer.getContext("2d", { alpha: false });
-            var alphaCols = Math.ceil(this.paintLayer.width / alphaCellWidth);
-            var alphaRows = Math.ceil(this.paintLayer.height / alphaCellWidth);
-            context.fillStyle = "#ffffff";
-            context.fillRect(0, 0, this.paintLayer.width, this.paintLayer.height);
-            context.fillStyle = "#dedede";
-            for (var ac = 0; ac < alphaCols; ac++) {
-                for (var ar = 0; ar < alphaRows; ar++) {
-                    if ((ac + ar) % 2) {
-                        context.fillRect(ac * alphaCellWidth, ar * alphaCellWidth, alphaCellWidth, alphaCellWidth);
-                    }
-                }
-            }
-        };
-        CanvasGrid.prototype.clientToCell = function (clientX, clientY) {
-            if (!this.bounds)
-                this.bounds = this.paintLayer.getBoundingClientRect();
-            return [
-                Math.floor((clientX - this.bounds.left) / this.cellWidth),
-                Math.floor((clientY - this.bounds.top) / this.cellHeight)
-            ];
-        };
-        CanvasGrid.prototype.initDragSurface = function () {
-            var _this = this;
-            if (!this.gesture) {
-                this.gesture = new GestureState();
-                this.paintLayer.addEventListener(pxsim.pointerEvents.move, function (ev) {
-                    var _a = _this.clientToCell(ev.clientX, ev.clientY), col = _a[0], row = _a[1];
-                    if (ev.buttons & 1) {
-                        _this.gesture.handle(InputEvent.Down, col, row);
-                    }
-                    _this.gesture.handle(InputEvent.Move, col, row);
-                });
-                pxsim.pointerEvents.down.forEach(function (evId) {
-                    _this.paintLayer.addEventListener(evId, function (ev) {
-                        var _a = _this.clientToCell(ev.clientX, ev.clientY), col = _a[0], row = _a[1];
-                        _this.gesture.handle(InputEvent.Down, col, row);
-                    });
-                });
-                this.paintLayer.addEventListener(pxsim.pointerEvents.up, function (ev) {
-                    var _a = _this.clientToCell(ev.clientX, ev.clientY), col = _a[0], row = _a[1];
-                    _this.gesture.handle(InputEvent.Up, col, row);
-                });
-                this.paintLayer.addEventListener("click", function (ev) {
-                    var _a = _this.clientToCell(ev.clientX, ev.clientY), col = _a[0], row = _a[1];
-                    _this.gesture.handle(InputEvent.Down, col, row);
-                    _this.gesture.handle(InputEvent.Up, col, row);
-                });
-                this.paintLayer.addEventListener(pxsim.pointerEvents.leave, function (ev) {
-                    var _a = _this.clientToCell(ev.clientX, ev.clientY), col = _a[0], row = _a[1];
-                    _this.gesture.handle(InputEvent.Leave, col, row);
-                });
-            }
-        };
-        CanvasGrid.prototype.layoutCanvas = function (canvas, top, left, width, height) {
-            canvas.style.position = "absolute";
-            if (this.image.width === this.image.height) {
-                canvas.style.top = top + "px";
-                canvas.style.left = left + "px";
-            }
-            else if (this.image.width > this.image.height) {
-                canvas.style.top = (top + dropdownPaddding + (height - canvas.height) / 2) + "px";
-                canvas.style.left = left + "px";
-            }
-            else {
-                canvas.style.top = top + "px";
-                canvas.style.left = (left + dropdownPaddding + (width - canvas.width) / 2) + "px";
-            }
-        };
-        return CanvasGrid;
-    }());
-    pxtblockly.CanvasGrid = CanvasGrid;
-    var InputEvent;
-    (function (InputEvent) {
-        InputEvent[InputEvent["Up"] = 0] = "Up";
-        InputEvent[InputEvent["Down"] = 1] = "Down";
-        InputEvent[InputEvent["Move"] = 2] = "Move";
-        InputEvent[InputEvent["Leave"] = 3] = "Leave";
-    })(InputEvent || (InputEvent = {}));
-    var GestureType;
-    (function (GestureType) {
-        GestureType[GestureType["Up"] = 0] = "Up";
-        GestureType[GestureType["Down"] = 1] = "Down";
-        GestureType[GestureType["Move"] = 2] = "Move";
-        GestureType[GestureType["Drag"] = 3] = "Drag";
-        GestureType[GestureType["Leave"] = 4] = "Leave";
-    })(GestureType || (GestureType = {}));
-    var GestureState = /** @class */ (function () {
-        function GestureState() {
-            this.isDown = false;
-            this.handlers = {};
-        }
-        GestureState.prototype.handle = function (event, col, row) {
-            switch (event) {
-                case InputEvent.Up:
-                    this.update(col, row);
-                    this.isDown = false;
-                    this.fire(GestureType.Up);
-                    break;
-                case InputEvent.Down:
-                    if (!this.isDown) {
-                        this.isDown = true;
-                        this.fire(GestureType.Down);
-                    }
-                    break;
-                case InputEvent.Move:
-                    if (col === this.lastCol && row === this.lastRow)
-                        return;
-                    this.update(col, row);
-                    if (this.isDown) {
-                        this.fire(GestureType.Drag);
-                    }
-                    else {
-                        this.fire(GestureType.Move);
-                    }
-                    break;
-                case InputEvent.Leave:
-                    this.update(col, row);
-                    this.isDown = false;
-                    this.fire(GestureType.Leave);
-                    break;
-            }
-        };
-        GestureState.prototype.subscribe = function (type, handler) {
-            this.handlers[type] = handler;
-        };
-        GestureState.prototype.update = function (col, row) {
-            this.lastCol = col;
-            this.lastRow = row;
-        };
-        GestureState.prototype.fire = function (type) {
-            if (this.handlers[type]) {
-                this.handlers[type](this.lastCol, this.lastRow);
-            }
-        };
-        return GestureState;
-    }());
-    var Fade = /** @class */ (function () {
-        function Fade(draw, delay, duration) {
-            var _this = this;
-            this.draw = draw;
-            this.start = Date.now() + delay;
-            this.end = this.start + duration;
-            this.slope = 1 / duration;
-            this.dead = false;
-            draw(1, false);
-            setTimeout(function () { return requestAnimationFrame(function () { return _this.frame(); }); }, delay);
-        }
-        Fade.prototype.frame = function () {
-            var _this = this;
-            if (this.dead)
-                return;
-            var now = Date.now();
-            if (now < this.end) {
-                var v = 1 - (this.slope * (now - this.start));
-                this.draw(v, false);
-                requestAnimationFrame(function () { return _this.frame(); });
-            }
-            else {
-                this.draw(0, true);
-                this.kill();
-            }
-        };
-        Fade.prototype.kill = function () {
-            this.dead = true;
-        };
-        return Fade;
-    }());
-})(pxtblockly || (pxtblockly = {}));
-var pxtblockly;
-(function (pxtblockly) {
-    var COLUMNS = 4;
-    var Gallery = /** @class */ (function () {
-        function Gallery(info) {
-            var _this = this;
-            this.visible = false;
-            this.info = info;
-            this.containerDiv = document.createElement("div");
-            this.containerDiv.setAttribute("id", "sprite-editor-gallery-outer");
-            this.contentDiv = document.createElement("div");
-            this.contentDiv.setAttribute("id", "sprite-editor-gallery");
-            this.itemBackgroundColor = "#ffffff";
-            this.itemBorderColor = "#000000";
-            this.initStyles();
-            this.containerDiv.appendChild(this.contentDiv);
-            this.containerDiv.style.display = "none";
-            this.contentDiv.addEventListener("animationend", function () {
-                if (!_this.visible) {
-                    _this.containerDiv.style.display = "none";
-                }
-            });
-        }
-        Gallery.prototype.getElement = function () {
-            return this.containerDiv;
-        };
-        Gallery.prototype.show = function (cb) {
-            if (this.pending) {
-                this.reject("Error: multiple calls");
-            }
-            this.pending = cb;
-            this.containerDiv.style.display = "block";
-            this.buildDom();
-            this.visible = true;
-            this.contentDiv.setAttribute("class", "shown");
-        };
-        Gallery.prototype.hide = function () {
-            if (this.pending) {
-                this.reject("cancelled");
-            }
-            this.visible = false;
-            this.contentDiv.setAttribute("class", "hidden-above");
-        };
-        Gallery.prototype.layout = function (left, top, height) {
-            this.containerDiv.style.left = left + "px";
-            this.containerDiv.style.top = top + "px";
-            this.containerDiv.style.height = height + "px";
-        };
-        Gallery.prototype.buildDom = function () {
-            var _this = this;
-            pxsim.U.clear(this.contentDiv);
-            var totalWidth = this.containerDiv.clientWidth - 17;
-            var buttonWidth = (Math.floor(totalWidth / COLUMNS) - 8) + "px";
-            this.getGalleryItems("Image").forEach(function (item, i) { return _this.mkButton(item.src, item.alt, item.qName, i, buttonWidth); });
-        };
-        Gallery.prototype.initStyles = function () {
-            var style = document.createElement("style");
-            style.textContent = "\n            #sprite-editor-gallery {\n                margin-top: -100%;\n            }\n\n            #sprite-editor-gallery.hidden-above {\n                margin-top: -100%;\n                animation: slide-up 0.2s 0s ease;\n            }\n\n            #sprite-editor-gallery.shown {\n                margin-top: 0px;\n                animation: slide-down 0.2s 0s ease;\n            }\n\n            @keyframes slide-down {\n                0% {\n                    margin-top: -100%;\n                }\n                100% {\n                    margin-top: 0px;\n                }\n            }\n\n            @keyframes slide-up {\n                0% {\n                    margin-top: 0px;\n                }\n                100% {\n                    margin-top: -100%;\n                }\n            }\n            ";
-            this.containerDiv.appendChild(style);
-        };
-        Gallery.prototype.mkButton = function (src, alt, value, i, width) {
-            var _this = this;
-            var button = document.createElement('button');
-            button.setAttribute('id', ':' + i); // For aria-activedescendant
-            button.setAttribute('role', 'menuitem');
-            button.setAttribute('class', 'blocklyDropDownButton sprite-editor-card');
-            button.title = alt;
-            button.style.width = width;
-            button.style.height = width;
-            var backgroundColor = this.itemBackgroundColor;
-            button.style.backgroundColor = backgroundColor;
-            button.style.borderColor = this.itemBorderColor;
-            Blockly.bindEvent_(button, 'click', this, function () { return _this.handleSelection(value); });
-            var parentDiv = this.contentDiv;
-            Blockly.bindEvent_(button, 'mouseover', button, function () {
-                this.setAttribute('class', 'blocklyDropDownButton blocklyDropDownButtonHover sprite-editor-card');
-                parentDiv.setAttribute('aria-activedescendant', this.id);
-            });
-            Blockly.bindEvent_(button, 'mouseout', button, function () {
-                this.setAttribute('class', 'blocklyDropDownButton sprite-editor-card');
-                parentDiv.removeAttribute('aria-activedescendant');
-            });
-            var buttonImg = document.createElement('img');
-            buttonImg.src = src;
-            button.setAttribute('data-value', value);
-            buttonImg.setAttribute('data-value', value);
-            button.appendChild(buttonImg);
-            this.contentDiv.appendChild(button);
-        };
-        Gallery.prototype.resolve = function (bitmap) {
-            if (this.pending) {
-                var cb = this.pending;
-                this.pending = undefined;
-                cb(bitmap);
-            }
-        };
-        Gallery.prototype.reject = function (reason) {
-            if (this.pending) {
-                var cb = this.pending;
-                this.pending = undefined;
-                cb(undefined, reason);
-            }
-        };
-        Gallery.prototype.handleSelection = function (value) {
-            this.resolve(this.getBitmap(value));
-        };
-        Gallery.prototype.getBitmap = function (qName) {
-            var sym = this.info.apis.byQName[qName];
-            var jresURL = sym.attributes.jresURL;
-            var data = atob(jresURL.slice(jresURL.indexOf(",") + 1));
-            var magic = data.charCodeAt(0);
-            var w = data.charCodeAt(1);
-            var h = data.charCodeAt(2);
-            var out = new pxtblockly.Bitmap(w, h);
-            var index = 4;
-            if (magic === 0xe1) {
-                // Monochrome
-                var mask = 0x01;
-                var v = data.charCodeAt(index++);
-                for (var x = 0; x < w; ++x) {
-                    for (var y = 0; y < h; ++y) {
-                        out.set(x, y, (v & mask) ? 1 : 0);
-                        mask <<= 1;
-                        if (mask == 0x100) {
-                            mask = 0x01;
-                            v = data.charCodeAt(index++);
-                        }
-                    }
-                }
-            }
-            else {
-                // Color
-                for (var x = 0; x < w; x++) {
-                    for (var y = 0; y < h; y += 2) {
-                        var v = data.charCodeAt(index++);
-                        out.set(x, y, v & 0xf);
-                        if (y != h - 1) {
-                            out.set(x, y + 1, (v >> 4) & 0xf);
-                        }
-                    }
-                    while (index & 3)
-                        index++;
-                }
-            }
-            return out;
-        };
-        Gallery.prototype.getGalleryItems = function (qName) {
-            var syms = pxt.blocks.getFixedInstanceDropdownValues(this.info.apis, qName);
-            pxt.blocks.generateIcons(syms);
-            return syms.map(function (sym) {
-                return {
-                    qName: sym.qName,
-                    src: sym.attributes.iconURL,
-                    alt: sym.qName
-                };
-            });
-        };
-        return Gallery;
-    }());
-    pxtblockly.Gallery = Gallery;
-})(pxtblockly || (pxtblockly = {}));
-/// <reference path="./buttons.ts" />
-var pxtblockly;
-(function (pxtblockly) {
-    var svg = pxt.svgUtil;
-    var SpriteHeader = /** @class */ (function () {
-        function SpriteHeader(host) {
-            var _this = this;
-            this.host = host;
-            this.div = document.createElement("div");
-            this.div.setAttribute("id", "sprite-editor-header");
-            this.root = new svg.SVG(this.div).id("sprite-editor-header-controls");
-            this.toggle = new pxtblockly.Toggle(this.root, { leftText: "Editor", rightText: "Gallery", baseColor: "#4B7BEC" });
-            this.toggle.onStateChange(function (isLeft) {
-                if (isLeft) {
-                    _this.host.hideGallery();
-                }
-                else {
-                    _this.host.showGallery();
-                }
-            });
-        }
-        SpriteHeader.prototype.getElement = function () {
-            return this.div;
-        };
-        SpriteHeader.prototype.layout = function () {
-            this.toggle.layout();
-            var bounds = this.div.getBoundingClientRect();
-            this.toggle.translate((bounds.width - this.toggle.width()) / 2, (bounds.height - this.toggle.height()) / 2);
-        };
-        return SpriteHeader;
-    }());
-    pxtblockly.SpriteHeader = SpriteHeader;
-})(pxtblockly || (pxtblockly = {}));
-/// <reference path="./buttons.ts" />
-var pxtblockly;
-(function (pxtblockly) {
-    var UNDO_REDO_WIDTH = 65;
-    var SIZE_BUTTON_WIDTH = 65;
-    var SIZE_CURSOR_MARGIN = 10;
-    var ReporterBar = /** @class */ (function () {
-        function ReporterBar(parent, host, height) {
-            var _this = this;
-            this.host = host;
-            this.height = height;
-            this.root = parent.group().id("sprite-editor-reporter-bar");
-            this.undoRedo = new pxtblockly.UndoRedoGroup(this.root, host, UNDO_REDO_WIDTH, height);
-            this.sizeButton = pxtblockly.mkTextButton("16x16", SIZE_BUTTON_WIDTH, height);
-            this.sizeButton.onClick(function () {
-                _this.nextSize();
-            });
-            this.root.appendChild(this.sizeButton.getElement());
-            this.sizePresets = [
-                [16, 16]
-            ];
-            this.cursorText = this.root.draw("text")
-                .appendClass("sprite-editor-text")
-                .setAttribute("dominant-baseline", "middle")
-                .setAttribute("dy", 2.5);
-        }
-        ReporterBar.prototype.updateDimensions = function (width, height) {
-            this.sizeButton.setText(width + "x" + height);
-        };
-        ReporterBar.prototype.hideCursor = function () {
-            this.cursorText.text("");
-        };
-        ReporterBar.prototype.updateCursor = function (col, row) {
-            this.cursorText.text(col + "," + row);
-        };
-        ReporterBar.prototype.updateUndoRedo = function (undo, redo) {
-            this.undoRedo.updateState(undo, redo);
-        };
-        ReporterBar.prototype.layout = function (top, left, width) {
-            this.root.translate(left, top);
-            this.undoRedo.translate(width - UNDO_REDO_WIDTH, 0);
-            this.cursorText.moveTo(SIZE_BUTTON_WIDTH + SIZE_CURSOR_MARGIN, this.height / 2);
-        };
-        ReporterBar.prototype.setSizePresets = function (presets, currentWidth, currentHeight) {
-            this.sizePresets = presets;
-            this.sizeIndex = undefined;
-            for (var i = 0; i < presets.length; i++) {
-                var _a = presets[i], w = _a[0], h = _a[1];
-                if (w === currentWidth && h === currentHeight) {
-                    this.sizeIndex = i;
-                    break;
-                }
-            }
-            this.updateDimensions(currentWidth, currentHeight);
-        };
-        ReporterBar.prototype.nextSize = function () {
-            if (this.sizeIndex == undefined) {
-                this.sizeIndex = 0;
-            }
-            else {
-                this.sizeIndex = (this.sizeIndex + 1) % this.sizePresets.length;
-            }
-            var _a = this.sizePresets[this.sizeIndex], w = _a[0], h = _a[1];
-            this.host.resize(w, h);
-        };
-        return ReporterBar;
-    }());
-    pxtblockly.ReporterBar = ReporterBar;
-})(pxtblockly || (pxtblockly = {}));
-/// <reference path="./buttons.ts" />
-var pxtblockly;
-(function (pxtblockly) {
-    var lf = pxt.Util.lf;
-    var TOOLBAR_WIDTH = 65;
-    var INNER_BUTTON_MARGIN = 3;
-    var PALETTE_BORDER_WIDTH = 1;
-    var BUTTON_GROUP_SPACING = 3;
-    var SELECTED_BORDER_WIDTH = 2;
-    var COLOR_PREVIEW_HEIGHT = 30;
-    var COLOR_MARGIN = 7;
-    var TOOL_BUTTON_WIDTH = (TOOLBAR_WIDTH - INNER_BUTTON_MARGIN) / 2;
-    var PALLETTE_SWATCH_WIDTH = (TOOLBAR_WIDTH - PALETTE_BORDER_WIDTH * 3) / 2;
-    var TOOL_BUTTON_TOP = TOOLBAR_WIDTH / 3 + BUTTON_GROUP_SPACING;
-    var PALETTE_TOP = TOOL_BUTTON_TOP + TOOL_BUTTON_WIDTH * 2 + INNER_BUTTON_MARGIN + COLOR_MARGIN;
-    var SideBar = /** @class */ (function () {
-        function SideBar(palette, host, parent) {
-            this.palette = palette;
-            this.host = host;
-            this.root = parent.group().id("sprite-editor-sidebar");
-            this.initSizes();
-            this.initTools();
-            this.initPalette();
-        }
-        SideBar.prototype.setTool = function (tool) {
-            this.host.setActiveTool(tool);
-            if (this.selectedTool) {
-                this.selectedTool.removeClass("selected");
-            }
-            this.selectedTool = this.getButtonForTool(tool);
-            if (this.selectedTool) {
-                this.selectedTool.addClass("selected");
-            }
-        };
-        SideBar.prototype.setColor = function (color) {
-            this.host.setActiveColor(color);
-            if (this.selectedSwatch) {
-                this.selectedSwatch.stroke("none");
-            }
-            this.selectedSwatch = this.colorSwatches[color];
-            if (this.selectedSwatch) {
-                // Border is multiplied by 2 and the excess is clipped away
-                this.selectedSwatch.stroke("orange", SELECTED_BORDER_WIDTH * 2);
-                this.colorPreview.fill(this.palette[color]);
-            }
-            // FIXME: Switch the tool to pencil
-        };
-        SideBar.prototype.setCursorSize = function (size) {
-            this.host.setToolWidth(size);
-        };
-        SideBar.prototype.setWidth = function (width) {
-            this.root.scale(width / TOOLBAR_WIDTH);
-        };
-        SideBar.prototype.translate = function (left, top) {
-            this.root.translate(left, top);
-        };
-        SideBar.prototype.initSizes = function () {
-            var _this = this;
-            this.sizeGroup = this.root.group().id("sprite-editor-cursor-buttons");
-            var buttonGroup = new pxtblockly.CursorMultiButton(this.sizeGroup, TOOLBAR_WIDTH);
-            buttonGroup.onSelected(function (index) {
-                _this.setCursorSize(1 + (index * 2));
-            });
-            // Sets the first button to show as selected
-            buttonGroup.selected = 0;
-            buttonGroup.buttons[0].setSelected(true);
-        };
-        SideBar.prototype.initTools = function () {
-            this.buttonGroup = this.root.group()
-                .id("sprite-editor-tools")
-                .translate(0, TOOL_BUTTON_TOP);
-            this.pencilTool = this.initButton(lf("Pencil"), "\uf040", pxtblockly.PaintTool.Normal);
-            this.eraseTool = this.initButton(lf("Erase"), "\uf12d", pxtblockly.PaintTool.Erase);
-            this.eraseTool.translate(1 + TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN, 0);
-            this.fillTool = this.initButton(lf("Fill"), "\uf102", pxtblockly.PaintTool.Fill, true);
-            this.fillTool.translate(0, TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN);
-            this.rectangleTool = this.initButton(lf("Rectangle"), "\uf096", pxtblockly.PaintTool.Rectangle);
-            this.rectangleTool.translate(1 + TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN, TOOL_BUTTON_WIDTH + INNER_BUTTON_MARGIN);
-            this.setTool(pxtblockly.PaintTool.Normal);
-        };
-        SideBar.prototype.initPalette = function () {
-            var _this = this;
-            this.paletteGroup = this.root.group().id("sprite-editor-palette")
-                .translate(0, PALETTE_TOP);
-            // Draw the background/borders for the entire palette
-            var bgHeight = COLOR_PREVIEW_HEIGHT + PALETTE_BORDER_WIDTH * 2;
-            this.paletteGroup.draw("rect")
-                .fill("#000000")
-                .size(TOOLBAR_WIDTH, bgHeight);
-            this.paletteGroup.draw("rect")
-                .fill("#000000")
-                .at(0, bgHeight + COLOR_MARGIN)
-                .size(TOOLBAR_WIDTH, PALETTE_BORDER_WIDTH + (this.palette.length >> 1) * (PALLETTE_SWATCH_WIDTH + PALETTE_BORDER_WIDTH));
-            // The highlighted swatch has an inner border. The only way to do that in SVG
-            // is to set the stroke to double the border width and clip the excess away
-            var clip = this.paletteGroup.def().create("clipPath", "sprite-editor-selected-color")
-                .clipPathUnits(true);
-            clip.draw("rect")
-                .at(0, 0)
-                .size(1, 1);
-            // Draw a preview of the current color
-            this.colorPreview = this.paletteGroup.draw("rect")
-                .at(PALETTE_BORDER_WIDTH, PALETTE_BORDER_WIDTH)
-                .size(TOOLBAR_WIDTH - PALETTE_BORDER_WIDTH * 2, COLOR_PREVIEW_HEIGHT);
-            // Draw the swatches for each color
-            this.colorSwatches = [];
-            var _loop_3 = function (i) {
-                var col = i % 2;
-                var row = Math.floor(i / 2);
-                var swatch = this_3.paletteGroup
-                    .draw("rect")
-                    .size(PALLETTE_SWATCH_WIDTH, PALLETTE_SWATCH_WIDTH)
-                    .at(col ? PALETTE_BORDER_WIDTH * 2 + PALLETTE_SWATCH_WIDTH : PALETTE_BORDER_WIDTH, bgHeight + COLOR_MARGIN + PALETTE_BORDER_WIDTH + row * (PALETTE_BORDER_WIDTH + PALLETTE_SWATCH_WIDTH))
-                    .fill(this_3.palette[i])
-                    .clipPath("url(#sprite-editor-selected-color)")
-                    .onClick(function () { return _this.setColor(i); });
-                this_3.colorSwatches.push(swatch);
-            };
-            var this_3 = this;
-            for (var i = 0; i < this.palette.length; i++) {
-                _loop_3(i);
-            }
-            this.setColor(0);
-        };
-        SideBar.prototype.initButton = function (title, icon, tool, xicon) {
-            var _this = this;
-            if (xicon === void 0) { xicon = false; }
-            var btn = xicon ? pxtblockly.mkXIconButton(icon, TOOL_BUTTON_WIDTH) : pxtblockly.mkIconButton(icon, TOOL_BUTTON_WIDTH);
-            btn.title(title);
-            btn.onClick(function () { return _this.setTool(tool); });
-            this.buttonGroup.appendChild(btn.getElement());
-            return btn;
-        };
-        SideBar.prototype.getButtonForTool = function (tool) {
-            switch (tool) {
-                case pxtblockly.PaintTool.Normal:
-                case pxtblockly.PaintTool.Line: return this.pencilTool;
-                case pxtblockly.PaintTool.Erase: return this.eraseTool;
-                case pxtblockly.PaintTool.Fill: return this.fillTool;
-                case pxtblockly.PaintTool.Rectangle:
-                case pxtblockly.PaintTool.Circle: return this.rectangleTool;
-                default: return undefined;
-            }
-        };
-        return SideBar;
-    }());
-    pxtblockly.SideBar = SideBar;
-})(pxtblockly || (pxtblockly = {}));
-/// <reference path="./bitmap.ts" />
-var pxtblockly;
-(function (pxtblockly) {
-    var PaintTool;
-    (function (PaintTool) {
-        PaintTool[PaintTool["Normal"] = 0] = "Normal";
-        PaintTool[PaintTool["Rectangle"] = 1] = "Rectangle";
-        PaintTool[PaintTool["Outline"] = 2] = "Outline";
-        PaintTool[PaintTool["Circle"] = 3] = "Circle";
-        PaintTool[PaintTool["Fill"] = 4] = "Fill";
-        PaintTool[PaintTool["Line"] = 5] = "Line";
-        PaintTool[PaintTool["Erase"] = 6] = "Erase";
-    })(PaintTool = pxtblockly.PaintTool || (pxtblockly.PaintTool = {}));
-    var Cursor = /** @class */ (function () {
-        function Cursor() {
-        }
-        return Cursor;
-    }());
-    pxtblockly.Cursor = Cursor;
-    var Edit = /** @class */ (function () {
-        function Edit(canvasWidth, canvasHeight, color, toolWidth) {
-            this.canvasWidth = canvasWidth;
-            this.canvasHeight = canvasHeight;
-            this.color = color;
-            this.toolWidth = toolWidth;
-        }
-        Edit.prototype.doEdit = function (bitmap) {
-            if (this.isStarted) {
-                this.doEditCore(bitmap);
-            }
-        };
-        Edit.prototype.start = function (cursorCol, cursorRow) {
-            this.isStarted = true;
-            this.startCol = cursorCol;
-            this.startRow = cursorRow;
-        };
-        Edit.prototype.drawCursor = function (col, row, draw) {
-            draw(col, row);
-        };
-        return Edit;
-    }());
-    pxtblockly.Edit = Edit;
-    var SelectionEdit = /** @class */ (function (_super) {
-        __extends(SelectionEdit, _super);
-        function SelectionEdit() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        SelectionEdit.prototype.update = function (col, row) {
-            this.endCol = col;
-            this.endRow = row;
-        };
-        SelectionEdit.prototype.topLeft = function () {
-            return [Math.min(this.startCol, this.endCol), Math.min(this.startRow, this.endRow)];
-        };
-        SelectionEdit.prototype.bottomRight = function () {
-            return [Math.max(this.startCol, this.endCol), Math.max(this.startRow, this.endRow)];
-        };
-        return SelectionEdit;
-    }(Edit));
-    pxtblockly.SelectionEdit = SelectionEdit;
-    /**
-     * Regular old drawing tool
-     */
-    var PaintEdit = /** @class */ (function (_super) {
-        __extends(PaintEdit, _super);
-        function PaintEdit(canvasWidth, canvasHeight, color, toolWidth) {
-            var _this = _super.call(this, canvasWidth, canvasHeight, color, toolWidth) || this;
-            _this.mask = new pxtblockly.Bitmask(canvasWidth, canvasHeight);
-            return _this;
-        }
-        PaintEdit.prototype.update = function (col, row) {
-            var _this = this;
-            this.drawCore(col, row, function (c, r) { return _this.mask.set(c, r); });
-        };
-        PaintEdit.prototype.drawCursor = function (col, row, draw) {
-            this.drawCore(col, row, draw);
-        };
-        PaintEdit.prototype.doEditCore = function (bitmap) {
-            for (var c = 0; c < bitmap.width; c++) {
-                for (var r = 0; r < bitmap.height; r++) {
-                    if (this.mask.get(c, r)) {
-                        bitmap.set(c, r, this.color);
-                    }
-                }
-            }
-        };
-        PaintEdit.prototype.drawCore = function (col, row, setPixel) {
-            col = col - Math.floor(this.toolWidth / 2);
-            row = row - Math.floor(this.toolWidth / 2);
-            for (var i = 0; i < this.toolWidth; i++) {
-                for (var j = 0; j < this.toolWidth; j++) {
-                    var c = col + i;
-                    var r = row + j;
-                    if (c >= 0 && c < this.canvasWidth && r >= 0 && r < this.canvasHeight) {
-                        setPixel(col + i, row + j);
-                    }
-                }
-            }
-        };
-        return PaintEdit;
-    }(Edit));
-    pxtblockly.PaintEdit = PaintEdit;
-    /**
-     * Tool for drawing filled rectangles
-     */
-    var RectangleEdit = /** @class */ (function (_super) {
-        __extends(RectangleEdit, _super);
-        function RectangleEdit() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        RectangleEdit.prototype.doEditCore = function (bitmap) {
-            var tl = this.topLeft();
-            var br = this.bottomRight();
-            for (var c = tl[0]; c <= br[0]; c++) {
-                for (var r = tl[1]; r <= br[1]; r++) {
-                    bitmap.set(c, r, this.color);
-                }
-            }
-        };
-        return RectangleEdit;
-    }(SelectionEdit));
-    pxtblockly.RectangleEdit = RectangleEdit;
-    /**
-     * Tool for drawing empty rectangles
-     */
-    var OutlineEdit = /** @class */ (function (_super) {
-        __extends(OutlineEdit, _super);
-        function OutlineEdit() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        OutlineEdit.prototype.doEditCore = function (bitmap) {
-            var tl = this.topLeft();
-            var br = this.bottomRight();
-            for (var i = 0; i < this.toolWidth; i++) {
-                this.drawRectangle(bitmap, [tl[0] + i, tl[1] + i], [br[0] - i, br[1] - i]);
-            }
-        };
-        OutlineEdit.prototype.drawRectangle = function (bitmap, tl, br) {
-            if (tl[0] > br[0] || tl[1] > br[1])
-                return;
-            for (var c = tl[0]; c <= br[0]; c++) {
-                bitmap.set(c, tl[1], this.color);
-                bitmap.set(c, br[1], this.color);
-            }
-            for (var r = tl[1]; r <= br[1]; r++) {
-                bitmap.set(tl[0], r, this.color);
-                bitmap.set(br[0], r, this.color);
-            }
-        };
-        return OutlineEdit;
-    }(SelectionEdit));
-    pxtblockly.OutlineEdit = OutlineEdit;
-    /**
-     * Tool for drawing straight lines
-     */
-    var LineEdit = /** @class */ (function (_super) {
-        __extends(LineEdit, _super);
-        function LineEdit() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        LineEdit.prototype.doEditCore = function (bitmap) {
-            this.bresenham(this.startCol, this.startRow, this.endCol, this.endRow, bitmap);
-        };
-        LineEdit.prototype.drawCursor = function (col, row, draw) {
-            this.drawCore(col, row, draw);
-        };
-        // https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
-        LineEdit.prototype.bresenham = function (x0, y0, x1, y1, bitmap) {
-            var _this = this;
-            var dx = x1 - x0;
-            var dy = y1 - y0;
-            var draw = function (c, r) { return bitmap.set(c, r, _this.color); };
-            if (dx === 0) {
-                var startY = dy >= 0 ? y0 : y1;
-                var endY = dy >= 0 ? y1 : y0;
-                for (var y_1 = startY; y_1 <= endY; y_1++) {
-                    this.drawCore(x0, y_1, draw);
-                }
-                return;
-            }
-            var xStep = dx > 0 ? 1 : -1;
-            var yStep = dy > 0 ? 1 : -1;
-            var dErr = Math.abs(dy / dx);
-            var err = 0;
-            var y = y0;
-            for (var x = x0; xStep > 0 ? x <= x1 : x >= x1; x += xStep) {
-                this.drawCore(x, y, draw);
-                err += dErr;
-                while (err >= 0.5) {
-                    if (yStep > 0 ? y <= y1 : y >= y1) {
-                        this.drawCore(x, y, draw);
-                    }
-                    y += yStep;
-                    err -= 1;
-                }
-            }
-        };
-        // This is surely not the most efficient approach for drawing thick lines...
-        LineEdit.prototype.drawCore = function (col, row, draw) {
-            col = col - Math.floor(this.toolWidth / 2);
-            row = row - Math.floor(this.toolWidth / 2);
-            for (var i = 0; i < this.toolWidth; i++) {
-                for (var j = 0; j < this.toolWidth; j++) {
-                    var c = col + i;
-                    var r = row + j;
-                    draw(c, r);
-                }
-            }
-        };
-        return LineEdit;
-    }(SelectionEdit));
-    pxtblockly.LineEdit = LineEdit;
-    /**
-     * Tool for circular outlines
-     */
-    var CircleEdit = /** @class */ (function (_super) {
-        __extends(CircleEdit, _super);
-        function CircleEdit() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        CircleEdit.prototype.doEditCore = function (bitmap) {
-            var tl = this.topLeft();
-            var br = this.bottomRight();
-            var dx = br[0] - tl[0];
-            var dy = br[1] - tl[1];
-            var radius = Math.floor(Math.hypot(dx, dy));
-            var cx = this.startCol;
-            var cy = this.startRow;
-            this.midpoint(cx, cy, radius, bitmap);
-        };
-        // https://en.wikipedia.org/wiki/Midpoint_circle_algorithm
-        CircleEdit.prototype.midpoint = function (cx, cy, radius, bitmap) {
-            var x = radius - 1;
-            var y = 0;
-            var dx = 1;
-            var dy = 1;
-            var err = dx - (radius * 2);
-            while (x >= y) {
-                bitmap.set(cx + x, cy + y, this.color);
-                bitmap.set(cx + x, cy - y, this.color);
-                bitmap.set(cx + y, cy + x, this.color);
-                bitmap.set(cx + y, cy - x, this.color);
-                bitmap.set(cx - y, cy + x, this.color);
-                bitmap.set(cx - y, cy - x, this.color);
-                bitmap.set(cx - x, cy + y, this.color);
-                bitmap.set(cx - x, cy - y, this.color);
-                if (err <= 0) {
-                    y++;
-                    err += dy;
-                    dy += 2;
-                }
-                if (err > 0) {
-                    x--;
-                    dx += 2;
-                    err += dx - (radius * 2);
-                }
-            }
-        };
-        return CircleEdit;
-    }(SelectionEdit));
-    pxtblockly.CircleEdit = CircleEdit;
-    var FillEdit = /** @class */ (function (_super) {
-        __extends(FillEdit, _super);
-        function FillEdit() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        FillEdit.prototype.start = function (col, row) {
-            this.isStarted = true;
-            this.col = col;
-            this.row = row;
-        };
-        FillEdit.prototype.update = function (col, row) {
-            this.col = col;
-            this.row = row;
-        };
-        FillEdit.prototype.doEditCore = function (bitmap) {
-            var replColor = bitmap.get(this.col, this.row);
-            if (replColor === this.color) {
-                return;
-            }
-            var mask = new pxtblockly.Bitmask(bitmap.width, bitmap.height);
-            mask.set(this.col, this.row);
-            var q = [[this.col, this.row]];
-            while (q.length) {
-                var _a = q.pop(), c = _a[0], r = _a[1];
-                if (bitmap.get(c, r) === replColor) {
-                    bitmap.set(c, r, this.color);
-                    tryPush(c + 1, r);
-                    tryPush(c - 1, r);
-                    tryPush(c, r + 1);
-                    tryPush(c, r - 1);
-                }
-            }
-            function tryPush(x, y) {
-                if (x >= 0 && x < mask.width && y >= 0 && y < mask.height && !mask.get(x, y)) {
-                    mask.set(x, y);
-                    q.push([x, y]);
-                }
-            }
-        };
-        return FillEdit;
-    }(Edit));
-    pxtblockly.FillEdit = FillEdit;
-})(pxtblockly || (pxtblockly = {}));
-/// <reference path="./bitmap.ts" />
-/// <reference path="./tools.ts" />
-/// <reference path="./reporterBar.ts" />
-/// <reference path="./sidebar.ts" />
-/// <reference path="./gallery.ts" />
-/// <reference path="./header.ts" />
-var pxtblockly;
-(function (pxtblockly) {
-    var svg = pxt.svgUtil;
-    var lf = pxt.Util.lf;
-    var TOTAL_HEIGHT = 500;
-    var PADDING = 10;
-    var DROP_DOWN_PADDING = 4;
-    // Height of toolbar (the buttons above the canvas)
-    var HEADER_HEIGHT = 50;
-    // Spacing between the toolbar and the canvas
-    var HEADER_CANVAS_MARGIN = 10;
-    // Height of the bar that displays editor size and info below the canvas
-    var REPORTER_BAR_HEIGHT = 31;
-    // Spacing between the canvas and reporter bar
-    var REPORTER_BAR_CANVAS_MARGIN = 5;
-    // Spacing between palette and paint surface
-    var SIDEBAR_CANVAS_MARGIN = 10;
-    var SIDEBAR_WIDTH = 65;
-    // Total allowed height of paint surface
-    var CANVAS_HEIGHT = TOTAL_HEIGHT - HEADER_HEIGHT - HEADER_CANVAS_MARGIN
-        - REPORTER_BAR_HEIGHT - REPORTER_BAR_CANVAS_MARGIN - PADDING + DROP_DOWN_PADDING * 2;
-    var WIDTH = PADDING + SIDEBAR_WIDTH + SIDEBAR_CANVAS_MARGIN + CANVAS_HEIGHT + PADDING - DROP_DOWN_PADDING * 2;
-    var SpriteEditor = /** @class */ (function () {
-        function SpriteEditor(bitmap, blocksInfo, lightMode) {
-            if (lightMode === void 0) { lightMode = false; }
-            var _this = this;
-            this.lightMode = lightMode;
-            this.activeTool = pxtblockly.PaintTool.Normal;
-            this.toolWidth = 1;
-            this.color = 1;
-            this.cursorCol = 0;
-            this.cursorRow = 0;
-            this.undoStack = [];
-            this.redoStack = [];
-            this.columns = 16;
-            this.rows = 16;
-            this.shiftDown = false;
-            this.mouseDown = false;
-            this.keyDown = function (event) {
-                if (event.keyCode == 16) {
-                    if (!_this.shiftDown) {
-                        var btn = _this.sidebar.getButtonForTool(pxtblockly.PaintTool.Normal);
-                        btn.setText("\uf07e");
-                        btn.title(lf("Line"));
-                        btn.onClick(function () { return _this.sidebar.setTool(pxtblockly.PaintTool.Line); });
-                        if (_this.activeTool == pxtblockly.PaintTool.Normal) {
-                            _this.setActiveTool(pxtblockly.PaintTool.Line);
-                        }
-                        btn = _this.sidebar.getButtonForTool(pxtblockly.PaintTool.Rectangle);
-                        btn.setText("\uf10c");
-                        btn.title(lf("Circle"));
-                        btn.onClick(function () { return _this.sidebar.setTool(pxtblockly.PaintTool.Circle); });
-                        if (_this.activeTool == pxtblockly.PaintTool.Rectangle) {
-                            _this.setActiveTool(pxtblockly.PaintTool.Circle);
-                        }
-                    }
-                    _this.shiftDown = true;
-                }
-            };
-            this.keyUp = function (event) {
-                // If not drawing a circle, switch back to Rectangle and Pencil
-                if (event.keyCode == 16) {
-                    _this.shiftDown = false;
-                    if (_this.mouseDown) {
-                        if (_this.activeTool != pxtblockly.PaintTool.Line) {
-                            _this.switchIconBack(pxtblockly.PaintTool.Normal);
-                        }
-                        if (_this.activeTool != pxtblockly.PaintTool.Circle) {
-                            _this.switchIconBack(pxtblockly.PaintTool.Rectangle);
-                        }
-                    }
-                    else {
-                        _this.switchIconBack(pxtblockly.PaintTool.Normal);
-                        _this.switchIconBack(pxtblockly.PaintTool.Rectangle);
-                    }
-                }
-            };
-            this.colors = pxt.appTarget.runtime.palette.slice(1);
-            this.columns = bitmap.width;
-            this.rows = bitmap.height;
-            this.state = bitmap.copy();
-            this.root = new svg.SVG();
-            this.group = this.root.group();
-            this.createDefs();
-            this.paintSurface = new pxtblockly.CanvasGrid(this.colors, this.state.copy(), this.lightMode);
-            this.paintSurface.drag(function (col, row) {
-                _this.debug("gesture (" + pxtblockly.PaintTool[_this.activeTool] + ")");
-                _this.setCell(col, row, _this.color, false);
-                _this.bottomBar.updateCursor(col, row);
-            });
-            this.paintSurface.up(function (col, row) {
-                _this.debug("gesture end (" + pxtblockly.PaintTool[_this.activeTool] + ")");
-                _this.commit();
-                _this.mouseDown = false;
-                if (_this.activeTool == pxtblockly.PaintTool.Circle && !_this.shiftDown) {
-                    _this.switchIconBack(pxtblockly.PaintTool.Rectangle);
-                }
-                if (_this.activeTool == pxtblockly.PaintTool.Line && !_this.shiftDown) {
-                    _this.switchIconBack(pxtblockly.PaintTool.Normal);
-                }
-            });
-            this.paintSurface.down(function (col, row) {
-                _this.setCell(col, row, _this.color, false);
-                _this.mouseDown = true;
-            });
-            this.paintSurface.move(function (col, row) {
-                _this.drawCursor(col, row);
-                _this.bottomBar.updateCursor(col, row);
-            });
-            this.paintSurface.leave(function () {
-                if (_this.edit) {
-                    _this.paintSurface.repaint();
-                }
-                if (_this.edit.isStarted) {
-                    _this.commit();
-                }
-                _this.bottomBar.hideCursor();
-            });
-            this.sidebar = new pxtblockly.SideBar(['url("#alpha-background")'].concat(this.colors), this, this.group);
-            this.sidebar.setColor(1);
-            this.header = new pxtblockly.SpriteHeader(this);
-            this.gallery = new pxtblockly.Gallery(blocksInfo);
-            this.bottomBar = new pxtblockly.ReporterBar(this.group, this, REPORTER_BAR_HEIGHT);
-            this.updateUndoRedo();
-            document.addEventListener("keydown", function (ev) {
-                if (ev.key === "Undo" || (ev.ctrlKey && ev.key === "z")) {
-                    _this.undo();
-                }
-                else if (ev.key === "Redo" || (ev.ctrlKey && ev.key === "y")) {
-                    _this.redo();
-                }
-            });
-        }
-        SpriteEditor.prototype.setCell = function (col, row, color, commit) {
-            if (commit) {
-                this.state.set(col, row, color);
-                this.paintCell(col, row, color);
-            }
-            else {
-                if (!this.edit.isStarted) {
-                    this.edit.start(col, row);
-                }
-                this.edit.update(col, row);
-                this.cursorCol = col;
-                this.cursorRow = row;
-                this.paintEdit(this.edit, col, row);
-            }
-        };
-        SpriteEditor.prototype.render = function (el) {
-            el.appendChild(this.header.getElement());
-            el.appendChild(this.gallery.getElement());
-            this.paintSurface.render(el);
-            el.appendChild(this.root.el);
-            this.layout();
-            this.root.attr({ "width": this.outerWidth() + "px", "height": this.outerHeight() + "px" });
-            this.root.el.style.position = "absolute";
-            this.root.el.style.top = "0px";
-            this.root.el.style.left = "0px";
-        };
-        SpriteEditor.prototype.layout = function () {
-            if (!this.root) {
-                return;
-            }
-            this.paintSurface.setGridDimensions(CANVAS_HEIGHT);
-            // The width of the palette + editor
-            var paintAreaTop = HEADER_HEIGHT + HEADER_CANVAS_MARGIN;
-            var paintAreaLeft = PADDING + SIDEBAR_WIDTH + SIDEBAR_CANVAS_MARGIN;
-            this.sidebar.translate(PADDING, paintAreaTop);
-            this.paintSurface.updateBounds(paintAreaTop, paintAreaLeft, CANVAS_HEIGHT, CANVAS_HEIGHT);
-            this.bottomBar.layout(paintAreaTop + CANVAS_HEIGHT + REPORTER_BAR_CANVAS_MARGIN, paintAreaLeft, CANVAS_HEIGHT);
-            this.gallery.layout(0, HEADER_HEIGHT, TOTAL_HEIGHT - HEADER_HEIGHT);
-            this.header.layout();
-        };
-        SpriteEditor.prototype.rePaint = function () {
-            this.paintSurface.repaint();
-        };
-        SpriteEditor.prototype.setActiveColor = function (color, setPalette) {
-            if (setPalette === void 0) { setPalette = false; }
-            if (setPalette) {
-            }
-            else {
-                this.color = color;
-                // If the user is erasing, go back to pencil
-                if (this.activeTool === pxtblockly.PaintTool.Erase) {
-                    this.sidebar.setTool(pxtblockly.PaintTool.Normal);
-                }
-                else {
-                    this.edit = this.newEdit(this.color);
-                }
-            }
-        };
-        SpriteEditor.prototype.setActiveTool = function (tool) {
-            this.activeTool = tool;
-            this.edit = this.newEdit(this.color);
-        };
-        SpriteEditor.prototype.setToolWidth = function (width) {
-            this.toolWidth = width;
-            this.edit = this.newEdit(this.color);
-        };
-        SpriteEditor.prototype.undo = function () {
-            if (this.undoStack.length) {
-                this.debug("undo");
-                var todo = this.undoStack.pop();
-                this.pushState(false);
-                this.restore(todo);
-            }
-            this.updateUndoRedo();
-        };
-        SpriteEditor.prototype.redo = function () {
-            if (this.redoStack.length) {
-                this.debug("redo");
-                var todo = this.redoStack.pop();
-                this.pushState(true);
-                this.restore(todo);
-            }
-            this.updateUndoRedo();
-        };
-        SpriteEditor.prototype.resize = function (width, height) {
-            if (!this.cachedState) {
-                this.cachedState = this.state.copy();
-                this.undoStack.push(this.cachedState);
-                this.redoStack = [];
-            }
-            this.state = pxtblockly.resizeBitmap(this.cachedState, width, height);
-            this.afterResize(true);
-        };
-        SpriteEditor.prototype.setSizePresets = function (presets) {
-            this.bottomBar.setSizePresets(presets, this.columns, this.rows);
-        };
-        SpriteEditor.prototype.canvasWidth = function () {
-            return this.columns;
-        };
-        SpriteEditor.prototype.canvasHeight = function () {
-            return this.rows;
-        };
-        SpriteEditor.prototype.outerWidth = function () {
-            return WIDTH;
-        };
-        SpriteEditor.prototype.outerHeight = function () {
-            return TOTAL_HEIGHT;
-        };
-        SpriteEditor.prototype.bitmap = function () {
-            return this.state;
-        };
-        SpriteEditor.prototype.showGallery = function () {
-            var _this = this;
-            this.gallery.show(function (result, err) {
-                if (err && err !== "cancelled") {
-                    console.error(err);
-                }
-                else if (result) {
-                    _this.redoStack = [];
-                    _this.pushState(true);
-                    _this.restore(result);
-                    _this.hideGallery();
-                    _this.header.toggle.toggle(true);
-                }
-            });
-        };
-        SpriteEditor.prototype.hideGallery = function () {
-            this.gallery.hide();
-        };
-        SpriteEditor.prototype.switchIconBack = function (tool) {
-            var _this = this;
-            var btn = this.sidebar.getButtonForTool(tool);
-            if (tool == pxtblockly.PaintTool.Rectangle) {
-                //Change icon back to square
-                btn.setText("\uf096");
-                btn.title(lf("Rectangle"));
-            }
-            else if (tool == pxtblockly.PaintTool.Normal) {
-                //Change icon back to pencil
-                btn.setText("\uf040");
-                btn.title(lf("Pencil"));
-            }
-            btn.onClick(function () { return _this.sidebar.setTool(tool); });
-            if ((this.activeTool == pxtblockly.PaintTool.Circle && tool == pxtblockly.PaintTool.Rectangle)
-                || (this.activeTool == pxtblockly.PaintTool.Line && tool == pxtblockly.PaintTool.Normal)) {
-                this.setActiveTool(tool);
-            }
-        };
-        SpriteEditor.prototype.addKeyListeners = function () {
-            document.addEventListener("keydown", this.keyDown);
-            document.addEventListener("keyup", this.keyUp);
-        };
-        SpriteEditor.prototype.removeKeyListeners = function () {
-            document.removeEventListener("keydown", this.keyDown);
-            document.removeEventListener("keyup", this.keyUp);
-        };
-        SpriteEditor.prototype.afterResize = function (showOverlay) {
-            this.columns = this.state.width;
-            this.rows = this.state.height;
-            this.paintSurface.restore(this.state, true);
-            this.bottomBar.updateDimensions(this.columns, this.rows);
-            this.layout();
-            if (showOverlay)
-                this.paintSurface.showOverlay();
-            // Canvas size changed and some edits rely on that (like paint)
-            this.edit = this.newEdit(this.color);
-        };
-        SpriteEditor.prototype.drawCursor = function (col, row) {
-            if (this.edit) {
-                this.paintSurface.drawCursor(this.edit, col, row);
-            }
-        };
-        SpriteEditor.prototype.paintEdit = function (edit, col, row) {
-            this.paintSurface.restore(this.state);
-            this.paintSurface.applyEdit(edit, col, row);
-        };
-        SpriteEditor.prototype.commit = function () {
-            if (this.edit) {
-                if (this.cachedState) {
-                    this.cachedState = undefined;
-                }
-                this.pushState(true);
-                this.paintEdit(this.edit, this.cursorCol, this.cursorRow);
-                this.state.apply(this.paintSurface.image);
-                this.edit = this.newEdit(this.color);
-                this.redoStack = [];
-            }
-        };
-        SpriteEditor.prototype.pushState = function (undo) {
-            var cp = this.state.copy();
-            if (undo) {
-                this.undoStack.push(cp);
-            }
-            else {
-                this.redoStack.push(cp);
-            }
-            this.updateUndoRedo();
-        };
-        SpriteEditor.prototype.restore = function (bitmap) {
-            if (bitmap.width !== this.state.width || bitmap.height !== this.state.height) {
-                this.state = bitmap;
-                this.afterResize(false);
-            }
-            else {
-                this.state.apply(bitmap);
-                this.paintSurface.restore(bitmap, true);
-            }
-        };
-        SpriteEditor.prototype.updateUndoRedo = function () {
-            this.bottomBar.updateUndoRedo(this.undoStack.length === 0, this.redoStack.length === 0);
-        };
-        SpriteEditor.prototype.paintCell = function (col, row, color) {
-            this.paintSurface.writeColor(col, row, color);
-        };
-        SpriteEditor.prototype.newEdit = function (color) {
-            switch (this.activeTool) {
-                case pxtblockly.PaintTool.Normal: return new pxtblockly.PaintEdit(this.columns, this.rows, color, this.toolWidth);
-                case pxtblockly.PaintTool.Rectangle: return new pxtblockly.OutlineEdit(this.columns, this.rows, color, this.toolWidth);
-                case pxtblockly.PaintTool.Outline: return new pxtblockly.OutlineEdit(this.columns, this.rows, color, this.toolWidth);
-                case pxtblockly.PaintTool.Line: return new pxtblockly.LineEdit(this.columns, this.rows, color, this.toolWidth);
-                case pxtblockly.PaintTool.Circle: return new pxtblockly.CircleEdit(this.columns, this.rows, color, this.toolWidth);
-                case pxtblockly.PaintTool.Erase: return new pxtblockly.PaintEdit(this.columns, this.rows, 0, this.toolWidth);
-                case pxtblockly.PaintTool.Fill: return new pxtblockly.FillEdit(this.columns, this.rows, color, this.toolWidth);
-            }
-        };
-        SpriteEditor.prototype.debug = function (msg) {
-            // if (this.debugText) {
-            //     this.debugText.text("DEBUG: " + msg);
-            // }
-        };
-        SpriteEditor.prototype.createDefs = function () {
-            this.root.define(function (defs) {
-                var p = defs.create("pattern", "alpha-background")
-                    .size(10, 10)
-                    .units(svg.PatternUnits.userSpaceOnUse);
-                p.draw("rect")
-                    .at(0, 0)
-                    .size(10, 10)
-                    .fill("white");
-                p.draw("rect")
-                    .at(0, 0)
-                    .size(5, 5)
-                    .fill("#dedede");
-                p.draw("rect")
-                    .at(5, 5)
-                    .size(5, 5)
-                    .fill("#dedede");
-            });
-        };
-        return SpriteEditor;
-    }());
-    pxtblockly.SpriteEditor = SpriteEditor;
-})(pxtblockly || (pxtblockly = {}));
-/// <reference path="./spriteEditor.ts" />
-/// <reference path="../../../built/pxtlib.d.ts" />
-var pxtblockly;
-(function (pxtblockly) {
-    var svg = pxt.svgUtil;
-    // 32 is specifically chosen so that we can scale the images for the default
-    // sprite sizes without getting browser anti-aliasing
-    var PREVIEW_WIDTH = 32;
-    var PADDING = 5;
-    var BG_PADDING = 4;
-    var BG_WIDTH = BG_PADDING * 2 + PREVIEW_WIDTH;
-    var TOTAL_WIDTH = PADDING * 2 + BG_PADDING * 2 + PREVIEW_WIDTH;
-    // These are the characters used to compile, for a list of every supported character see parseBitmap()
-    var hexChars = [".", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
-    var FieldSpriteEditor = /** @class */ (function (_super) {
-        __extends(FieldSpriteEditor, _super);
-        function FieldSpriteEditor(text, params, validator) {
-            var _this = _super.call(this, text, validator) || this;
-            _this.isFieldCustom_ = true;
-            _this.lightMode = params.lightMode;
-            _this.params = parseFieldOptions(params);
-            _this.blocksInfo = params.blocksInfo;
-            if (!_this.state) {
-                _this.state = new pxtblockly.Bitmap(_this.params.initWidth, _this.params.initHeight);
-            }
-            return _this;
-        }
-        FieldSpriteEditor.prototype.init = function () {
-            if (this.fieldGroup_) {
-                // Field has already been initialized once.
-                return;
-            }
-            // Build the DOM.
-            this.fieldGroup_ = Blockly.utils.createSvgElement('g', {}, null);
-            if (!this.visible_) {
-                this.fieldGroup_.style.display = 'none';
-            }
-            if (!this.state) {
-                this.state = new pxtblockly.Bitmap(this.params.initWidth, this.params.initHeight);
-            }
-            this.redrawPreview();
-            this.updateEditable();
-            this.sourceBlock_.getSvgRoot().appendChild(this.fieldGroup_);
-            // Force a render.
-            this.render_();
-            this.mouseDownWrapper_ = Blockly.bindEventWithChecks_(this.getClickTarget_(), "mousedown", this, this.onMouseDown_);
-        };
-        /**
-         * Show the inline free-text editor on top of the text.
-         * @private
-         */
-        FieldSpriteEditor.prototype.showEditor_ = function () {
-            var _this = this;
-            var windowSize = goog.dom.getViewportSize();
-            var scrollOffset = goog.style.getViewportPageOffset(document);
-            // If there is an existing drop-down someone else owns, hide it immediately and clear it.
-            Blockly.DropDownDiv.hideWithoutAnimation();
-            Blockly.DropDownDiv.clearContent();
-            var contentDiv = Blockly.DropDownDiv.getContentDiv();
-            this.editor = new pxtblockly.SpriteEditor(this.state, this.blocksInfo, this.lightMode);
-            this.editor.render(contentDiv);
-            this.editor.rePaint();
-            this.editor.setActiveColor(this.params.initColor, true);
-            this.editor.setSizePresets(this.params.sizes);
-            goog.style.setHeight(contentDiv, this.editor.outerHeight() + 1);
-            goog.style.setWidth(contentDiv, this.editor.outerWidth() + 1);
-            goog.style.setStyle(contentDiv, "overflow", "hidden");
-            goog.style.setStyle(contentDiv, "max-height", "500px");
-            goog.dom.classlist.add(contentDiv.parentElement, "sprite-editor-dropdown");
-            Blockly.DropDownDiv.setColour("#2c3e50", "#2c3e50");
-            Blockly.DropDownDiv.showPositionedByBlock(this, this.sourceBlock_, function () {
-                _this.state = _this.editor.bitmap();
-                _this.redrawPreview();
-                if (_this.sourceBlock_ && Blockly.Events.isEnabled()) {
-                    Blockly.Events.fire(new Blockly.Events.BlockChange(_this.sourceBlock_, 'field', _this.name, _this.text_, _this.getText()));
-                }
-                goog.style.setHeight(contentDiv, null);
-                goog.style.setWidth(contentDiv, null);
-                goog.style.setStyle(contentDiv, "overflow", null);
-                goog.style.setStyle(contentDiv, "max-height", null);
-                goog.dom.classlist.remove(contentDiv.parentElement, "sprite-editor-dropdown");
-                _this.editor.removeKeyListeners();
-            });
-            this.editor.addKeyListeners();
-            this.editor.layout();
-        };
-        FieldSpriteEditor.prototype.isInFlyout = function () {
-            return this.sourceBlock_.workspace.getParentSvg().className.baseVal == "blocklyFlyout";
-        };
-        FieldSpriteEditor.prototype.render_ = function () {
-            _super.prototype.render_.call(this);
-            this.size_.height = TOTAL_WIDTH;
-            this.size_.width = TOTAL_WIDTH;
-        };
-        FieldSpriteEditor.prototype.getText = function () {
-            if (!this.state) {
-                return "img``";
-            }
-            var res = "img`";
-            for (var r = 0; r < this.state.height; r++) {
-                res += "\n";
-                for (var c = 0; c < this.state.width; c++) {
-                    res += hexChars[this.state.get(c, r)] + " ";
-                }
-            }
-            res += "\n`";
-            return res;
-        };
-        FieldSpriteEditor.prototype.setText = function (newText) {
-            if (newText == null) {
-                return;
-            }
-            this.parseBitmap(newText);
-            this.redrawPreview();
-            _super.prototype.setText.call(this, newText);
-        };
-        FieldSpriteEditor.prototype.redrawPreview = function () {
-            if (!this.fieldGroup_)
-                return;
-            pxsim.U.clear(this.fieldGroup_);
-            var bg = new svg.Rect()
-                .at(PADDING, PADDING)
-                .size(BG_WIDTH, BG_WIDTH)
-                .fill("#dedede")
-                .stroke("#898989", 1)
-                .corner(4);
-            this.fieldGroup_.appendChild(bg.el);
-            if (this.state) {
-                var data = this.renderPreview();
-                var img = new svg.Image()
-                    .src(data)
-                    .at(PADDING + BG_PADDING, PADDING + BG_PADDING)
-                    .size(PREVIEW_WIDTH, PREVIEW_WIDTH);
-                this.fieldGroup_.appendChild(img.el);
-            }
-        };
-        FieldSpriteEditor.prototype.parseBitmap = function (newText) {
-            // Strip the tagged template string business and the whitespace. We don't have to exhaustively
-            // replace encoded characters because the compiler will catch any disallowed characters and throw
-            // an error before the decompilation happens. 96 is backtick and 9 is tab
-            newText = newText.replace(/[ `]|(?:&#96;)|(?:&#9;)|(?:img)/g, "").trim();
-            newText = newText.replace(/&#10;/g, "\n");
-            var rows = newText.split("\n");
-            // We support "ragged" sprites so not all rows will be the same length
-            var sprite = [];
-            var spriteWidth = 0;
-            for (var r = 0; r < rows.length; r++) {
-                var row = rows[r];
-                var rowValues = [];
-                for (var c = 0; c < row.length; c++) {
-                    // This list comes from libs/screen/targetOverrides.ts
-                    switch (row[c]) {
-                        case "0":
-                        case ".":
-                            rowValues.push(0);
-                            break;
-                        case "1":
-                        case "#":
-                            rowValues.push(1);
-                            break;
-                        case "2":
-                        case "T":
-                            rowValues.push(2);
-                            break;
-                        case "3":
-                        case "t":
-                            rowValues.push(3);
-                            break;
-                        case "4":
-                        case "N":
-                            rowValues.push(4);
-                            break;
-                        case "5":
-                        case "n":
-                            rowValues.push(5);
-                            break;
-                        case "6":
-                        case "G":
-                            rowValues.push(6);
-                            break;
-                        case "7":
-                        case "g":
-                            rowValues.push(7);
-                            break;
-                        case "8":
-                            rowValues.push(8);
-                            break;
-                        case "9":
-                            rowValues.push(9);
-                            break;
-                        case "a":
-                        case "A":
-                        case "R":
-                            rowValues.push(10);
-                            break;
-                        case "b":
-                        case "B":
-                        case "P":
-                            rowValues.push(11);
-                            break;
-                        case "c":
-                        case "C":
-                        case "p":
-                            rowValues.push(12);
-                            break;
-                        case "d":
-                        case "D":
-                        case "O":
-                            rowValues.push(13);
-                            break;
-                        case "e":
-                        case "E":
-                        case "Y":
-                            rowValues.push(14);
-                            break;
-                        case "f":
-                        case "F":
-                        case "W":
-                            rowValues.push(15);
-                            break;
-                    }
-                }
-                if (rowValues.length) {
-                    sprite.push(rowValues);
-                    spriteWidth = Math.max(spriteWidth, rowValues.length);
-                }
-            }
-            var spriteHeight = sprite.length;
-            if (spriteHeight === 0 || spriteWidth === 0) {
-                // This isn't great because it changes the underlying code; the user entered
-                // an empty/invalid sprite and we are converting it to an empty 16x16 sprite
-                // next time the project saves. The best behavior would be to flag this in
-                // the decompiler and return a grey block but that's not supported.
-                return;
-            }
-            this.state = new pxtblockly.Bitmap(spriteWidth, spriteHeight);
-            for (var r = 0; r < spriteHeight; r++) {
-                var row = sprite[r];
-                for (var c = 0; c < spriteWidth; c++) {
-                    if (c < row.length) {
-                        this.state.set(c, r, row[c]);
-                    }
-                    else {
-                        this.state.set(c, r, 0);
-                    }
-                }
-            }
-        };
-        /**
-         * Scales the image to 32x32 and returns a data uri. In light mode the preview
-         * is drawn with no transparency (alpha is filled with background color)
-         */
-        FieldSpriteEditor.prototype.renderPreview = function () {
-            var colors = pxt.appTarget.runtime.palette.slice(1);
-            var canvas = document.createElement("canvas");
-            canvas.width = PREVIEW_WIDTH;
-            canvas.height = PREVIEW_WIDTH;
-            // Works well for all of our default sizes, does not work well if the size is not
-            // a multiple of 2 or is greater than 32 (i.e. from the decompiler)
-            var cellSize = Math.min(PREVIEW_WIDTH / this.state.width, PREVIEW_WIDTH / this.state.height);
-            // Center the image if it isn't square
-            var xOffset = Math.max(Math.floor((PREVIEW_WIDTH * (1 - (this.state.width / this.state.height))) / 2), 0);
-            var yOffset = Math.max(Math.floor((PREVIEW_WIDTH * (1 - (this.state.height / this.state.width))) / 2), 0);
-            var context;
-            if (this.lightMode) {
-                context = canvas.getContext("2d", { alpha: false });
-                context.fillStyle = "#dedede";
-                context.fillRect(0, 0, PREVIEW_WIDTH, PREVIEW_WIDTH);
-            }
-            else {
-                context = canvas.getContext("2d");
-            }
-            for (var c = 0; c < this.state.width; c++) {
-                for (var r = 0; r < this.state.height; r++) {
-                    var color = this.state.get(c, r);
-                    if (color) {
-                        context.fillStyle = colors[color - 1];
-                        context.fillRect(xOffset + c * cellSize, yOffset + r * cellSize, cellSize, cellSize);
-                    }
-                    else if (this.lightMode) {
-                        context.fillStyle = "#dedede";
-                        context.fillRect(xOffset + c * cellSize, yOffset + r * cellSize, cellSize, cellSize);
-                    }
-                }
-            }
-            return canvas.toDataURL();
-        };
-        return FieldSpriteEditor;
-    }(Blockly.Field));
-    pxtblockly.FieldSpriteEditor = FieldSpriteEditor;
-    function parseFieldOptions(opts) {
-        var parsed = {
-            sizes: [
-                [8, 8],
-                [8, 16],
-                [16, 16],
-                [16, 32],
-                [32, 32],
-            ],
-            initColor: 1,
-            initWidth: 16,
-            initHeight: 16,
-        };
-        if (!opts) {
-            return parsed;
-        }
-        if (opts.sizes != null) {
-            var pairs = opts.sizes.split(";");
-            var sizes = [];
-            for (var i = 0; i < pairs.length; i++) {
-                var pair = pairs[i].split(",");
-                if (pair.length !== 2) {
-                    continue;
-                }
-                var width = parseInt(pair[0]);
-                var height = parseInt(pair[1]);
-                if (isNaN(width) || isNaN(height)) {
-                    continue;
-                }
-                var screenSize = pxt.appTarget.runtime && pxt.appTarget.runtime.screenSize;
-                if (width < 0 && screenSize)
-                    width = screenSize.width;
-                if (height < 0 && screenSize)
-                    height = screenSize.height;
-                sizes.push([width, height]);
-            }
-            if (sizes.length > 0) {
-                parsed.sizes = sizes;
-                parsed.initWidth = sizes[0][0];
-                parsed.initHeight = sizes[0][1];
-            }
-        }
-        parsed.initColor = withDefault(opts.initColor, parsed.initColor);
-        parsed.initWidth = withDefault(opts.initWidth, parsed.initWidth);
-        parsed.initHeight = withDefault(opts.initHeight, parsed.initHeight);
-        return parsed;
-        function withDefault(raw, def) {
-            var res = parseInt(raw);
-            if (isNaN(res)) {
-                return def;
-            }
-            return res;
-        }
-    }
 })(pxtblockly || (pxtblockly = {}));

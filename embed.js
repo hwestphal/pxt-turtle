@@ -7,7 +7,8 @@
     "verprefix": "",
     "workerjs": "/pxt-turtle/worker.js",
     "monacoworkerjs": "/pxt-turtle/monacoworker.js",
-    "pxtVersion": "5.2.11",
+    "gifworkerjs": "/pxt-turtle/gifjs/gif.worker.js",
+    "pxtVersion": "5.9.7",
     "pxtRelId": "",
     "pxtCdnUrl": "/pxt-turtle/",
     "commitCdnUrl": "/pxt-turtle/",
@@ -27,14 +28,16 @@
     var scripts = [
         "/pxt-turtle/highlight.js/highlight.pack.js",
         "/pxt-turtle/bluebird.min.js",
-        "/pxt-turtle/semantic.js",
         "/pxt-turtle/marked/marked.min.js",
-        "/pxt-turtle/target.js",
-        "/pxt-turtle/pxtembed.js"
     ]
 
     if (typeof jQuery == "undefined")
         scripts.unshift("/pxt-turtle/jquery.js")
+    if (typeof jQuery == "undefined" || !jQuery.prototype.sidebar)
+        scripts.push("/pxt-turtle/semantic.js")
+    if (!window.pxtTargetBundle)
+        scripts.push("/pxt-turtle/target.js");
+    scripts.push("/pxt-turtle/pxtembed.js");
 
     var pxtCallbacks = []
 
