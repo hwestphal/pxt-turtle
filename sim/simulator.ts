@@ -198,10 +198,10 @@ namespace pxsim {
     }
 
     export function toSprite(buffer: RefBuffer): Sprite {
-        const width = buffer.data[1];
-        const height = buffer.data[2];
+        const width = buffer.data[2] + (buffer.data[3] << 8);
+        const height = buffer.data[4] + (buffer.data[5] << 8);
         const dataHeight = Math.ceil(height / 8) * 8;
-        const data = buffer.data.slice(4);
+        const data = buffer.data.slice(8);
         const array = new Uint8ClampedArray(width * height * 4);
         for (let i = 0; i < data.length; i++) {
             const x = Math.floor(2 * i / dataHeight);
@@ -225,14 +225,6 @@ namespace pxsim {
 
         get height() {
             return this.canvas.height;
-        }
-
-        private getWidth() {
-            return this.width;
-        }
-
-        private getHeight() {
-            return this.height;
         }
     }
 
