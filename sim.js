@@ -684,6 +684,12 @@ var pxsim;
             enumerable: true,
             configurable: true
         });
+        SpriteImpl.prototype.getWidth = function () {
+            return this.width;
+        };
+        SpriteImpl.prototype.getHeight = function () {
+            return this.height;
+        };
         return SpriteImpl;
     }());
     pxsim.SpriteImpl = SpriteImpl;

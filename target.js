@@ -48,6 +48,7 @@ var pxtTargetBundle = {
     "selectLanguage": true,
     "docMenu": [],
     "monacoToolbox": true,
+    "githubUrl": "https://github.com/hwestphal/pxt-turtle",
     "TOC": [
       {
         "name": "About",
