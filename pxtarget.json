@@ -47,6 +47,7 @@
         ],
         "selectLanguage": true,
         "docMenu": [],
-        "monacoToolbox": true
+        "monacoToolbox": true,
+        "githubUrl": "https://github.com/hwestphal/pxt-turtle"
     }
 }
