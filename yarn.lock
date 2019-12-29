@@ -3903,10 +3903,10 @@ punycode@^2.1.0:
   resolved "https://registry.yarnpkg.com/punycode/-/punycode-2.1.1.tgz#b58b010ac40c22c5657616c8d2c2c02c7bf479ec"
   integrity sha512-XRsRjdf+j5ml+y/6GKHPZbrF/8p2Yga0JPtdqTIY2Xe5ohJPD9saDJJLPvp9+NSBprVvevdXZybnj2cv8OEd0A==
 
-pxt-core@5.23:
-  version "5.23.19"
-  resolved "https://registry.yarnpkg.com/pxt-core/-/pxt-core-5.23.19.tgz#4eaea693883ee664b2dc06d46f91efd251874552"
-  integrity sha512-w5dps/SlpCz4578P9EJSOKxq/y0YmZzgWZaZZmBWnIVzW/UP6iX3PBjFHrvjLnGOD6kIvtpvBDezXWsxiwIfmg==
+pxt-core@5.24.11:
+  version "5.24.11"
+  resolved "https://registry.yarnpkg.com/pxt-core/-/pxt-core-5.24.11.tgz#29d1585a920f1f0c1f627aac5766f5a3e033bd36"
+  integrity sha512-Fd7edbC8zaSaQm1ff8/qHD8xv/PgiMowgdUNqnfA+aLz84WLE6YodtVmvm76bXU7AuZYOW+CiIOpfEcal8911w==
   dependencies:
     applicationinsights-js "^1.0.20"
     bluebird "3.5.1"
