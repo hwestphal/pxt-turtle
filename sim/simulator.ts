@@ -226,6 +226,14 @@ namespace pxsim {
         get height() {
             return this.canvas.height;
         }
+
+        private getWidth() {
+            return this.width;
+        }
+
+        private getHeight() {
+            return this.height;
+        }
     }
 
     const palette = [
