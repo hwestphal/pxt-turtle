@@ -168,9 +168,6 @@ var pxt;
         var JS_ICON = "icon xicon js";
         var PY_ICON = "icon xicon python";
         var BLOCKS_ICON = "icon xicon blocks";
-        function appendBlocks($parent, $svg) {
-            $parent.append($('<div class="ui content blocks"/>').append($svg));
-        }
         function highlight($js) {
             if (typeof hljs !== "undefined") {
                 if ($js.hasClass("highlight"))
@@ -181,12 +178,15 @@ var pxt;
                     });
             }
         }
+        function appendBlocks($parent, $svg) {
+            $parent.append($("<div class=\"ui content blocks\"/>").append($svg));
+        }
         function appendJs($parent, $js, woptions) {
-            $parent.append($('<div class="ui content js"><div><i class="ui icon xicon js"/>JavaScript</div></div>').append($js));
+            $parent.append($("<div class=\"ui content js\"><div class=\"subheading\"><i class=\"ui icon xicon js\"/>JavaScript</div></div>").append($js));
             highlight($js);
         }
         function appendPy($parent, $py, woptions) {
-            $parent.append($('<div class="ui content py"><div><i class="ui icon xicon python"/>Python</div></div>').append($py));
+            $parent.append($("<div class=\"ui content py\"><div class=\"subheading\"><i class=\"ui icon xicon python\"/>Python</div></div>").append($py));
             highlight($py);
         }
         function snippetBtn(label, icon) {
@@ -266,10 +266,11 @@ var pxt;
                 });
                 $menu.append($hexBtn);
             }
-            var r = [$c];
+            var r = $("<div class=codesnippet></div>");
             // don't add menu if empty
             if ($menu.children().length)
-                r.push($h);
+                r.append($h);
+            r.append($c);
             // inject container
             $container.replaceWith(r);
             function appendBlocksButton() {
@@ -451,8 +452,10 @@ var pxt;
             return renderNextSnippetAsync(options.staticPythonClass, function (c, r) {
                 var s = r.compilePython;
                 if (s && s.success) {
-                    var $js = c.clone().removeClass('lang-shadow').addClass('lang-typescript');
-                    var $py = c.clone().removeClass('lang-shadow').addClass('lang-python').text(s.outfiles["main.py"]);
+                    var $js = c.clone().removeClass('lang-shadow').addClass('highlight');
+                    var $py = $js.clone().addClass('lang-python').text(s.outfiles["main.py"]);
+                    $js.addClass('lang-typescript');
+                    highlight($py);
                     fillWithWidget(options, c.parent(), /* js */ $js, /* py */ $py, /* svg */ undefined, r, woptions);
                 }
             }, { package: options.package, snippetMode: true });
@@ -1458,7 +1461,7 @@ var pxt;
                 backButton.addEventListener("click", function () {
                     goBack();
                 });
-                pxsim.U.addClass(backButton, "disabled");
+                setElementDisabled(backButton, true);
             }
             function render(doctype, src) {
                 pxt.debug("rendering " + doctype);
@@ -1516,7 +1519,7 @@ var pxt;
                     history.shift();
                 }
                 if (history.length > 1) {
-                    pxsim.U.removeClass(backButton, "disabled");
+                    setElementDisabled(backButton, false);
                 }
             }
             function goBack() {
@@ -1528,7 +1531,17 @@ var pxt;
                     window.location.hash = history.pop();
                 }
                 if (history.length <= 1) {
-                    pxsim.U.addClass(backButton, "disabled");
+                    setElementDisabled(backButton, true);
+                }
+            }
+            function setElementDisabled(el, disabled) {
+                if (disabled) {
+                    pxsim.U.addClass(el, "disabled");
+                    el.setAttribute("aria-disabled", "true");
+                }
+                else {
+                    pxsim.U.removeClass(el, "disabled");
+                    el.setAttribute("aria-disabled", "false");
                 }
             }
             function renderHash() {

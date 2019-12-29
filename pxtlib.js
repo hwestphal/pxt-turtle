@@ -3748,6 +3748,8 @@ var pxt;
         // wired up in the app to store translations in pouchdb. MAY BE UNDEFINED!
         var _translationDbPromise;
         function translationDbAsync() {
+            if (pxt.Util.isNodeJS)
+                return Promise.resolve(new MemTranslationDb());
             // try indexed db
             if (!_translationDbPromise)
                 _translationDbPromise = IndexedDbTranslationDb.createAsync()
@@ -5446,20 +5448,20 @@ var pxt;
             return startAsync();
         }
         crowdin.uploadTranslationAsync = uploadTranslationAsync;
-        function flatten(allFiles, files, parentDir, branch) {
-            var n = files.name;
+        function flatten(allFiles, node, parentDir, branch) {
+            var n = node.name;
             var d = parentDir ? parentDir + "/" + n : n;
-            files.fullName = d;
-            files.branch = branch || "";
-            switch (files.node_type) {
+            node.fullName = d;
+            node.branch = branch || "";
+            switch (node.node_type) {
                 case "file":
-                    allFiles.push(files);
+                    allFiles.push(node);
                     break;
                 case "directory":
-                    (files.files || []).forEach(function (f) { return flatten(allFiles, f, d); });
+                    (node.files || []).forEach(function (f) { return flatten(allFiles, f, d, branch); });
                     break;
                 case "branch":
-                    (files.files || []).forEach(function (f) { return flatten(allFiles, f, parentDir, files.name); });
+                    (node.files || []).forEach(function (f) { return flatten(allFiles, f, parentDir, node.name); });
                     break;
             }
         }
@@ -5548,7 +5550,9 @@ var pxt;
             "short": stdSetting,
             "description": "<!-- desc -->",
             "activities": "<!-- activities -->",
-            "explicitHints": "<!-- hints -->"
+            "explicitHints": "<!-- hints -->",
+            "flyoutOnly": "<!-- flyout -->",
+            "hideIteration": "<!-- iter -->"
         };
         function replaceAll(replIn, x, y) {
             return replIn.split(x).join(y);
@@ -5839,10 +5843,11 @@ var pxt;
         docs.prepTemplate = prepTemplate;
         function setupRenderer(renderer) {
             renderer.image = function (href, title, text) {
-                var out = '<img class="ui centered image" src="' + href + '" alt="' + text + '"';
+                var out = '<img class="ui image" src="' + href + '" alt="' + text + '"';
                 if (title) {
                     out += ' title="' + title + '"';
                 }
+                out += ' loading="lazy"';
                 out += this.options.xhtml ? '/>' : '>';
                 return out;
             };
@@ -7327,6 +7332,7 @@ var pxt;
             return r;
         }
         github.parseRepoUrl = parseRepoUrl;
+        // parse https://github.com/[company]/[project](/filepath)(#tag)
         function parseRepoId(repo) {
             if (!repo)
                 return undefined;
@@ -7334,15 +7340,19 @@ var pxt;
             repo = repo.replace(/^https:\/\/github\.com\//i, "");
             repo = repo.replace(/\.git\b/i, "");
             var m = /([^#]+)(#(.*))?/.exec(repo);
+            var nameAndFile = m ? m[1] : null;
             var tag = m ? m[3] : null;
             var owner;
             var project;
             var fullName;
+            var fileName;
             if (m) {
-                fullName = m[1].toLowerCase();
-                var parts = fullName.split('/');
+                var parts = nameAndFile.split('/');
                 owner = parts[0];
                 project = parts[1];
+                fullName = owner + "/" + project;
+                if (parts.length > 2)
+                    fileName = parts.slice(2).join('/');
             }
             else {
                 fullName = repo.toLowerCase();
@@ -7351,10 +7361,18 @@ var pxt;
                 owner: owner,
                 project: project,
                 fullName: fullName,
-                tag: tag
+                tag: tag,
+                fileName: fileName
             };
         }
         github.parseRepoId = parseRepoId;
+        function toGithubDependencyPath(id) {
+            var r = "github:" + id.fullName;
+            if (id.tag)
+                r += "#" + id.tag;
+            return r;
+        }
+        github.toGithubDependencyPath = toGithubDependencyPath;
         function isGithubId(id) {
             if (!id)
                 return false;
@@ -7682,6 +7700,7 @@ var pxt;
         BuiltInType[BuiltInType["RefRefLocal"] = 7] = "RefRefLocal";
         BuiltInType[BuiltInType["RefMap"] = 8] = "RefMap";
         BuiltInType[BuiltInType["RefMImage"] = 9] = "RefMImage";
+        BuiltInType[BuiltInType["MMap"] = 10] = "MMap";
         BuiltInType[BuiltInType["User0"] = 16] = "User0";
     })(BuiltInType = pxt.BuiltInType || (pxt.BuiltInType = {}));
 })(pxt || (pxt = {}));
@@ -12597,7 +12616,8 @@ var pxt;
         var _h2Regex = /^##[^#](.*)$([\s\S]*?)(?=^##[^#]|$(?![\r\n]))/gmi;
         var _h3Regex = /^###[^#](.*)$([\s\S]*?)(?=^###[^#]|$(?![\r\n]))/gmi;
         function parseTutorial(tutorialmd) {
-            var _a = parseTutorialMarkdown(tutorialmd), steps = _a.steps, activities = _a.activities;
+            var metadata = parseTutorialMetadata(tutorialmd);
+            var _a = parseTutorialMarkdown(tutorialmd, metadata), steps = _a.steps, activities = _a.activities;
             var title = parseTutorialTitle(tutorialmd);
             if (!steps)
                 return undefined; // error parsing steps
@@ -12641,7 +12661,8 @@ var pxt;
                 steps: steps,
                 activities: activities,
                 code: code,
-                templateCode: templateCode
+                templateCode: templateCode,
+                metadata: metadata
             };
             function checkTutorialEditor(expected) {
                 if (editor && editor != expected) {
@@ -12659,8 +12680,7 @@ var pxt;
             var title = tutorialmd.match(/^#[^#](.*)$/mi);
             return title && title.length > 1 ? title[1] : null;
         }
-        function parseTutorialMarkdown(tutorialmd) {
-            var metadata = parseTutorialMetadata(tutorialmd);
+        function parseTutorialMarkdown(tutorialmd, metadata) {
             tutorialmd = stripHiddenSnippets(tutorialmd);
             if (metadata && metadata.activities) {
                 // tutorial with "## ACTIVITY", "### STEP" syntax
@@ -12681,7 +12701,7 @@ var pxt;
             markdown.replace(_h2Regex, function (match, name, activity) {
                 var i = activityInfo.length;
                 activityInfo.push({
-                    name: name || lf("Activity ") + i,
+                    name: name || lf("Activity {0}", i),
                     step: stepInfo.length
                 });
                 var steps = parseTutorialSteps(activity, _h3Regex, metadata);
@@ -12755,7 +12775,12 @@ var pxt;
             var metadataRegex = /### @(\S+) ([ \S]+)/gi;
             var m = {};
             tutorialmd.replace(metadataRegex, function (f, k, v) {
-                m[k] = v;
+                try {
+                    m[k] = JSON.parse(v);
+                }
+                catch (_a) {
+                    m[k] = v;
+                }
                 return "";
             });
             return m;
@@ -15509,7 +15534,7 @@ var pxt;
                 url = "md/" + pxt.appTarget.id + "/" + docid.replace(/^\//, "") + "?targetVersion=" + encodeURIComponent(targetVersion);
             }
             if (!packaged && locale != "en") {
-                url += "&lang=" + encodeURIComponent(Util.userLanguage());
+                url += "&lang=" + encodeURIComponent(locale);
                 if (live)
                     url += "&live=1";
             }

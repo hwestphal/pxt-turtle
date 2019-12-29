@@ -632,7 +632,7 @@ var pxt;
             return blocks_1.H.mathCall(op, args);
         }
         function compileFunctionDefinition(e, b, comments) {
-            var name = escapeVarName(b.getFieldValue("function_name"), e, true);
+            var name = escapeVarName(b.getField("function_name").getText(), e, true);
             var stmts = getInputTargetBlock(b, "STACK");
             var argsDeclaration = b.getArguments().map(function (a) {
                 return escapeVarName(a.name, e) + ": " + a.type;
@@ -655,7 +655,7 @@ var pxt;
             return blocks_1.mkStmt(blocks_1.mkText(name + "()"));
         }
         function compileFunctionCall(e, b, comments) {
-            var name = escapeVarName(b.getFieldValue("function_name"), e, true);
+            var name = escapeVarName(b.getField("function_name").getText(), e, true);
             var externalInputs = !b.getInputsInline();
             var args = b.getArguments().map(function (a) {
                 return {
@@ -874,10 +874,11 @@ var pxt;
         function compileControlsRepeat(e, b, comments) {
             var bound = compileExpression(e, getInputTargetBlock(b, "TIMES"), comments);
             var body = compileStatements(e, getInputTargetBlock(b, "DO"));
-            var valid = function (x) { return !e.renames.takenNames[x]; };
-            var name = "i";
-            for (var i = 0; !valid(name); i++)
-                name = "i" + i;
+            var valid = function (x) { return !lookup(e, b, x); };
+            var name = "index";
+            // Start at 2 because index0 and index1 are bad names
+            for (var i = 2; !valid(name); i++)
+                name = "index" + i;
             return [
                 blocks_1.mkText("for (let " + name + " = 0; "),
                 blocks_1.mkInfix(blocks_1.mkText(name), "<", bound),
@@ -1360,7 +1361,7 @@ var pxt;
                 });
                 w.getTopBlocks(false).filter(isFunctionDefinition).forEach(function (b) {
                     // Add functions to the rename map to prevent name collisions with variables
-                    var name = b.type === "procedures_defnoreturn" ? b.getFieldValue("NAME") : b.getFieldValue("function_name");
+                    var name = b.type === "procedures_defnoreturn" ? b.getFieldValue("NAME") : b.getField("function_name").getText();
                     escapeVarName(name, e, true);
                 });
             }
@@ -1524,17 +1525,17 @@ var pxt;
         blocks_1.callKey = callKey;
         function updateDisabledBlocks(e, allBlocks, topBlocks) {
             // unset disabled
-            allBlocks.forEach(function (b) { return b.setDisabled(false); });
+            allBlocks.forEach(function (b) { return b.setEnabled(true); });
             // update top blocks
             var events = {};
             function flagDuplicate(key, block) {
                 var otherEvent = events[key];
                 if (otherEvent) {
                     // another block is already registered
-                    block.setDisabled(true);
+                    block.setEnabled(false);
                 }
                 else {
-                    block.setDisabled(false);
+                    block.setEnabled(true);
                     events[key] = block;
                 }
             }
@@ -1555,7 +1556,7 @@ var pxt;
                     // all non-events are disabled
                     var t = b;
                     while (t) {
-                        t.setDisabled(true);
+                        t.setEnabled(false);
                         t = t.getNextBlock();
                     }
                 }
@@ -1754,8 +1755,8 @@ var pxt;
                 var size = block.getHeightWidth();
                 return {
                     id: block.id,
-                    x: bounds.topLeft.x,
-                    y: bounds.topLeft.y,
+                    x: bounds.left,
+                    y: bounds.top,
                     width: size.width,
                     height: size.height
                 };
@@ -1769,8 +1770,8 @@ var pxt;
                 var comment = comments_2[_i];
                 var bounds = comment.getBoundingRectangle();
                 var size = comment.getHeightWidth();
-                var x = bounds.topLeft.x;
-                var y = bounds.topLeft.y;
+                var x = bounds.left;
+                var y = bounds.top;
                 var parent_2 = void 0;
                 for (var _a = 0, blockBounds_1 = blockBounds; _a < blockBounds_1.length; _a++) {
                     var rect = blockBounds_1[_a];
@@ -2240,8 +2241,8 @@ var pxt;
                     var oldn = normalizedDom(oldb, true);
                     if (newn == oldn) {
                         log("fast unmodified top ", newb.id);
-                        newb.dispose();
-                        oldb.dispose();
+                        newb.dispose(false);
+                        oldb.dispose(false);
                     }
                 }
             });
@@ -3230,7 +3231,7 @@ var pxt;
                 }
                 function moveFormattable(f, x, y) {
                     var bounds = f.value.getBoundingRectangle();
-                    f.value.moveBy(x - bounds.topLeft.x, y - bounds.topLeft.y);
+                    f.value.moveBy(x - bounds.left, y - bounds.top);
                 }
             }
             function formattable(entity) {
@@ -4057,13 +4058,13 @@ var pxt;
             initComments();
             initTooltip();
             // PXT is in charge of disabling, don't record undo for disabled events
-            Blockly.Block.prototype.setDisabled = function (disabled) {
-                if (this.disabled != disabled) {
+            Blockly.Block.prototype.setEnabled = function (enabled) {
+                if (this.disabled == enabled) {
                     var oldRecordUndo = Blockly.Events.recordUndo;
                     Blockly.Events.recordUndo = false;
-                    Blockly.Events.fire(new Blockly.Events.BlockChange(this, 'disabled', null, this.disabled, disabled));
+                    Blockly.Events.fire(new Blockly.Events.BlockChange(this, 'disabled', null, this.disabled, !enabled));
                     Blockly.Events.recordUndo = oldRecordUndo;
-                    this.disabled = disabled;
+                    this.disabled = !enabled;
                 }
             };
         }
@@ -4291,6 +4292,7 @@ var pxt;
                     var varField = this.getField('VAR');
                     if (Blockly.Names.equals(oldName, varField.getText())) {
                         varField.setText(newName);
+                        varField.setValue(newName);
                     }
                 },
                 /**
@@ -4369,6 +4371,7 @@ var pxt;
                     var varField = this.getField('VAR');
                     if (Blockly.Names.equals(oldName, varField.getText())) {
                         varField.setText(newName);
+                        varField.setValue(newName);
                     }
                 },
                 /**
@@ -5556,7 +5559,7 @@ var pxt;
                 }
                 else {
                     var tip = renderTip(Blockly.Tooltip.element_);
-                    tip = Blockly.utils.wrap(tip, Blockly.Tooltip.LIMIT);
+                    tip = Blockly.utils._string.wrap(tip, Blockly.Tooltip.LIMIT);
                     // Create new text, line by line.
                     var lines = tip.split('\n');
                     for (var i = 0; i < lines.length; i++) {
@@ -5609,7 +5612,7 @@ var pxt;
                 pxt.log("missing jres icon " + id);
                 return undefined;
             }
-            return new Blockly.FieldImage(url, 40, 40, pxt.Util.isUserLanguageRtl(), '');
+            return new Blockly.FieldImage(url, 40, 40, '', null, pxt.Util.isUserLanguageRtl());
         }
         function initJresIcons(blockInfo) {
             jresIconCache = {}; // clear previous cache
@@ -6329,12 +6332,12 @@ var pxt;
             blocks.forEach(function (b) {
                 var r = b.getBoundingRectangle();
                 if (!m)
-                    m = { l: r.topLeft.x, r: r.bottomRight.x, t: r.topLeft.y, b: r.bottomRight.y };
+                    m = { l: r.left, r: r.right, t: r.top, b: r.bottom };
                 else {
-                    m.l = Math.min(m.l, r.topLeft.x);
-                    m.r = Math.max(m.r, r.bottomRight.y);
-                    m.t = Math.min(m.t, r.topLeft.y);
-                    m.b = Math.min(m.b, r.bottomRight.y);
+                    m.l = Math.min(m.l, r.left);
+                    m.r = Math.max(m.r, r.right);
+                    m.t = Math.min(m.t, r.top);
+                    m.b = Math.min(m.b, r.bottom);
                 }
             });
             return {
@@ -6593,10 +6596,10 @@ var pxt;
                 }
             });
             function addPlusButton() {
-                i.appendField(new Blockly.FieldImage(b.ADD_IMAGE_DATAURI, 24, 24, false, lf("Add argument"), function () {
+                i.appendField(new Blockly.FieldImage(b.ADD_IMAGE_DATAURI, 24, 24, lf("Add argument"), function () {
                     currentlyVisible = Math.min(currentlyVisible + 1, handlerArgs.length);
                     updateShape();
-                }), "_HANDLER_ADD");
+                }, false), "_HANDLER_ADD");
             }
         }
         blocks.initVariableArgsBlock = initVariableArgsBlock;
@@ -6716,7 +6719,7 @@ var pxt;
             }
             function addButton(name, uri, alt, delta) {
                 b.appendDummyInput(name)
-                    .appendField(new Blockly.FieldImage(uri, 24, 24, false, alt, function () { return updateShape(delta); }));
+                    .appendField(new Blockly.FieldImage(uri, 24, 24, alt, function () { return updateShape(delta); }, false));
             }
             function updateButtons() {
                 var visibleOptions = state.getNumber(numVisibleAttr);
@@ -6979,7 +6982,7 @@ var pxtblockly;
                 return;
             }
             // Build the DOM.
-            this.fieldGroup_ = Blockly.utils.createSvgElement('g', {}, null);
+            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null);
             if (!this.visible_) {
                 this.fieldGroup_.style.display = 'none';
             }
@@ -6995,17 +6998,17 @@ var pxtblockly;
             }
             // Adjust X to be flipped for RTL. Position is relative to horizontal start of source block.
             var size = this.getSize();
-            this.checkElement_ = Blockly.utils.createSvgElement('g', {
+            this.checkElement_ = Blockly.utils.dom.createSvgElement('g', {
                 'class': "blocklyToggle " + (this.state_ ? 'blocklyToggleOnBreakpoint' : 'blocklyToggleOffBreakpoint'),
                 'transform': "translate(8, " + size.height / 2 + ")",
             }, this.fieldGroup_);
-            this.toggleThumb_ = Blockly.utils.createSvgElement('polygon', {
+            this.toggleThumb_ = Blockly.utils.dom.createSvgElement('polygon', {
                 'class': 'blocklyToggleRect',
                 'points': '50,5 100,5 125,30 125,80 100,105 50,105 25,80 25,30'
             }, this.checkElement_);
             var fieldX = (this.sourceBlock_.RTL) ? -size.width / 2 : size.width / 2;
             /** @type {!Element} */
-            this.textElement_ = Blockly.utils.createSvgElement('text', {
+            this.textElement_ = Blockly.utils.dom.createSvgElement('text', {
                 'class': 'blocklyText',
                 'x': fieldX,
                 'dy': '0.6ex',
@@ -7021,7 +7024,7 @@ var pxtblockly;
             this.mouseDownWrapper_ =
                 Blockly.bindEventWithChecks_(this.getClickTarget_(), 'mousedown', this, this.onMouseDown_);
         };
-        FieldBreakpoint.prototype.updateWidth = function () {
+        FieldBreakpoint.prototype.updateSize_ = function () {
             this.size_.width = 30;
             this.arrowWidth_ = 0;
         };
@@ -7050,7 +7053,7 @@ var pxtblockly;
         };
         FieldBreakpoint.prototype.switchToggle = function (newState) {
             if (this.checkElement_) {
-                this.updateWidth();
+                this.updateSize_();
                 if (newState) {
                     pxt.BrowserUtils.addClass(this.checkElement_, 'blocklyToggleOnBreakpoint');
                     pxt.BrowserUtils.removeClass(this.checkElement_, 'blocklyToggleOffBreakpoint');
@@ -7071,7 +7074,7 @@ var pxtblockly;
             if (this.visible_ && this.textElement_) {
                 // Replace the text.
                 goog.dom.removeChildren(/** @type {!Element} */ (this.textElement_));
-                this.updateWidth();
+                this.updateSize_();
             }
         };
         /**
@@ -7271,28 +7274,28 @@ var pxtblockly;
          */
         FieldColorNumber.prototype.getValue = function (opt_asHex) {
             if (opt_asHex)
-                return this.colour_;
+                return this.value_;
             switch (this.valueMode_) {
                 case "hex":
-                    return "\"" + this.colour_ + "\"";
+                    return "\"" + this.value_ + "\"";
                 case "rgb":
-                    if (this.colour_.indexOf('#') > -1) {
-                        return "0x" + this.colour_.replace(/^#/, '');
+                    if (this.value_.indexOf('#') > -1) {
+                        return "0x" + this.value_.replace(/^#/, '');
                     }
                     else {
-                        return this.colour_;
+                        return this.value_;
                     }
                 case "index":
-                    if (!this.colour_)
+                    if (!this.value_)
                         return "-1";
                     var allColours = this.getColours_();
                     for (var i = 0; i < allColours.length; i++) {
-                        if (this.colour_.toUpperCase() === allColours[i].toUpperCase()) {
+                        if (this.value_.toUpperCase() === allColours[i].toUpperCase()) {
                             return i + "";
                         }
                     }
             }
-            return this.colour_;
+            return this.value_;
         };
         /**
          * Set the colour.
@@ -7303,10 +7306,10 @@ var pxtblockly;
             if (!colour)
                 return;
             if (this.sourceBlock_ && Blockly.Events.isEnabled() &&
-                this.colour_ != colour) {
-                Blockly.Events.fire(new Blockly.Events.BlockChange(this.sourceBlock_, 'field', this.name, this.colour_, colour));
+                this.value_ != colour) {
+                Blockly.Events.fire(new Blockly.Events.BlockChange(this.sourceBlock_, 'field', this.name, this.value_, colour));
             }
-            this.colour_ = colour;
+            this.value_ = colour;
             if (this.sourceBlock_) {
                 this.sourceBlock_.setColour(colour, colour, colour);
             }
@@ -7314,7 +7317,7 @@ var pxtblockly;
         FieldColorNumber.prototype.showEditor_ = function () {
             _super.prototype.showEditor_.call(this);
             if (this.className_ && this.colorPicker_)
-                pxt.BrowserUtils.addClass(this.colorPicker_.getElement(), this.className_);
+                pxt.BrowserUtils.addClass(this.colorPicker_, this.className_);
         };
         FieldColorNumber.prototype.getColours_ = function () {
             return this.colours_;
@@ -7424,15 +7427,15 @@ var pxtblockly;
             this.disposeIntersectionObserver();
         };
         FieldGridPicker.prototype.createTooltip_ = function () {
-            if (this.tooltip_)
+            if (this.gridTooltip_)
                 return;
             // Create tooltip
-            this.tooltip_ = document.createElement('div');
-            this.tooltip_.className = 'goog-tooltip blocklyGridPickerTooltip';
-            this.tooltip_.style.position = 'absolute';
-            this.tooltip_.style.display = 'none';
-            this.tooltip_.style.visibility = 'hidden';
-            document.body.appendChild(this.tooltip_);
+            this.gridTooltip_ = document.createElement('div');
+            this.gridTooltip_.className = 'goog-tooltip blocklyGridPickerTooltip';
+            this.gridTooltip_.style.position = 'absolute';
+            this.gridTooltip_.style.display = 'none';
+            this.gridTooltip_.style.visibility = 'hidden';
+            document.body.appendChild(this.gridTooltip_);
         };
         /**
          * Create blocklyGridPickerRows and add them to table container
@@ -7518,15 +7521,15 @@ var pxtblockly;
                     var yOffset_1 = this_2.tooltipConfig_.yOffset;
                     Blockly.bindEvent_(menuItem, 'mousemove', this_2, function (e) {
                         if (hasImages) {
-                            _this.tooltip_.style.top = e.clientY + yOffset_1 + "px";
-                            _this.tooltip_.style.left = e.clientX + xOffset_1 + "px";
+                            _this.gridTooltip_.style.top = e.clientY + yOffset_1 + "px";
+                            _this.gridTooltip_.style.left = e.clientX + xOffset_1 + "px";
                             // Set tooltip text
                             var touchTarget = document.elementFromPoint(e.clientX, e.clientY);
                             var title = touchTarget.title || touchTarget.alt;
-                            _this.tooltip_.textContent = title;
+                            _this.gridTooltip_.textContent = title;
                             // Show the tooltip
-                            _this.tooltip_.style.visibility = title ? 'visible' : 'hidden';
-                            _this.tooltip_.style.display = title ? '' : 'none';
+                            _this.gridTooltip_.style.visibility = title ? 'visible' : 'hidden';
+                            _this.gridTooltip_.style.display = title ? '' : 'none';
                         }
                         pxt.BrowserUtils.addClass(menuItem, 'goog-menuitem-highlight');
                         tableContainer.setAttribute('aria-activedescendant', menuItem.id);
@@ -7534,8 +7537,8 @@ var pxtblockly;
                     Blockly.bindEvent_(menuItem, 'mouseout', this_2, function (e) {
                         if (hasImages) {
                             // Hide the tooltip
-                            _this.tooltip_.style.visibility = 'hidden';
-                            _this.tooltip_.style.display = 'none';
+                            _this.gridTooltip_.style.visibility = 'hidden';
+                            _this.gridTooltip_.style.display = 'none';
                         }
                         pxt.BrowserUtils.removeClass(menuItem, 'goog-menuitem-highlight');
                         tableContainer.removeAttribute('aria-activedescendant');
@@ -7805,8 +7808,8 @@ var pxtblockly;
                     _this.highlightAndScrollSelected(tableContainer, scrollContainer);
                 }
                 // Hide the tooltip
-                _this.tooltip_.style.visibility = 'hidden';
-                _this.tooltip_.style.display = 'none';
+                _this.gridTooltip_.style.visibility = 'hidden';
+                _this.gridTooltip_.style.display = 'none';
             }, 300, false));
             // Select the first item if the enter key is pressed
             searchBar.addEventListener("keyup", function (e) {
@@ -7922,9 +7925,9 @@ var pxtblockly;
          * @private
          */
         FieldGridPicker.prototype.disposeTooltip = function () {
-            if (this.tooltip_) {
-                pxsim.U.remove(this.tooltip_);
-                this.tooltip_ = null;
+            if (this.gridTooltip_) {
+                pxsim.U.remove(this.gridTooltip_);
+                this.gridTooltip_ = null;
             }
         };
         FieldGridPicker.prototype.onClose_ = function () {
@@ -7965,7 +7968,7 @@ var pxtblockly;
          * the approximated width on IE/Microsoft Edge when `getComputedTextLength` fails. Once
          * it eventually does succeed, the result will be cached.
          **/
-        FieldGridPicker.prototype.updateWidth = function () {
+        FieldGridPicker.prototype.updateSize_ = function () {
             var width;
             if (this.imageJson_) {
                 width = this.imageJson_.width + 5;
@@ -8018,10 +8021,10 @@ var pxtblockly;
             this.imageElement_ = null;
             if (this.imageJson_) {
                 // Image option is selected.
-                this.imageElement_ = Blockly.utils.createSvgElement('image', {
+                this.imageElement_ = Blockly.utils.dom.createSvgElement('image', {
                     'y': 5, 'x': 8, 'height': this.imageJson_.height + 'px',
                     'width': this.imageJson_.width + 'px', cursor: 'pointer'
-                });
+                }, null);
                 this.imageElement_.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', this.imageJson_.src);
                 this.size_.height = Number(this.imageJson_.height) + 10;
                 if (this.sourceBlock_.RTL)
@@ -8234,7 +8237,7 @@ var pxtblockly;
          * the approximated width on IE/Microsoft Edge when `getComputedTextLength` fails. Once
          * it eventually does succeed, the result will be cached.
          **/
-        FieldImageDropdown.prototype.updateWidth = function () {
+        FieldImageDropdown.prototype.updateSize_ = function () {
             // Calculate width of field
             var width = this.imageJson_.width + 5;
             // Add padding to left and right of text.
@@ -8281,10 +8284,10 @@ var pxtblockly;
             this.imageElement_ = null;
             if (this.imageJson_) {
                 // Image option is selected.
-                this.imageElement_ = Blockly.utils.createSvgElement('image', {
+                this.imageElement_ = Blockly.utils.dom.createSvgElement('image', {
                     'y': 5, 'x': 8, 'height': this.imageJson_.height + 'px',
                     'width': this.imageJson_.width + 'px'
-                });
+                }, null);
                 this.imageElement_.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', this.imageJson_.src);
                 this.size_.height = Number(this.imageJson_.height) + 10;
                 this.textElement_.parentNode.appendChild(this.imageElement_);
@@ -8841,6 +8844,7 @@ var pxtblockly;
         function FieldCustomMelody(value, params, validator) {
             var _this = _super.call(this, value, validator) || this;
             _this.isFieldCustom_ = true;
+            _this.SERIALIZABLE = true;
             _this.soundingKeys = 0;
             _this.numRow = 8;
             _this.numCol = 8;
@@ -8866,7 +8870,7 @@ var pxtblockly;
             pxt.BrowserUtils.addClass(contentDiv.parentElement, "melody-editor-dropdown");
             this.gallery = new pxtmelody.MelodyGallery();
             this.renderEditor(contentDiv);
-            this.prevString = this.getText();
+            this.prevString = this.getValue();
             // The webapp listens to this event and stops the simulator so that you don't get the melody
             // playing twice (once in the editor and once when the code runs in the sim)
             Blockly.Events.fire(new Blockly.Events.Ui(this.sourceBlock_, "melody-editor", false, true));
@@ -8878,16 +8882,17 @@ var pxtblockly;
                 Blockly.Events.fire(new Blockly.Events.Ui(_this.sourceBlock_, "melody-editor", true, false));
             });
         };
-        FieldCustomMelody.prototype.getText = function () {
+        FieldCustomMelody.prototype.getValue = function () {
             this.stringRep = this.getTypeScriptValue();
             return this.stringRep;
         };
-        FieldCustomMelody.prototype.setText = function (newText) {
-            if (newText == null || newText == "" || newText == "\"\"" || (this.stringRep && this.stringRep === newText)) {
+        FieldCustomMelody.prototype.doValueUpdate_ = function (newValue) {
+            if (newValue == null || newValue == "" || newValue == "\"\"" || (this.stringRep && this.stringRep === newValue)) {
                 return;
             }
-            this.stringRep = newText;
-            this.parseTypeScriptValue(newText);
+            this.stringRep = newValue;
+            this.parseTypeScriptValue(newValue);
+            _super.prototype.doValueUpdate_.call(this, this.getValue());
         };
         // This will be run when the field is created (i.e. when it appears on the workspace)
         FieldCustomMelody.prototype.onInit = function () {
@@ -8899,7 +8904,7 @@ var pxtblockly;
             else {
                 if (!this.fieldGroup_) {
                     // Build the DOM.
-                    this.fieldGroup_ = Blockly.utils.createSvgElement('g', {}, null);
+                    this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null);
                 }
                 if (!this.visible_) {
                     this.fieldGroup_.style.display = 'none';
@@ -8976,8 +8981,8 @@ var pxtblockly;
                 this.gallery.stopMelody();
             }
             this.clearDomReferences();
-            if (this.sourceBlock_ && Blockly.Events.isEnabled() && this.getText() !== this.prevString) {
-                Blockly.Events.fire(new Blockly.Events.BlockChange(this.sourceBlock_, 'field', this.name, this.prevString, this.getText()));
+            if (this.sourceBlock_ && Blockly.Events.isEnabled() && this.getValue() !== this.prevString) {
+                Blockly.Events.fire(new Blockly.Events.BlockChange(this.sourceBlock_, 'field', this.name, this.prevString, this.getValue()));
             }
             this.prevString = undefined;
         };
@@ -9054,7 +9059,7 @@ var pxtblockly;
         };
         // The width of the preview on the block itself
         FieldCustomMelody.prototype.getPreviewWidth = function () {
-            this.updateWidth();
+            this.updateSize_();
             return this.size_.width;
         };
         // The height of the preview on the block itself
@@ -9667,10 +9672,12 @@ var pxtblockly;
             return this.note_;
         };
         /**
-         * Set the note.
+         * Called by setValue if the text input is valid. Updates the value of the
+         * field, and updates the text of the field if it is not currently being
+         * edited (i.e. handled by the htmlInput_).
          * @param {string} note The new note in string format.
          */
-        FieldNote.prototype.setValue = function (note) {
+        FieldNote.prototype.doValueUpdate_ = function (note) {
             // accommodate note strings like "Note.GSharp5" as well as numbers
             var match = regex.exec(note);
             var noteName = (match && match.length > 1) ? match[1] : null;
@@ -9936,7 +9943,7 @@ var pxtblockly;
                 }
                 currentSelectedKey = this;
                 script.style.backgroundColor = selectedKeyColor;
-                Blockly.FieldTextInput.htmlInput_.value = thisField.getText();
+                thisField.htmlInput_.value = thisField.getText();
                 pxt.AudioContextManager.tone(freq);
                 setTimeout(function () {
                     // compare current sound counter with listener sound counter (avoid async problems)
@@ -10402,7 +10409,7 @@ var pxtblockly;
             return this.getText();
         };
         ;
-        FieldProcedure.prototype.setValue = function (newValue) {
+        FieldProcedure.prototype.doValueUpdate_ = function (newValue) {
             if (this.sourceBlock_ && Blockly.Events.isEnabled()) {
                 Blockly.Events.fire(new Blockly.Events.Change(this.sourceBlock_, 'field', this.name, this.value_, newValue));
             }
@@ -10630,6 +10637,7 @@ var pxtblockly;
         function FieldSpriteEditor(text, params, validator) {
             var _this = _super.call(this, text, validator) || this;
             _this.isFieldCustom_ = true;
+            _this.SERIALIZABLE = true;
             _this.lightMode = params.lightMode;
             _this.params = parseFieldOptions(params);
             _this.blocksInfo = params.blocksInfo;
@@ -10644,7 +10652,7 @@ var pxtblockly;
                 return;
             }
             // Build the DOM.
-            this.fieldGroup_ = Blockly.utils.createSvgElement('g', {}, null);
+            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null);
             if (!this.visible_) {
                 this.fieldGroup_.style.display = 'none';
             }
@@ -10697,7 +10705,7 @@ var pxtblockly;
                 _this.state = _this.editor.bitmap().image;
                 _this.redrawPreview();
                 if (_this.sourceBlock_ && Blockly.Events.isEnabled()) {
-                    Blockly.Events.fire(new Blockly.Events.BlockChange(_this.sourceBlock_, 'field', _this.name, _this.text_, _this.getText()));
+                    Blockly.Events.fire(new Blockly.Events.BlockChange(_this.sourceBlock_, 'field', _this.name, _this.text_, _this.getValue()));
                 }
                 goog.style.setHeight(contentDiv, null);
                 goog.style.setWidth(contentDiv, null);
@@ -10717,16 +10725,17 @@ var pxtblockly;
             this.size_.height = TOTAL_WIDTH;
             this.size_.width = TOTAL_WIDTH;
         };
-        FieldSpriteEditor.prototype.getText = function () {
+        FieldSpriteEditor.prototype.getValue = function () {
             return pxtsprite.bitmapToImageLiteral(this.state, "typescript" /* TypeScript */);
         };
-        FieldSpriteEditor.prototype.setText = function (newText) {
-            if (newText == null) {
+        FieldSpriteEditor.prototype.doValueUpdate_ = function (newValue) {
+            if (newValue == null) {
                 return;
             }
-            this.parseBitmap(newText);
+            this.value_ = newValue;
+            this.parseBitmap(newValue);
             this.redrawPreview();
-            _super.prototype.setText.call(this, newText);
+            _super.prototype.doValueUpdate_.call(this, newValue);
         };
         FieldSpriteEditor.prototype.redrawPreview = function () {
             if (!this.fieldGroup_)
@@ -10932,7 +10941,7 @@ var pxtblockly;
                 return;
             }
             // Build the DOM.
-            this.fieldGroup_ = Blockly.utils.createSvgElement('g', {}, null);
+            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null);
             if (!this.visible_) {
                 this.fieldGroup_.style.display = 'none';
             }
@@ -10949,7 +10958,7 @@ var pxtblockly;
             // If not in a shadow block, and has more than one input, draw a box.
             if (!this.sourceBlock_.isShadow()
                 && (this.sourceBlock_.inputList && this.sourceBlock_.inputList.length > 1)) {
-                this.box_ = Blockly.utils.createSvgElement('rect', {
+                this.box_ = Blockly.utils.dom.createSvgElement('rect', {
                     'rx': Blockly.BlockSvg.CORNER_RADIUS,
                     'ry': Blockly.BlockSvg.CORNER_RADIUS,
                     'x': 0,
@@ -10958,25 +10967,25 @@ var pxtblockly;
                     'height': this.size_.height,
                     'fill': Blockly.Colours.textField,
                     'stroke': this.sourceBlock_.getColourTertiary()
-                });
+                }, null);
                 this.fieldGroup_.insertBefore(this.box_, this.textElement_);
             }
             // Adjust X to be flipped for RTL. Position is relative to horizontal start of source block.
             var size = this.getSize();
-            this.checkElement_ = Blockly.utils.createSvgElement('g', {
+            this.checkElement_ = Blockly.utils.dom.createSvgElement('g', {
                 'class': "blocklyToggle " + (this.state_ ? 'blocklyToggleOn' : 'blocklyToggleOff'),
                 'transform': "translate(8, " + size.height / 2 + ")",
             }, this.fieldGroup_);
             switch (this.getOutputShape()) {
                 case Blockly.OUTPUT_SHAPE_HEXAGONAL:
-                    this.toggleThumb_ = Blockly.utils.createSvgElement('polygon', {
+                    this.toggleThumb_ = Blockly.utils.dom.createSvgElement('polygon', {
                         'class': 'blocklyToggleRect',
                         'points': '-7,-14 -21,0 -7,14 7,14 21,0 7,-14',
                         'cursor': 'pointer'
                     }, this.checkElement_);
                     break;
                 case Blockly.OUTPUT_SHAPE_ROUND:
-                    this.toggleThumb_ = Blockly.utils.createSvgElement('rect', {
+                    this.toggleThumb_ = Blockly.utils.dom.createSvgElement('rect', {
                         'class': 'blocklyToggleCircle',
                         'x': -6, 'y': -14, 'height': 28,
                         'width': 28, 'rx': 14, 'ry': 14,
@@ -10984,7 +10993,7 @@ var pxtblockly;
                     }, this.checkElement_);
                     break;
                 case Blockly.OUTPUT_SHAPE_SQUARE:
-                    this.toggleThumb_ = Blockly.utils.createSvgElement('rect', {
+                    this.toggleThumb_ = Blockly.utils.dom.createSvgElement('rect', {
                         'class': 'blocklyToggleRect',
                         'x': -6, 'y': -14, 'height': 28,
                         'width': 28, 'rx': 3, 'ry': 3,
@@ -10994,7 +11003,7 @@ var pxtblockly;
             }
             var fieldX = (this.sourceBlock_.RTL) ? -size.width / 2 : size.width / 2;
             /** @type {!Element} */
-            this.textElement_ = Blockly.utils.createSvgElement('text', {
+            this.textElement_ = Blockly.utils.dom.createSvgElement('text', {
                 'class': 'blocklyText',
                 'x': fieldX,
                 'dy': '0.6ex',
@@ -11019,7 +11028,7 @@ var pxtblockly;
         FieldToggle.prototype.getFalseText = function () {
             return lf("False");
         };
-        FieldToggle.prototype.updateWidth = function () {
+        FieldToggle.prototype.updateSize_ = function () {
             var innerWidth = this.getInnerWidth();
             var halfInnerWidth = innerWidth / 2;
             switch (this.getOutputShape()) {
@@ -11070,7 +11079,7 @@ var pxtblockly;
         };
         FieldToggle.prototype.switchToggle = function (newState) {
             if (this.checkElement_) {
-                this.updateWidth();
+                this.updateSize_();
                 var size = this.getSize();
                 var innerWidth_1 = this.getInnerWidth();
                 if (newState) {
@@ -11120,7 +11129,7 @@ var pxtblockly;
                 var textNode = document.createTextNode(this.getDisplayText_());
                 this.textElement_.appendChild(textNode);
                 pxt.BrowserUtils.addClass(this.textElement_, 'blocklyToggleText');
-                this.updateWidth();
+                this.updateSize_();
                 // Update text centering, based on newly calculated width.
                 var halfWidth = this.size_.width / 2;
                 var centerTextX = this.state_ ? halfWidth + halfWidth / 2 : halfWidth / 2;
@@ -11339,14 +11348,15 @@ var pxtblockly;
          * @constructor
          */
         function FieldTurnRatio(value_, params, opt_validator) {
-            var _this = _super.call(this, String(value_), '-100', '100', null, '10', 'TurnRatio', opt_validator) || this;
+            var _this = _super.call(this, String(value_), '-200', '200', null, '10', 'TurnRatio', opt_validator) || this;
             _this.isFieldCustom_ = true;
             _this.params = params;
+            _this.sliderColor_ = '#a8aaa8';
             return _this;
         }
         FieldTurnRatio.prototype.createLabelDom_ = function (labelText) {
             var labelContainer = document.createElement('div');
-            var svg = Blockly.utils.createSvgElement('svg', {
+            var svg = Blockly.utils.dom.createSvgElement('svg', {
                 'xmlns': 'http://www.w3.org/2000/svg',
                 'xmlns:html': 'http://www.w3.org/1999/xhtml',
                 'xmlns:xlink': 'http://www.w3.org/1999/xlink',
@@ -11354,15 +11364,15 @@ var pxtblockly;
                 'height': (FieldTurnRatio.HALF + FieldTurnRatio.HANDLE_RADIUS + 10) + 'px',
                 'width': (FieldTurnRatio.HALF * 2) + 'px'
             }, labelContainer);
-            var defs = Blockly.utils.createSvgElement('defs', {}, svg);
-            var marker = Blockly.utils.createSvgElement('marker', {
+            var defs = Blockly.utils.dom.createSvgElement('defs', {}, svg);
+            var marker = Blockly.utils.dom.createSvgElement('marker', {
                 'id': 'head',
                 'orient': "auto",
                 'markerWidth': '2',
                 'markerHeight': '4',
                 'refX': '0.1', 'refY': '1.5'
             }, defs);
-            var markerPath = Blockly.utils.createSvgElement('path', {
+            var markerPath = Blockly.utils.dom.createSvgElement('path', {
                 'd': 'M0,0 V3 L1.5,1.5 Z',
                 'fill': '#f12a21'
             }, marker);
@@ -11372,7 +11382,7 @@ var pxtblockly;
                 'style': 'font-size: 50px',
                 'class': 'sim-text inverted number'
             });
-            this.path_ = Blockly.utils.createSvgElement('path', {
+            this.path_ = Blockly.utils.dom.createSvgElement('path', {
                 'x1': FieldTurnRatio.HALF,
                 'y1': FieldTurnRatio.HALF,
                 'marker-end': 'url(#head)',
@@ -11388,18 +11398,17 @@ var pxtblockly;
             if (!this.path_) {
                 return;
             }
-            var v = goog.math.clamp(parseFloat(this.getText()), -100, 100);
-            if (isNaN(v)) {
-                v = 0;
-            }
-            var x = goog.math.clamp(parseFloat(this.getText()), -100, 100) / 100;
-            var theta = x * Math.PI / 2;
+            var v = goog.math.clamp(this.getValue() || 0, -200, 200);
+            var x = v / 100;
+            var nx = Math.max(-1, Math.min(1, x));
+            var theta = Math.max(nx) * Math.PI / 2;
+            var r = FieldTurnRatio.RADIUS - 6;
             var cx = FieldTurnRatio.HALF;
-            var cy = FieldTurnRatio.HALF - 14;
-            var gamma = Math.PI - 2 * theta;
-            var r = FieldTurnRatio.RADIUS;
-            var alpha = 0.2 + Math.abs(x) * 0.5;
-            var x1 = 0;
+            var cy = FieldTurnRatio.HALF - 22;
+            if (Math.abs(x) > 1) {
+                cx -= (x - (x > 0 ? 1 : -1)) * r / 2; // move center of circle
+            }
+            var alpha = 0.2 + Math.abs(nx) * 0.5;
             var y1 = r * alpha;
             var y2 = r * Math.sin(Math.PI / 2 - theta);
             var x2 = r * Math.cos(Math.PI / 2 - theta);

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
-<html lang="" xmlns="http://www.w3.org/1999/xhtml" xmlns:og="http://ogp.me/ns#" xmlns:fb="http://www.facebook.com/2008/fbml">
+<html lang="" xmlns="http://www.w3.org/1999/xhtml" xmlns:og="http://ogp.me/ns#"
+	xmlns:fb="http://www.facebook.com/2008/fbml">
 
 <head>
 	<meta charset="UTF-8">
 	<title>Support</title>
 	<meta name="Description" content="You can also use our &lt;a target=&quot;_blank&quot; rel=&quot;nofollow noopener&quot; href=&quot;https://github.com/microsoft/pxt&quot;&gt;GitHub issue tracker&lt;/a&gt; to report bugs." />
 
+	<!-- ifdef incontexttranslations endif -->
 	
 <!-- include meta.html -->
 <!-- This file is typically overriden by the target, with own Twitter
@@ -71,27 +73,42 @@
         
 	</div>
 
-
 	
 <!-- include tocheader.html -->
-<div class="ui vertical accent inverted sidebar menu left hideprint">
-    <div class="item">
-        <a href="/pxt-turtle/docs/.html" class="header focused" tabindex="0" title="Go to editor">
-            
-        </a>
-        Documentation
+<div class="ui fixed accent borderless inverted main menu hideprint">
+    <div>
+        
+            <a id="togglesidebar" class="launch icon item" tabindex="0" title="Side menu" aria-label="Side menu" role="menu" aria-expanded="false">
+                <i class="content icon"></i>
+            </a>
+        
+        <div class="item">
+            <div>
+                <a href="/pxt-turtle/docs/.html" class="header" tabindex="0" title="Go to editor">
+                    
+                </a>
+            </div>
+            <div>
+                Turtle
+            </div>
+        </div>
     </div>
-    <div class="item search">
-        <form id="tocsearch1" role="form" method="get" action="https://www.bing.com/search">
-            <div class="ui fluid icon input">
-                <input type="hidden" name="q1" value="site:" />
-                
+    <div>
+        <div class="item hidemobile">
+            <form id="tocsearch1" class="search" role="form" method="get" action="https://www.bing.com/search">
+                <div class="ui fluid icon input">
+                    <input type="hidden" name="q1" value="site:" />
+                    
                 <input type="search" name="q" placeholder="Search..." aria-label="Search Documentation">
                 <i onclick="document.getElementById('tocsearch1').submit();" tabindex="0" class="search link icon" aria-label="Search" role="button"></i>
             
-            </div>
-        </form>
+                </div>
+            </form>
+        </div>
     </div>
+</div>
+
+<div class="ui vertical accent inverted sidebar menu left hideprint">
     <!-- TOC Menu (tocheader.html) -->
     <div class="menuContainer">
         
@@ -242,228 +259,29 @@
 
     </div>
 </div>
-
-<div class="ui fixed accent borderless inverted main menu hideprint">
-  <div class="ui container">
-    
-            <a id="togglesidebar" class="launch icon item" tabindex="0" title="Side menu" aria-label="Side menu" role="menu" aria-expanded="false">
-                <i class="content icon"></i>
-            </a>
-        
-
-    <div class="item">
-        
-    </div>
-    
-    <div class="right menu">
-        <a href="/pxt-turtle/docs/.html" class="header item" tabindex="0" title="Go to editor">
-            
-        </a>
-    </div>
-  </div>
-</div>
-
 <!-- end include tocheader.html -->
 
 
 	<div id="docs" class="pusher">
-
-		
-<!-- include toc.html -->
-<div class="toc ui accent inverted hideprint">
-    <div class="ui vertical accent inverted sticky menu tocmenu">
-        <div class="item">
-            <a href="/pxt-turtle/docs/.html" class="header focused" tabindex="0" title="Go to editor">
-                
-            </a>
-            Documentation
-        </div>
-        <div class="item search">
-            <form id="tocsearch2" role="form" method="get" target="_blank" action="https://www.bing.com/search">
-                <div class="ui fluid icon input">
-                    <input type="hidden" name="q1" value="site:" />
-                    
-                <input type="search" name="q" placeholder="Search..." aria-label="Search Documentation">
-                <i onclick="document.getElementById('tocsearch2').submit();" tabindex="0" class="search link icon" aria-label="Search" role="button"></i>
-            
-                </div>
-            </form>
-        </div>
-        <!--   TOC Menu (toc.html)   -->
-        <div class="menuContainer">
-            
-    <a class="item " href="/pxt-turtle/docs/about.html" role="menuitem">About</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/faq.html" role="menuitem">FAQ</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/projects.html" role="menuitem">Projects</a>
-
-
-    <div class="item" title="" role="menu">
-        <a class="header " href="/pxt-turtle/docs/blocks.html" role="menuitem">Blocks</a>
-        <div class="menu" role="menu">
-            
-    <a class="item " href="/pxt-turtle/docs/blocks/on-start.html" role="menuitem">On Start</a>
-
-
-    <div class="ui  accordion item visible" role="tree" title="">
-        <div class=" title">
-            <i class="dropdown icon"></i>
-            <a class="header" role="treeitem" aria-expanded="false" href="/pxt-turtle/docs/blocks/loops.html">Loops</a>
-        </div>
-        <div class=" content">
-            
-    <a class="item " href="/pxt-turtle/docs/blocks/loops/repeat.html" role="menuitem">repeat</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/loops/for.html" role="menuitem">for</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/loops/while.html" role="menuitem">while</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/loops/for-of.html" role="menuitem">for of</a>
-
-        </div>
-    </div>
-
-
-    <div class="ui  accordion item visible" role="tree" title="">
-        <div class=" title">
-            <i class="dropdown icon"></i>
-            <a class="header" role="treeitem" aria-expanded="false" href="/pxt-turtle/docs/blocks/logic.html">Logic</a>
-        </div>
-        <div class=" content">
-            
-    <a class="item " href="/pxt-turtle/docs/blocks/logic/if.html" role="menuitem">if</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/logic/boolean.html" role="menuitem">Boolean</a>
-
-        </div>
-    </div>
-
-
-    <div class="ui  accordion item visible" role="tree" title="">
-        <div class=" title">
-            <i class="dropdown icon"></i>
-            <a class="header" role="treeitem" aria-expanded="false" href="/pxt-turtle/docs/blocks/variables.html">Variables</a>
-        </div>
-        <div class=" content">
-            
-    <a class="item " href="/pxt-turtle/docs/blocks/variables/assign.html" role="menuitem">assign</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/variables/change.html" role="menuitem">change var</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/variables/var.html" role="menuitem">var</a>
-
-        </div>
-    </div>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/math.html" role="menuitem">Math</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/javascript-blocks.html" role="menuitem">JavaScript blocks</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/blocks/custom.html" role="menuitem">Custom blocks</a>
-
-        </div>
-    </div>
-
-
-    <div class="item" title="" role="menu">
-        <a class="header " href="/pxt-turtle/docs/javascript.html" role="menuitem">JavaScript</a>
-        <div class="menu" role="menu">
-            
-    <a class="item " href="/pxt-turtle/docs/javascript/call.html" role="menuitem">Calling</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/sequence.html" role="menuitem">Sequencing</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/variables.html" role="menuitem">Variables</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/operators.html" role="menuitem">Operators</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/statements.html" role="menuitem">Statements</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/functions.html" role="menuitem">Functions</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/types.html" role="menuitem">Types</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/classes.html" role="menuitem">Classes</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/interfaces.html" role="menuitem">Interfaces</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/javascript/generics.html" role="menuitem">Generics</a>
-
-        </div>
-    </div>
-
-
-    <div class="item" title="" role="menu">
-        <a class="header " href="/pxt-turtle/docs/types.html" role="menuitem">Types</a>
-        <div class="menu" role="menu">
-            
-    <a class="item " href="/pxt-turtle/docs/types/number.html" role="menuitem">Number</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/types/string.html" role="menuitem">String</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/types/boolean.html" role="menuitem">Boolean</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/types/array.html" role="menuitem">Array</a>
-
-
-    <a class="item " href="/pxt-turtle/docs/types/function.html" role="menuitem">Function</a>
-
-        </div>
-    </div>
-
-
-
-        </div>
-    </div>
-</div>
-
-<!-- end include toc.html -->
-
 
 		<div class="article" id="maincontent">
 			<div class="article-inner">
 
 				
 <!-- include header.html -->
-<div class="ui one column padded grid hideprint hidemobile">
+<div class="ui one column padded grid hideprint">
     <div class="column">
         
     </div>
 </div>
-
 <!-- end include header.html -->
 
 
 				<div class="main ui container fluid mainbody">
+					<button id="printbtn" class="circular ui icon right floated button hideprint hidemobile" title="Print" aria-label="Print">
+						<i class="icon print"></i>
+					</button>							
 					
-            <button id="printbtn" class="circular ui icon right floated button hideprint" title="Print this page" aria-label="Print this page">
-                <i class="icon print"></i>
-            </button>
-         
     <div class="ui text">
         <h1 id="support">Support</h1><ul>
 <li>Try our <a  rel="nofollow noopener" href="/pxt-turtle/docs/faq.html">Frequently Asked Questions</a> page.</li>
@@ -501,6 +319,7 @@
             <a class="item" href="https://makecode.com/privacy" target="_blank" rel="noopener">Privacy &amp; Cookies</a>
             <a class="item" href="https://makecode.com/termsofuse" target="_blank" rel="noopener"> Terms Of Use</a>
             <a class="item" href="https://makecode.com/trademarks" target="_blank" rel="noopener">Trademarks</a>
+            <!-- ifdef crowdinproject endif -->
             <div class="item">© 2019 Microsoft</div>
         </div>
         <div class="ui container horizontal small divided link list">

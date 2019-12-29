@@ -3023,6 +3023,12 @@ var pxsim;
                 this.id = 0;
         }
         RefObject.prototype.destroy = function () { };
+        RefObject.prototype.scan = function (mark) {
+            throw pxsim.U.userError("scan not implemented");
+        };
+        RefObject.prototype.gcKey = function () { throw pxsim.U.userError("gcKey not implemented"); };
+        RefObject.prototype.gcSize = function () { throw pxsim.U.userError("gcSize not implemented"); };
+        RefObject.prototype.gcIsStatic = function () { return false; };
         RefObject.prototype.print = function () {
             if (pxsim.runtime && pxsim.runtime.refCountingDebug)
                 console.log("RefObject id:" + this.id);
@@ -3068,6 +3074,14 @@ var pxsim;
             _this.fields = {};
             return _this;
         }
+        RefRecord.prototype.scan = function (mark) {
+            for (var _i = 0, _a = Object.keys(this.fields); _i < _a.length; _i++) {
+                var k = _a[_i];
+                mark(k, this.fields[k]);
+            }
+        };
+        RefRecord.prototype.gcKey = function () { return this.vtable.name; };
+        RefRecord.prototype.gcSize = function () { return this.vtable.numFields + 1; };
         RefRecord.prototype.destroy = function () {
             this.fields = null;
             this.vtable = null;
@@ -3086,6 +3100,12 @@ var pxsim;
             _this.fields = [];
             return _this;
         }
+        RefAction.prototype.scan = function (mark) {
+            for (var i = 0; i < this.fields.length; ++i)
+                mark("_cap" + i, this.fields[i]);
+        };
+        RefAction.prototype.gcKey = function () { return pxsim.functionName(this.func); };
+        RefAction.prototype.gcSize = function () { return this.fields.length + 3; };
         RefAction.prototype.isRef = function (idx) {
             check(0 <= idx && idx < this.fields.length);
             return idx < this.len;
@@ -3205,6 +3225,11 @@ var pxsim;
             _this.v = null;
             return _this;
         }
+        RefRefLocal.prototype.scan = function (mark) {
+            mark("*", this.v);
+        };
+        RefRefLocal.prototype.gcKey = function () { return "LOC"; };
+        RefRefLocal.prototype.gcSize = function () { return 2; };
         RefRefLocal.prototype.destroy = function () {
         };
         RefRefLocal.prototype.print = function () {
@@ -3222,6 +3247,14 @@ var pxsim;
             _this.data = [];
             return _this;
         }
+        RefMap.prototype.scan = function (mark) {
+            for (var _i = 0, _a = this.data; _i < _a.length; _i++) {
+                var d = _a[_i];
+                mark(d.key, d.val);
+            }
+        };
+        RefMap.prototype.gcKey = function () { return "{...}"; };
+        RefMap.prototype.gcSize = function () { return this.data.length * 2 + 4; };
         RefMap.prototype.findIdx = function (key) {
             for (var i = 0; i < this.data.length; ++i) {
                 if (this.data[i].key == key)
@@ -3552,6 +3585,12 @@ var pxsim;
             _this.data = [];
             return _this;
         }
+        RefCollection.prototype.scan = function (mark) {
+            for (var i = 0; i < this.data.length; ++i)
+                mark("[" + i + "]", this.data[i]);
+        };
+        RefCollection.prototype.gcKey = function () { return "[...]"; };
+        RefCollection.prototype.gcSize = function () { return this.data.length + 2; };
         RefCollection.prototype.toArray = function () {
             return this.data.slice(0);
         };
@@ -4002,8 +4041,15 @@ var pxsim;
         function RefBuffer(data) {
             var _this = _super.call(this) || this;
             _this.data = data;
+            _this.isStatic = false;
             return _this;
         }
+        RefBuffer.prototype.scan = function (mark) {
+            // nothing to do
+        };
+        RefBuffer.prototype.gcKey = function () { return "Buffer"; };
+        RefBuffer.prototype.gcSize = function () { return 2 + (this.data.length + 3 >> 2); };
+        RefBuffer.prototype.gcIsStatic = function () { return this.isStatic; };
         RefBuffer.prototype.print = function () {
             // console.log(`RefBuffer id:${this.id} refs:${this.refcnt} len:${this.data.length} d0:${this.data[0]}`)
         };
@@ -4128,6 +4174,7 @@ var pxsim;
             var r = createBuffer(hex.length >> 1);
             for (var i = 0; i < hex.length; i += 2)
                 r.data[i >> 1] = parseInt(hex.slice(i, i + 2), 16);
+            r.isStatic = true;
             return r;
         }
         BufferMethods.createBufferFromHex = createBufferFromHex;
@@ -4822,7 +4869,8 @@ var pxsim;
             methods: src.methods,
             iface: src.iface,
             lastSubtypeNo: src.lastSubtypeNo,
-            toStringMethod: src.toStringMethod
+            toStringMethod: src.toStringMethod,
+            maxBgInstances: src.maxBgInstances,
         };
     }
     pxsim.mkVTable = mkVTable;
@@ -4833,6 +4881,13 @@ var pxsim;
         return mapVTable;
     }
     pxsim.mkMapVTable = mkMapVTable;
+    function functionName(fn) {
+        var fi = fn.info;
+        if (fi)
+            return fi.functionName + " (" + fi.fileName + ":" + (fi.line + 1) + ":" + (fi.column + 1) + ")";
+        return "()";
+    }
+    pxsim.functionName = functionName;
     var Runtime = /** @class */ (function () {
         function Runtime(msg) {
             var _this = this;
@@ -4849,8 +4904,10 @@ var pxsim;
             this.pausedTime = 0;
             this.lastPauseTimestamp = 0;
             this.globals = {};
+            this.otherFrames = [];
             this.loopLock = null;
             this.loopLockWaitList = [];
+            this.heapSnapshots = [];
             this.timeoutsScheduled = [];
             this.timeoutsPausedOnBreakpoint = [];
             this.pausedOnBreakpoint = false;
@@ -4863,6 +4920,7 @@ var pxsim;
             U.assert(!!pxsim.initCurrentRuntime);
             this.id = msg.id;
             this.refCountingDebug = !!msg.refCountingDebug;
+            var threadId = 0;
             var breakpoints = null;
             var currResume;
             var dbgHeap;
@@ -4917,6 +4975,7 @@ var pxsim;
                 var lock = new Object();
                 var pc = s.pc;
                 __this.loopLock = lock;
+                __this.otherFrames.push(s);
                 return function () {
                     if (__this.dead)
                         return;
@@ -5066,6 +5125,16 @@ var pxsim;
                         break;
                 }
             }
+            function removeFrame(p) {
+                var frames = __this.otherFrames;
+                for (var i = frames.length - 1; i >= 0; --i) {
+                    if (frames[i] === p) {
+                        frames.splice(i, 1);
+                        return;
+                    }
+                }
+                U.userError("frame cannot be removed!");
+            }
             function loop(p) {
                 if (__this.dead) {
                     console.log("Runtime terminated");
@@ -5073,6 +5142,7 @@ var pxsim;
                 }
                 U.assert(!__this.loopLock);
                 __this.perfStartRuntime();
+                removeFrame(p);
                 try {
                     pxsim.runtime = __this;
                     while (!!p) {
@@ -5125,6 +5195,7 @@ var pxsim;
                     parent: null,
                     pc: 0,
                     depth: 0,
+                    threadId: ++threadId,
                     fn: function () {
                         if (cb)
                             cb(frame.retval);
@@ -5144,6 +5215,7 @@ var pxsim;
                     depth: 0,
                     pc: 0
                 };
+                __this.otherFrames = [frame];
                 loop(actionCall(frame));
             }
             function checkResumeConsumed() {
@@ -5181,6 +5253,7 @@ var pxsim;
                     oops("already has resume");
                 s.pc = retPC;
                 var start = Date.now();
+                __this.otherFrames.push(s);
                 var fn = function (v) {
                     if (__this.dead)
                         return;
@@ -5207,6 +5280,8 @@ var pxsim;
                         // to grow unbounded.
                         var lock_1 = {};
                         __this.loopLock = lock_1;
+                        removeFrame(s);
+                        __this.otherFrames.push(frame_1);
                         return U.nextTick(function () {
                             U.assert(__this.loopLock === lock_1);
                             __this.loopLock = null;
@@ -5266,6 +5341,173 @@ var pxsim;
                 if (p.tryFrame)
                     return p.tryFrame;
             return null;
+        };
+        Runtime.prototype.traceObjects = function () {
+            var visited = {};
+            while (this.heapSnapshots.length > 2)
+                this.heapSnapshots.shift();
+            var stt = {
+                count: 0,
+                size: 0,
+                name: "TOTAL"
+            };
+            var statsByType = {
+                "TOTAL": stt
+            };
+            this.heapSnapshots.push({
+                visited: visited,
+                statsByType: statsByType
+            });
+            function scan(name, v, par) {
+                if (par === void 0) { par = null; }
+                if (!(v instanceof pxsim.RefObject))
+                    return;
+                var obj = v;
+                if (obj.gcIsStatic())
+                    return;
+                var ex = visited[obj.id];
+                if (ex) {
+                    if (par)
+                        ex.pointers.push([par, name]);
+                    return;
+                }
+                var here = { obj: obj, path: null, pointers: [[par, name]] };
+                visited[obj.id] = here;
+                obj.scan(function (subpath, v) {
+                    if (v instanceof pxsim.RefObject && !visited[v.id])
+                        scan(subpath, v, here);
+                });
+            }
+            for (var _i = 0, _a = Object.keys(this.globals); _i < _a.length; _i++) {
+                var k = _a[_i];
+                scan(k.replace(/___\d+$/, ""), this.globals[k]);
+            }
+            var frames = this.otherFrames.slice();
+            if (this.currFrame && frames.indexOf(this.currFrame) < 0)
+                frames.unshift(this.currFrame);
+            for (var _b = 0, _c = this.getThreads(); _b < _c.length; _b++) {
+                var thread_1 = _c[_b];
+                var thrPath = "Thread-" + this.rootFrame(thread_1).threadId;
+                for (var s = thread_1; s; s = s.parent) {
+                    var path = thrPath + "." + functionName(s.fn);
+                    for (var _d = 0, _e = Object.keys(s); _d < _e.length; _d++) {
+                        var k = _e[_d];
+                        if (/^(r0|arg\d+|.*___\d+)/.test(k)) {
+                            var v = s[k];
+                            if (v instanceof pxsim.RefObject) {
+                                k = k.replace(/___.*/, "");
+                                scan(path + "." + k, v);
+                            }
+                        }
+                    }
+                    if (s.caps) {
+                        for (var _f = 0, _g = s.caps; _f < _g.length; _f++) {
+                            var c = _g[_f];
+                            scan(path + ".cap", c);
+                        }
+                    }
+                }
+            }
+            var allObjects = Object.keys(visited).map(function (k) { return visited[k]; });
+            allObjects.sort(function (a, b) { return b.obj.gcSize() - a.obj.gcSize(); });
+            var setPath = function (inf) {
+                if (inf.path != null)
+                    return;
+                var short = "";
+                inf.path = "(cycle)";
+                for (var _i = 0, _a = inf.pointers; _i < _a.length; _i++) {
+                    var _b = _a[_i], par = _b[0], name_2 = _b[1];
+                    if (par == null) {
+                        inf.path = name_2;
+                        return;
+                    }
+                    setPath(par);
+                    var newPath = par.path + "." + name_2;
+                    if (!short || short.length > newPath.length)
+                        short = newPath;
+                }
+                inf.path = short;
+            };
+            allObjects.forEach(setPath);
+            var allStats = [stt];
+            for (var _h = 0, allObjects_1 = allObjects; _h < allObjects_1.length; _h++) {
+                var inf = allObjects_1[_h];
+                var sz = inf.obj.gcSize();
+                var key = inf.obj.gcKey();
+                if (!statsByType.hasOwnProperty(key)) {
+                    allStats.push(statsByType[key] = {
+                        count: 0,
+                        size: 0,
+                        name: key
+                    });
+                }
+                var st = statsByType[key];
+                st.size += sz;
+                st.count++;
+                stt.size += sz;
+                stt.count++;
+            }
+            allStats.sort(function (a, b) { return a.size - b.size; });
+            var objTable = "";
+            var fmt = function (n) { return ("        " + n.toString()).slice(-7); };
+            for (var _j = 0, allStats_1 = allStats; _j < allStats_1.length; _j++) {
+                var st = allStats_1[_j];
+                objTable += fmt(st.size * 4) + fmt(st.count) + " " + st.name + "\n";
+            }
+            var objInfo = function (inf) {
+                return fmt(inf.obj.gcSize() * 4) + " " + inf.obj.gcKey() + " " + inf.path;
+            };
+            var large = allObjects.slice(0, 20).map(objInfo).join("\n");
+            var leaks = "";
+            if (this.heapSnapshots.length >= 3) {
+                var v0_1 = this.heapSnapshots[this.heapSnapshots.length - 3].visited;
+                var v1_1 = this.heapSnapshots[this.heapSnapshots.length - 2].visited;
+                var isBgInstance_1 = function (obj) {
+                    if (!(obj instanceof pxsim.RefRecord))
+                        return false;
+                    if (obj.vtable && obj.vtable.maxBgInstances) {
+                        if (statsByType[obj.gcKey()].count <= obj.vtable.maxBgInstances)
+                            return true;
+                    }
+                    return false;
+                };
+                var leakObjs = allObjects
+                    .filter(function (inf) { return !v0_1[inf.obj.id] && v1_1[inf.obj.id]; })
+                    .filter(function (inf) { return !isBgInstance_1(inf.obj); });
+                leaks = leakObjs
+                    .map(objInfo).join("\n");
+            }
+            return ("Threads:\n" + this.threadInfo() +
+                "\n\nSummary:\n" + objTable +
+                "\n\nLarge Objects:\n" + large +
+                "\n\nNew Objects:\n" + leaks);
+        };
+        Runtime.prototype.getThreads = function () {
+            var frames = this.otherFrames.slice();
+            if (this.currFrame && frames.indexOf(this.currFrame) < 0)
+                frames.unshift(this.currFrame);
+            return frames;
+        };
+        Runtime.prototype.rootFrame = function (f) {
+            var p = f;
+            while (p.parent)
+                p = p.parent;
+            return p;
+        };
+        Runtime.prototype.threadInfo = function () {
+            var frames = this.getThreads();
+            var info = "";
+            for (var _i = 0, frames_2 = frames; _i < frames_2.length; _i++) {
+                var f = frames_2[_i];
+                info += "Thread " + this.rootFrame(f).threadId + ":\n";
+                for (var _a = 0, _b = pxsim.getBreakpointMsg(f, f.lastBrkId).msg.stackframes; _a < _b.length; _a++) {
+                    var s = _b[_a];
+                    var fi = s.funcInfo;
+                    info += "   at " + fi.functionName + " (" + fi.fileName + ":" + (fi.line + 1) + ":" + (fi.column + 1) + ")\n";
+                }
+                info += "\n";
+            }
+            return info;
         };
         Runtime.postMessage = function (data) {
             if (!data)

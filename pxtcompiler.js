@@ -1895,11 +1895,15 @@ var ts;
         function vtableToJs(info) {
             pxtc.U.assert(info.classNo !== undefined);
             pxtc.U.assert(info.lastSubtypeNo !== undefined);
+            var maxBg = parseInt(info.attrs.maxBgInstances);
+            if (!maxBg)
+                maxBg = null;
             var s = "const " + info.id + "_VT = mkVTable({\n" +
                 ("  name: " + JSON.stringify(pxtc.getName(info.decl)) + ",\n") +
                 ("  numFields: " + info.allfields.length + ",\n") +
                 ("  classNo: " + info.classNo + ",\n") +
                 ("  lastSubtypeNo: " + info.lastSubtypeNo + ",\n") +
+                ("  maxBgInstances: " + maxBg + ",\n") +
                 "  methods: {\n";
             for (var _i = 0, _a = info.vtable; _i < _a.length; _i++) {
                 var m = _a[_i];
@@ -11467,11 +11471,6 @@ var ts;
                 markUsed(declList.declarations[0]);
                 var iterVar = emitVariableDeclaration(declList.declarations[0]); // c
                 pxtc.U.assert(!!iterVar || !bin.finalPass);
-                //Start with undefined
-                if (iterVar) {
-                    proc.emitExpr(iterVar.storeByRef(emitLit(undefined)));
-                    recordUse(declList.declarations[0], true);
-                }
                 proc.stackEmpty();
                 // Store the expression (it could be a string literal, for example) for the collection being iterated over
                 // Note that it's alaways a ref-counted type
@@ -11481,7 +11480,6 @@ var ts;
                 var intVarIter = proc.mkLocalUnnamed(); // i
                 proc.emitExpr(intVarIter.storeByRef(emitLit(0)));
                 proc.stackEmpty();
-                flushHoistedFunctionDefinitions();
                 emitBrk(node);
                 var l = getLabels(node);
                 proc.emitLblDirect(l.fortop);
@@ -11498,6 +11496,7 @@ var ts;
                 // c = a[i]
                 if (iterVar)
                     proc.emitExpr(iterVar.storeByRef(pxtc.ir.rtcall(indexer, [collectionVar.loadCore(), toInt(intVarIter.loadCore())])));
+                flushHoistedFunctionDefinitions();
                 emit(node.statement);
                 proc.emitLblDirect(l.cont);
                 // i = i + 1
