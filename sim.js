@@ -440,6 +440,7 @@ var pxsim;
             _this.stage = new createjs.Stage("area");
             createjs.Ticker.addEventListener("tick", _this.stage);
             var canvas = _this.stage.canvas;
+            canvas.getContext("2d").imageSmoothingEnabled = false;
             _this.xOffset = canvas.width / 2;
             _this.yOffset = canvas.height / 2;
             var rect = _this.stage.addChild(new createjs.Shape());
