@@ -29,6 +29,7 @@ namespace pxsim {
             this.stage = new createjs.Stage("area");
             createjs.Ticker.addEventListener("tick", this.stage);
             const canvas = this.stage.canvas as HTMLCanvasElement;
+            canvas.getContext("2d")!.imageSmoothingEnabled = false;
             this.xOffset = canvas.width / 2;
             this.yOffset = canvas.height / 2;
             const rect = this.stage.addChild(new createjs.Shape());
