@@ -1,22 +1,12 @@
-let s = 0
-let d = 0
-function k() {
+function k (d: number, s: number) {
     if (d > 0) {
-        d += -1
-        k()
-        d += 1
+        k(d - 1, s)
         turtle.turnLeft(60)
-        d += -1
-        k()
-        d += 1
+        k(d - 1, s)
         turtle.turnRight(120)
-        d += -1
-        k()
-        d += 1
+        k(d - 1, s)
         turtle.turnLeft(60)
-        d += -1
-        k()
-        d += 1
+        k(d - 1, s)
     } else {
         turtle.forward(s)
     }
@@ -26,9 +16,7 @@ turtle.setSpeed(Speed.Fastest)
 turtle.setPenSize(1)
 turtle.goto(-120, 70)
 turtle.turnLeft(30)
-d = 5
-s = 1
-for (let i = 0; i < 3; i++) {
+for (let index = 0; index < 3; index++) {
     turtle.turnRight(120)
-    k()
+    k(5, 1)
 }

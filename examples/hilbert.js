@@ -1,54 +1,19 @@
-let s = 0
-let d = 0
-function ha() {
+function h (d: number, s: number, a: number) {
     if (d > 0) {
-        turtle.turnLeft(90)
-        d += -1
-        hb()
-        d += 1
+        turtle.turnLeft(a)
+        h(d - 1, s, 0 - a)
         turtle.forward(s)
-        turtle.turnRight(90)
-        d += -1
-        ha()
-        d += 1
+        turtle.turnRight(a)
+        h(d - 1, s, a)
         turtle.forward(s)
-        d += -1
-        ha()
-        d += 1
-        turtle.turnRight(90)
+        h(d - 1, s, a)
+        turtle.turnRight(a)
         turtle.forward(s)
-        d += -1
-        hb()
-        d += 1
-        turtle.turnLeft(90)
-    }
-}
-function hb() {
-    if (d > 0) {
-        turtle.turnRight(90)
-        d += -1
-        ha()
-        d += 1
-        turtle.forward(s)
-        turtle.turnLeft(90)
-        d += -1
-        hb()
-        d += 1
-        turtle.forward(s)
-        d += -1
-        hb()
-        d += 1
-        turtle.turnLeft(90)
-        turtle.forward(s)
-        d += -1
-        ha()
-        d += 1
-        turtle.turnRight(90)
+        h(d - 1, s, 0 - a)
+        turtle.turnLeft(a)
     }
 }
 turtle.hide()
 turtle.setSpeed(Speed.Fastest)
 turtle.goto(108, -108)
-s = 7
-d = 5
-ha()
+h(5, 7, 90)
